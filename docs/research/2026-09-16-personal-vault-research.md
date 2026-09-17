@@ -6,10 +6,13 @@
 
 ## Executive summary
 
-The original project idea remains valuable, but it should no longer be framed as a single Safe transaction guard. The stronger product is a personal smart-account vault with two transaction lanes:
+The original project idea remains valuable, but it should no longer be framed as only a recent-transaction guard. The stronger product is a single-Safe personal vault with three authorization tiers:
 
-1. A bounded fast lane for ordinary payments, enforced onchain through per-transaction, per-period, per-token, destination, and function restrictions.
-2. A slow lane for large or unusual actions that requires multiple signers and then remains cancellable during a mandatory delay.
+1. A base instant tier for ordinary payments. A passkey may authorize multiple transactions while their cumulative amount stays within the token's daily limit X.
+2. A step-up instant tier. A named passkey and Burner card must both approve, and all base plus step-up transactions share a cumulative daily ceiling Y.
+3. A delayed tier for transfers above Y and for unusual or security-weakening actions. The guard-required signer set approves first, then the exact action remains cancellable during a mandatory delay Z.
+
+The two instant tiers are enforced onchain through per-transaction, per-period, per-token, destination, function, and signer restrictions. X and Y are cumulative daily ceilings, not single-transfer thresholds, and must satisfy `0 < X < Y`. Base transactions consume both the X allowance and the shared Y allowance; step-up transactions consume the shared Y allowance. This prevents an attacker from spending X on one path and then another full Y on the other path.
 
 The desired primitives now exist across Safe, Zodiac, passkeys, and inexpensive NFC hardware signers. Gnosis Pay is production evidence that a Safe can be combined with Roles and Delay modules to create constrained immediate spending plus delayed administrative actions. Argent previously shipped a closely related consumer experience, while Loopring provides daily quotas and guardian controls. ERC-8238 now proposes a near-exact vault model, but it is still a draft with a small reference implementation.
 
@@ -38,14 +41,14 @@ This matters more as phishing, impersonation, malicious interfaces, and targeted
 
 The product should satisfy these properties:
 
-1. **Bounded compromise:** Compromise of the daily passkey or its phone cannot immediately drain the vault. Loss is bounded by onchain limits and permissions.
+1. **Bounded compromise:** Compromise of the daily passkey or its phone cannot immediately drain the vault. Passkey-only loss is bounded by X, and all immediate base plus step-up spending is bounded by Y, per token and daily period.
 2. **Post-approval delay:** A large action remains delayed even after all required signers approve it.
 3. **Exact authorization:** An approval is bound to the intended chain, account, destination, value, calldata, operation, and nonce. It cannot become an open time window for an unrelated transaction.
 4. **Non-bypassable execution:** Direct owner calls, enabled modules, delegate calls, multisends, token approvals, Permit/Permit2, and arbitrary EIP-1271 signatures cannot silently bypass the policy.
 5. **Independent cancellation:** A queued action produces an alert on a separate channel and can be cancelled or paused before execution.
 6. **Delayed weakening:** Increasing limits, shortening delays, adding signers or modules, expanding permissions, or disabling enforcement is itself delayed.
 7. **Safe recovery:** Recovery restores control without becoming an immediate withdrawal path.
-8. **Understandable operation:** The interface expresses policy in user terms: “instant up to X today,” “available after this time,” and “cancel this transfer.”
+8. **Understandable operation:** The interface expresses policy in user terms: “passkey up to X today,” “tap Burner up to Y today,” “available after this time,” and “cancel this transfer.”
 9. **Fail-closed behavior:** Unknown calls and unsupported assets do not fall through an empty fallback or permissive default.
 10. **Recoverability without a backdoor:** No vendor, relayer, or hosted service can unilaterally spend. Loss of one user factor does not permanently lock the account.
 
@@ -150,7 +153,7 @@ The limitation is transaction display. The card has no screen on which it can in
 Burner should consequently be treated as:
 
 - A strong possession factor and protection against key extraction
-- A convenient step-up signer for the Control Safe
+- A convenient named co-signer for step-up and delayed proposals from the single Safe
 - A recoverable physical signer when paired with a duplicate stored separately
 - Not an independent trusted transaction display
 - Not a replacement for onchain policy, mandatory delay, and independent alerts
@@ -161,9 +164,9 @@ For high-value use, a second device or display should verify the transaction fin
 
 The security-core prototype should start with Safe-native signer paths rather than choosing an embedded-wallet vendor as a foundation. Safe's passkey module can make a WebAuthn credential a Safe owner, while a standard EIP-1193 or WalletConnect provider can represent Burner and other hardware wallets. These are the narrow signer primitives the vault needs.
 
-Pimlico and `permissionless.js` are useful account-abstraction infrastructure for bundlers, paymasters, gas sponsorship, and ERC-4337 user-operation transport. They should be treated as execution infrastructure, not as the authority for vault policy. The onchain Safe, Roles, and Delay configuration remains the source of truth.
+Pimlico and `permissionless.js` are useful account-abstraction infrastructure for bundlers, paymasters, gas sponsorship, and ERC-4337 user-operation transport. They should be treated as execution infrastructure, not as the authority for vault policy. The onchain Safe, `TieredSpendingGuard`, and Delay configuration remains the source of truth.
 
-[Cometh Connect](https://docs.cometh.io/) remains a credible onboarding option. Its current documentation describes a white-labeled Web/TypeScript SDK for ERC-4337 smart wallets controlled with biometrics, built on WebAuthn and Gnosis Safe. This makes it relevant for the future consumer wallet. It should not be selected as the MVP's security baseline until it proves that it can control or integrate with the exact Control Safe topology without introducing an alternate wallet, recovery, relayer, or owner path that bypasses Roles or Delay.
+[Cometh Connect](https://docs.cometh.io/) remains a credible onboarding option. Its current documentation describes a white-labeled Web/TypeScript SDK for ERC-4337 smart wallets controlled with biometrics, built on WebAuthn and Gnosis Safe. This makes it relevant for the future consumer wallet. It should not be selected as the MVP's security baseline until it proves that it can sign for the exact configured Safe without introducing an alternate wallet, recovery, relayer, owner, fallback, or module path that bypasses the guard or Delay.
 
 Other embedded-wallet and smart-wallet SDKs, including Privy, Dynamic, Turnkey, ZeroDev, Kernel, Biconomy, and Alchemy smart wallets, should be evaluated the same way. The question is not whether they offer passkeys or gasless transactions; many do. The required question is whether they can act through the project's signer adapter while preserving the verified Safe/Zodiac call graph.
 
@@ -178,66 +181,85 @@ The implementation should therefore expose a small signer boundary first:
 ### Account topology
 
 ```text
-Passkey ── small payment ──> Roles policy ──────────────> Vault Safe
-             per-tx cap       per-token period cap
-             allowed calls    allowed destinations
+Passkey ───────────────────────────────────────────────┐
+Burner co-signature ──────────────────────────────────┤
+Recovery signature ──────────────────────────────────┤
+                                                       v
+                                              Single Vault Safe
+                                                       │
+                         TieredSpendingGuard on owner + module paths
+                             │              │                 │
+                       base <= X/day   step-up <= Y/day   queue above Y
+                         passkey        passkey+Burner    passkey+Burner
+                             │              │                 │
+                             └──── immediate ┘          Zodiac Delay
+                                                            │ delay Z
+                                                            v
+                                                        execution
 
-Passkey + Burner ──> Control Safe ──> Delay queue ─────> Vault Safe
-Recovery signer ────┘                  24–72 hours
-                                       │
-Control Safe ── emergency-only Roles permission ─────> cancel / revoke daily signer
-Independent alert channel ───────── observe and prompt cancellation
+Independent service ── step-up execution + delayed lifecycle alerts
 ```
 
-### Control Safe
+The product deploys exactly one Safe. That Safe holds the assets and lists the passkey signer contract, Burner signer, and offline recovery signer as owners at threshold 1. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires additional self-authenticating signatures when the tier demands them. A Burner-only or recovery-only Safe transaction therefore passes the Safe's basic threshold check but is rejected by the guard unless it is one of the narrowly allowed emergency or recovery actions.
 
-The Control Safe holds no user funds. It is a 2-of-3 account with:
+The guard is installed as both the Safe transaction guard and Safe 1.5 module guard. Exactly one execution module is enabled: a reviewed Zodiac Delay instance whose owner, avatar, and target are the Safe. The Safe itself is the only Delay proposer. Owner transactions may queue through Delay only when the guard validates the inner action and required signers; Delay is the only module allowed to execute against the Safe. Every other owner or module path is denied.
 
-- A passkey for convenient approval
-- A Burner card for physical step-up approval
-- An offline recovery signer on a separate device or hardware wallet
+The Safe uses no unrestricted fallback handler. Direct `signMessage`, arbitrary ERC-1271 validation, approved-hash signatures, delegate calls, batches, approvals, Permit/Permit2, and unknown calldata are denied in the first prototype. Guard removal, module changes, owner changes, signer rotation, limit increases, delay reductions, and permission expansion can execute only as previously queued Delay module transactions.
 
-Its responsibilities are to propose slow-lane transactions, cancel queued transactions, and control recovery/configuration flows. A 2-of-2 design is simpler but has unacceptable lockout risk if either factor is lost.
+### Tiered spending guard
+
+`TieredSpendingGuard` is the new security-critical contract this project exists to build. It implements both Safe guard interfaces and maintains per-Safe, per-token spending state. The selected Safe Research Policy Engine is prior art, not a trusted production dependency. The implementation should adopt and test its relevant lessons:
+
+- Install enforcement on both owner and module paths.
+- Treat signature-extension context as untrusted until its signature is verified over a digest recomputed by the guard.
+- Bind authorization to chain ID, Safe, destination, value, calldata, operation, gas/refund fields, and Safe nonce.
+- Require `safeTxGas == 0` and `gasPrice == 0` so a failed inner call reverts policy state.
+- Revert failed module executions from the after-execution hook.
+- Use a reentrancy gate around stateful checks.
+- Namespace all state by Safe and asset even if the MVP deploys one guard instance per Safe.
+- Deny by default and explicitly enumerate every target, selector, signer path, and module.
+
+The contract is testnet research until its code, configured call graph, deployment, and recovery process are independently reviewed and professionally audited.
+
+### Signer rules
+
+For transfers, the Safe-validated threshold signature must be the configured passkey contract signature; pre-approved-hash signatures are rejected. The guard recognizes the signer identity from the canonical Safe signature encoding after Safe has validated it.
+
+Step-up and delayed proposals carry a Burner co-signature in a typed signature extension. The Burner signs the exact Safe transaction hash recomputed by the guard. The extension is not trusted merely because it is appended to the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
+
+The recovery owner may directly authorize only cancellation and immediate security-tightening functions. It may queue a strictly enumerated signer-recovery or policy-repair action through Delay, but it cannot queue or execute an asset transfer.
 
 For the highest assurance, the root passkey should be device-bound or held on a hardware security key. A synced passkey is still materially stronger than SMS or a reusable password, but its cloud-account recovery domain must be included in the threat model.
 
-### Vault Safe
+### Base instant tier
 
-The Vault Safe holds assets. Its human signers must not retain an unrestricted direct execution path after setup. Otherwise, a valid owner transaction can bypass Roles or Delay.
-
-The preferred topology follows the Gnosis Pay concept:
-
-- Bootstrap the Vault Safe under temporary control.
-- Configure the approved Roles and Delay modules atomically.
-- Verify every target, owner, module, guard, and permission.
-- Replace the bootstrap owner with the deliberately inaccessible `0x0000000000000000000000000000000000000002` precompile only after recovery and cancellation have been proven.
-- Permit value movement only through the fast and slow module paths.
-
-Both Roles and Delay should be owned by the Vault Safe. This makes their configuration callable by the Vault only, so a weakening change can be queued through Delay and later executed by the Vault. The Control Safe should be enabled as a proposer on Delay, but it should not own Delay directly; direct ownership would let two compromised Control Safe signers shorten the cooldown immediately.
-
-Cancellation and fast-lane freeze use a second, narrowly scoped Roles permission. The Control Safe is a member of an emergency role that permits the Vault Safe to call only `Delay.setTxNonce` and to revoke the fixed passkey from the fixed fast-lane role. This lets any valid 2-of-3 Control Safe combination invalidate queued items or stop a compromised daily signer immediately while providing no permission to queue, execute, transfer assets, raise limits, shorten delays, add members, or otherwise reconfigure the system. The exact ABI, parameter conditions, owner semantics, and call path must be proved against the selected Roles and Delay versions before testnet deployment.
-
-### Fast lane
-
-The daily passkey receives a narrowly scoped Roles permission:
+The guard permits the Safe transaction immediately when:
 
 - Native ETH transfers and explicitly supported ERC-20 `transfer` calls only
-- A maximum per transaction for each asset
-- A maximum per period for each asset
-- Explicit destination policy
+- The Safe-validated signer is exactly the passkey owner
+- The amount is within the base per-transaction cap
+- Base spending plus the amount is at most X for the asset's current 86,400-second period
+- Shared instant spending plus the amount is at most Y for that same period
+- The token, recipient, selector, and operation are explicitly allowed
 - No delegate calls
 - No arbitrary contract calls
 - No token `approve`, Permit, Permit2, Safe owner changes, module changes, guard changes, or policy changes
 - Deny by default for unrecognized calldata
 
+A successful base transfer consumes both the base X counter and shared instant Y counter. The guard updates counters before execution and relies on enforced atomic Safe behavior to roll them back if execution fails.
+
+### Step-up instant tier
+
+When a transfer does not fit the remaining base X allowance but remains within shared Y, the guard requires both the Safe-validated passkey signature and a valid Burner signature extension over the exact Safe transaction hash. The same token, recipient, selector, operation, and per-transaction restrictions apply. Every successful step-up transfer consumes the shared Y counter but not the base X counter. A transfer may use the stronger step-up tier before X is exhausted, but doing so still reduces the remaining Y capacity. Across every ordering and number of base and step-up transactions, immediate outflow for an asset cannot exceed Y during the daily period.
+
 The first MVP should use token-denominated limits. USD-denominated aggregate limits require price oracles, staleness handling, manipulation resistance, and failure behavior that do not belong in the initial security core.
 
-### Slow lane
+### Delayed tier
 
-The Control Safe’s threshold approval queues the exact action through Delay. Approval does not immediately execute it. The queue record must bind:
+When a recognized transfer would make shared daily spending exceed Y, the guard rejects direct execution and permits only a call from the Safe to queue that exact transfer in Delay. The queue transaction requires the passkey Safe signature plus the Burner signature extension. Security-weakening configuration changes use the same delayed path; narrowly enumerated recovery repairs may instead be queued by the recovery owner. Approval does not immediately execute the action. The queue record must bind:
 
 - Chain ID
-- Vault Safe address
+- Safe address
 - Destination
 - Native value
 - Calldata
@@ -252,11 +274,13 @@ Anyone may execute a valid queued transaction after cooldown; execution should n
 
 ### Cancellation, alerts, and pause
 
-A delay is useful only if the owner learns about queued actions and can respond. Every `TransactionAdded` event must be monitored. Alerts should include decoded human-readable details and a canonical transaction fingerprint.
+A delay is useful only if the owner learns about queued actions and can respond. Every delayed-tier `TransactionAdded` event must be monitored. Alerts should include decoded human-readable details and a canonical transaction fingerprint.
+
+Every confirmed step-up execution must also produce an independent notification containing the asset, amount, recipient, chain, Safe, transaction hash, and resulting daily Y usage. The guard emits the tier and post-authorization counters; the service verifies those values against the transaction and onchain state before notifying. This notification is observational and normally arrives after the immediate transaction executes. It is not a substitute for the Burner approval or the onchain Y limit. Base-tier transactions do not require service notifications.
 
 At least one notification channel must be independent from the proposing browser session. Examples include a second-device push notification, email with no signing capability, or an operator-selected webhook. Notification compromise must not authorize spending.
 
-The Control Safe must be able to invalidate a queue item and revoke a compromised daily signer with any valid 2-of-3 recovery combination. For the prototype, both actions travel through the emergency-only Roles permission described above. A later production design may evaluate a separate one-factor cancellation guardian, but only if it cannot queue, execute, reconfigure, expand permissions, or withdraw. Any new cancellation contract is security-critical and requires dedicated specification, invariants, and audit.
+The recovery owner may invalidate queued items and freeze both instant tiers through exact guard allowlists, but it cannot transfer funds, raise limits, shorten the delay, expand permissions, remove enforcement, or execute recovery immediately. The passkey-plus-Burner pair may also cancel. Because Zodiac Delay is ordered, advancing its transaction nonce may invalidate earlier queued items; the cancellation builder and UI must enumerate every affected nonce before approval.
 
 ### Policy and recovery changes
 
@@ -271,11 +295,11 @@ Changes that weaken security must not become effective immediately:
 
 Security-tightening actions may be immediate:
 
-- Pausing the fast lane
+- Pausing either instant tier
 - Lowering a limit
 - Removing an allowed recipient or function
 - Cancelling a queued transaction
-- Disabling a compromised daily signer
+- Freezing instant transfers after a signer compromise
 
 This asymmetry is a required property, not merely a UI convention. The effective onchain call graph must enforce it.
 
@@ -291,32 +315,33 @@ Transaction-only policy is insufficient. The design must explicitly address:
 - Pre-existing allowances created before installation
 - Multisend and nested calls
 
-The MVP should deny arbitrary fast-lane message signing and all approval mechanisms. A slow-lane exact approval may be supported after the UI can clearly show spender, token, amount, expiry, and revocation behavior. Unlimited approvals should not be part of the supported product path.
+The MVP should deny arbitrary instant-tier message signing and all approval mechanisms. A delayed-tier exact approval may be supported after the UI can clearly show spender, token, amount, expiry, and revocation behavior. Unlimited approvals should not be part of the supported product path.
 
 ## User experience
 
-The interface should hide the two-Safe topology while remaining honest about the security state.
+The interface presents one Safe and its three authorization tiers. Modules and guard state remain inspectable, but the user never has to manage auxiliary custody Safes.
 
 ### Onboarding
 
 1. Create or select a passkey.
 2. Connect a Burner card.
 3. Register an independent recovery signer.
-4. Choose conservative per-token instant limits.
-5. Choose the delay period and alert channel.
-6. Deploy the Control Safe and Vault Safe.
-7. Show a verifiable summary of owners, modules, limits, and recovery.
-8. Require a test queue, cancellation, and recovery exercise before accepting substantial deposits.
+4. Choose conservative per-token base daily limits X, shared immediate daily limits Y, and per-transaction caps, with `0 < X < Y`.
+5. Choose the delay period Z and alert channel.
+6. Deploy one Safe plus its TieredSpendingGuard and Delay module, then configure them atomically.
+7. Show a verifiable summary of Safe owners, threshold, guard, module, X/Y limits, delay Z, and recovery.
+8. Require base, step-up, queue, notification, cancellation, and recovery exercises before accepting substantial deposits.
 
 ### Sending
 
 The send screen classifies an action before signature:
 
-- **Instant:** within the remaining fast-lane policy.
-- **Delayed:** requires Control Safe approval and shows the exact execution time.
+- **Passkey:** the transfer fits within the remaining base X and shared Y daily allowances.
+- **Passkey + Burner:** the transfer exceeds the remaining base allowance but fits within the remaining shared Y allowance.
+- **Delayed:** the transfer exceeds the remaining shared Y allowance, requires passkey plus Burner approval, and shows the exact execution time after delay Z.
 - **Unsupported:** cannot be represented safely by the current policy.
 
-The UI’s classification is advisory. The onchain Roles and Delay contracts are authoritative.
+The UI’s classification is advisory. The onchain TieredSpendingGuard and Delay contracts are authoritative.
 
 ### Queue
 
@@ -351,45 +376,45 @@ The current code is a historical prototype and should not be hardened incrementa
 8. The mock disables authorization and omits meaningful Safe signature and after-execution behavior, so its tests do not establish real Safe compatibility or security.
 9. The project depends on `@gnosis.pm/safe-contracts` 1.3.0 and predates Safe 1.5 module guards.
 
-The old code remains useful as a record of intent and as negative test material. New work should preserve it under `legacy/`, construct the new topology from current Safe/Zodiac components, and test against real Safe behavior rather than the permissive mock.
+The old code remains useful as a record of intent and as negative test material. New work should preserve it under `legacy/`, implement the one-Safe policy from current Safe 1.5 interfaces and reviewed Delay components, and test against real Safe behavior rather than the permissive mock.
 
 ## Options considered
 
-### Option A: Safe + Zodiac composition — recommended prototype
+### Option A: Single Safe + narrow custom guard + Zodiac Delay — recommended prototype
 
-Use current Safe, Roles, and Delay contracts, plus a reference client that creates, verifies, monitors, and operates the topology.
+Keep custody in one current Safe. Implement the exact X/Y signer and accounting policy in one purpose-built transaction/module guard, and use a reviewed Zodiac Delay only for the Z queue.
 
 **Advantages**
 
-- Reuses established, audited primitives
+- Preserves one Safe as the only custody account
+- Reuses Safe signature validation and the established Delay queue
 - Strong ecosystem compatibility
-- Closely follows a production-proven Gnosis Pay pattern
-- Minimizes new Solidity
-- Can support passkey and Burner signers
+- Implements the product's exact named-signer and daily-limit semantics
+- Keeps new Solidity focused on the genuinely missing policy layer
 
 **Costs and risks**
 
-- Complex topology and setup
-- Privileged configuration and cancellation paths require careful proof
-- More gas and more contracts
-- Consumer UX must hide substantial machinery
-- Current versions and deployed bytecode must be continuously verified
+- The guard is security-critical new Solidity
+- Signature parsing, stateful accounting, module execution, recovery, and guard removal require adversarial proof
+- A defective guard can lock the Safe
+- Production use requires independent review and professional audit
 
-### Option B: Safe Research Policy Engine
+### Option B: Deploy and extend Safe Research Policy Engine
 
-Use a single policy system across owner and module paths.
+Deploy the research engine and add a custom tiered-spending policy to it.
 
 **Advantages**
 
-- More uniform enforcement
-- Policies can compose and default-deny
-- Potentially simpler mental model after maturity
+- Provides useful transaction/module guard structure, signature extensions, and atomic stateful-policy patterns
+- Reduces some bespoke guard framework code
 
 **Costs and risks**
 
-- Explicitly unaudited today
-- Policy interactions and guard recovery remain complex
-- Not appropriate for production funds without maturation and independent audit
+- Explicitly unaudited and still evolving
+- The listed policies do not supply the required cumulative X/Y behavior
+- The project would inherit a broader unreviewed framework while still writing security-critical policy Solidity
+
+The recommended implementation studies this code and records the exact commit reviewed, but does not deploy it as an opaque dependency.
 
 ### Option C: Standalone ERC-8238-style vault
 
@@ -410,16 +435,16 @@ Build or adopt a native vault account centered on hot limits, delayed withdrawal
 
 ## Recommendation and product position
 
-Proceed with Option A as a security-core prototype. Track Options B and C as possible future consolidation paths.
+Proceed with Option A as a security-core prototype. Use Option B as security prior art and a possible future migration target after audits and maturity. Track Option C as a possible standards-based consolidation path.
 
 Position the product as:
 
-> A personal self-custody vault with bounded instant spending and cancellable delayed withdrawals, using a passkey for convenience and an NFC card for step-up authorization.
+> A personal self-custody vault with three authorization tiers: passkey spending up to X per day, passkey-plus-NFC spending up to a shared Y per day, and cancellable delayed withdrawals above Y.
 
 The primary differentiation is the complete consumer workflow:
 
 - Safe defaults
-- Automatic fast/slow classification
+- Automatic base/step-up/delayed classification
 - NFC tap as understandable step-up approval
 - Delay after approval rather than before approval
 - Independent notification and cancellation
@@ -431,17 +456,20 @@ The primary differentiation is the complete consumer workflow:
 The first security-core prototype should include:
 
 - One EVM test network
-- A 2-of-3 Control Safe
-- A Vault Safe with no unrestricted daily-owner spending path
+- One Safe holding assets, with passkey, Burner, and recovery owners at threshold 1
+- One non-upgradeable `TieredSpendingGuard` installed as transaction guard and module guard
+- One reviewed Zodiac Delay as the only enabled execution module
 - One native asset and selected ERC-20 assets
-- Per-transaction and per-period token-denominated limits
+- Per-transaction limits, a passkey-only daily X allowance, and a shared immediate daily Y allowance per token
+- Onchain proof that base transactions consume X and Y while step-up transactions consume Y, so all immediate spending remains at or below Y
+- Exact passkey Safe-signature enforcement and Burner co-signature verification over the full Safe transaction hash
 - Explicit recipient/function permissions
-- A 24-hour delayed slow lane with expiration
+- A delayed tier with a default 24-hour cooldown and finite expiration
 - Queue listing, execution, and cancellation
 - Passkey and generic EIP-1193 hardware-wallet signer adapters
 - Burner through its supported WalletConnect path
 - No default embedded-wallet SDK dependency; Cometh and similar providers are evaluated later through the signer-adapter boundary
-- Independent queue-event notifications
+- Independent notifications for confirmed step-up executions and the delayed queue lifecycle
 - Full topology/configuration verification
 - Adversarial integration tests using real Safe behavior
 
@@ -449,11 +477,11 @@ The first prototype should not support arbitrary DeFi, bridges, NFT operations, 
 
 ## Delivery gates
 
-1. **Architecture proof:** Every execution and configuration path is diagrammed and tested. No unrestricted direct owner or extra module path remains.
-2. **Adversarial proof:** Tests demonstrate bounded fast-lane loss, mandatory slow-lane delay, successful cancellation, and inability to weaken policy immediately.
-3. **Testnet rehearsal:** Setup, send, queue, alert, cancel, execute, lost-factor recovery, and signer rotation are exercised from clean accounts.
-4. **Independent review:** A Safe/Zodiac specialist reviews topology and assumptions.
-5. **Audit:** Any new Solidity and the complete configured call graph receive professional review before production funds.
+1. **Architecture proof:** Every execution and configuration path is diagrammed and tested. Both Safe guard slots point to the same expected guard, Delay is the only module, and no unrestricted owner, module, fallback, signed-message, or approved-hash path remains.
+2. **Adversarial proof:** Tests demonstrate passkey-only loss bounded by X, all immediate loss bounded by Y across both instant tiers, mandatory delayed-tier delay, successful cancellation, and inability to weaken policy immediately.
+3. **Testnet rehearsal:** Setup, base send, step-up send, both notification types, queue, cancel, execute, lost-factor recovery, and signer rotation are exercised from clean accounts.
+4. **Independent review:** A Safe guard/signature specialist and a Zodiac Delay specialist review the contracts, topology, and assumptions.
+5. **Audit:** `TieredSpendingGuard`, its signature helpers, and the complete configured call graph receive professional review before production funds.
 6. **Product pilot:** A small invited cohort uses strict caps on a testnet and then a deliberately low-value production pilot.
 
 ## Immediate next actions

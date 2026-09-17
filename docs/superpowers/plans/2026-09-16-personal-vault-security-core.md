@@ -1,182 +1,132 @@
-# Personal Vault Security Core Implementation Plan
+# Single-Safe Tiered Spending Security Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build and prove a testnet-only Safe/Zodiac security core with bounded instant transfers and mandatory, cancellable delayed withdrawals.
+**Goal:** Build and prove a testnet-only Safe security core where one Safe permits passkey-only spending up to daily X, requires a named Burner co-signature up to shared daily Y, and requires a cancellable delay Z above Y.
 
-**Architecture:** A 2-of-3 Control Safe authorizes slow-lane operations through a Zodiac Delay module, while a narrowly scoped passkey role authorizes limited fast-lane transfers through Zodiac Roles. A separate Vault Safe holds assets and exposes no unrestricted human-owner spending path after atomic setup. The repository supplies deployment/configuration builders, verification, signing adapters, monitoring, and adversarial integration tests; it does not create a new general-purpose guard.
+**Architecture:** One Safe holds all assets and has the passkey signer contract, Burner signer, and offline recovery signer as owners at Safe threshold 1. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
 
-**Tech Stack:** TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, `@gnosis-guild/zodiac`, Zodiac Roles SDK/deployments, Solidity only for test fixtures or a narrowly justified adapter, Mocha/Chai, Slither, and a Sepolia fork for real-contract integration.
+**Tech Stack:** Solidity, TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, Safe passkey contracts, current `@gnosis-guild/zodiac` Delay deployments, OpenZeppelin signature utilities where reviewed, Mocha/Chai, Slither, Echidna or Foundry invariant tests, and a Sepolia fork.
 
 **Spec:** `docs/research/2026-09-16-personal-vault-research.md`
 
-## Global Constraints
+## Global constraints
 
-- This plan produces a testnet security-core prototype, not a mainnet-ready wallet.
-- Use Safe Smart Account 1.5.0 or a later version only after reviewing its release notes, audits, deployment support, and bytecode.
-- Resolve Zodiac deployments through the current `@gnosis-guild/zodiac` registry and reject known-faulty versions or addresses.
-- Pin exact dependency versions and commit the lockfile; no security dependency may use a caret, tilde, tag, branch, or unreviewed Git commit.
-- Do not deploy or modify the historical `RecentTransactionGuard`; preserve it under `legacy/` as negative reference material.
-- Test with actual Safe behavior. `GnosisSafeMock` is not acceptable evidence for authorization, signatures, modules, guards, or execution.
-- The fast lane supports native transfers and selected ERC-20 `transfer` calls only.
-- The fast lane denies delegate calls, batches, approvals, Permit, Permit2, arbitrary messages, configuration changes, and unknown calldata.
-- Limits are denominated per token; no fiat oracle or aggregate USD limit is introduced.
-- Every security-weakening change uses the slow lane and delay. Security-tightening changes may be immediate only when the onchain call graph proves that property.
-- The UI or client classifier is advisory; onchain Roles and Delay enforcement is authoritative.
-- No unrestricted human-owner or alternate module path may remain on the Vault Safe after setup.
-- No production deployment occurs without independent topology review and an audit of every new security-critical contract.
-- Stop the implementation if current Safe/Zodiac contracts cannot enforce a required property without new Solidity. Write a focused design and audit plan for that gap before coding it.
+- This is security research and a testnet prototype, not a mainnet-ready wallet.
+- The product deploys exactly one Safe; no Daily, Step-up, Control, or other auxiliary Safe is introduced.
+- The Safe owners are exactly the configured passkey signer contract, Burner signer, and recovery signer. The Safe threshold is 1, while the guard enforces the stronger tier-specific signer policy.
+- The guard must be installed as both transaction guard and Safe 1.5 module guard in the same atomic setup.
+- Zodiac Delay is the only module enabled on the Safe. The Safe is Delay's owner, avatar, target, and only enabled upstream module/proposer.
+- X and Y are cumulative per-token limits over one shared 86,400-second period with one anchor and `0 < X < Y`.
+- A base transfer consumes X and Y; a step-up transfer consumes Y only. Transaction ordering or splitting must never allow more than X passkey-only or Y total immediate outflow.
+- Base transfers require the Safe-validated signature to be exactly the configured passkey contract signature.
+- Step-up transfers and ordinary delayed proposals require that passkey signature plus a Burner signature over the exact Safe transaction hash.
+- Recovery may cancel, freeze, or queue an enumerated repair. Recovery may not immediately transfer funds or broaden policy.
+- Fast execution supports native transfers and selected ERC-20 `transfer` calls only. It denies delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, configuration calls, and unknown calldata.
+- The Safe has no unrestricted fallback handler. Approved-hash signatures and arbitrary Safe ERC-1271 message validation are unavailable to spending paths.
+- Security-weakening changes execute only from the verified Delay module after Z. Immediate changes must be mechanically monotonic tightening.
+- Every authorization binds chain, Safe, destination, value, calldata, operation, gas/refund fields, and nonce.
+- Pin exact dependencies and record source commits, audits, canonical addresses, and runtime bytecode hashes.
+- Study Safe Research Policy Engine at one pinned commit for prior art; do not deploy it or call it an audited dependency.
+- Stop and write a focused design proposal if the accepted properties require another custom security-critical contract beyond `TieredSpendingGuard` and internal libraries.
 
 ---
 
 ## File structure
 
-The completed security-core prototype should have these responsibilities:
-
 ```text
-AGENTS.md                                      Repository instructions and reading order
+AGENTS.md
 docs/research/2026-09-16-personal-vault-research.md
-                                               Threat model, landscape, and approved architecture
-docs/security/dependency-review.md             Exact versions, releases, audits, hashes, and rejected versions
-docs/security/call-graph.md                    Every authorized call path and privileged transition
-docs/security/signer-provider-evaluation.md    Passkey, Burner, Cometh, and provider-adapter acceptance rules
-docs/security/testnet-runbook.md               Deploy, verify, rehearse, recover, and tear down
+docs/security/call-graph.md
+docs/security/dependency-review.md
+docs/security/policy-engine-lessons.md
+docs/security/signer-provider-evaluation.md
+docs/security/testnet-runbook.md
 docs/superpowers/plans/2026-09-16-personal-vault-security-core.md
-                                               This executable plan
-legacy/contracts/                              Preserved 2024 prototype, excluded from compilation
-legacy/test/                                   Preserved historical tests, excluded from the active suite
-src/config/policy.ts                           Typed user policy and constants
-src/config/deployments.ts                      Safe/Zodiac address and bytecode verification
-src/policy/classify.ts                         Advisory fast/slow/blocked UX classifier
-src/policy/roles.ts                            Roles permission and allowance encoding
-src/topology/types.ts                          Account/module graph types
-src/topology/build.ts                          Deterministic setup transaction construction
-src/topology/verify.ts                         Onchain post-deployment invariant checks
-src/queue/delay.ts                             Queue, execute, expire, and cancellation builders
-src/signers/types.ts                           Signer boundary shared by passkey and wallet providers
-src/signers/passkey.ts                         Safe passkey adapter
-src/signers/eip1193.ts                         WalletConnect/EIP-1193 adapter for Burner and hardware wallets
-src/monitoring/delay-events.ts                 TransactionAdded decoding and canonical fingerprints
-src/monitoring/notifier.ts                     Notification port and non-authorizing transports
-scripts/plan-deployment.ts                     Offline setup plan generation
-scripts/verify-dependencies.ts                 Read-only dependency/address/code verification
-scripts/verify-deployment.ts                   Read-only topology verification
-scripts/watch-queue.ts                         Queue-event monitor
-scripts/rehearse.ts                            Testnet send/queue/cancel/execute exercise
-contracts/test/ERC20Mock.sol                   Active local test token only
-test/unit/                                     Pure policy, encoding, fingerprint, and validator tests
-test/integration/                              Real Safe/Zodiac fork tests
-test/fixtures/                                 Deterministic accounts, tokens, and fork helpers
+legacy/contracts/                              Preserved 2024 experiment
+legacy/test/
+contracts/TieredSpendingGuard.sol              Transaction guard, module guard, counters, recovery
+contracts/libraries/SafeSignatureDecoder.sol   Internal canonical Safe signature parsing
+contracts/libraries/PolicyDigest.sol           Exact co-signature and queue digest construction
+contracts/test/ERC20Mock.sol
+src/config/policy.ts                            Typed X/Y/Z policy model
+src/config/deployments.ts                       Safe, passkey, and Delay allowlist verification
+src/policy/classify.ts                          Advisory base/step-up/delayed/blocked classifier
+src/topology/build.ts                           Deterministic one-Safe atomic setup plan
+src/topology/verify.ts                          Read-only deployed invariant verifier
+src/queue/delay.ts                              Queue, cancel, expire, and execute builders
+src/signers/types.ts                            Provider-neutral Safe signer boundary
+src/signers/passkey.ts                          Safe passkey adapter
+src/signers/eip1193.ts                          Burner/recovery EIP-1193 adapter
+src/monitoring/guard-events.ts                  Step-up authorization event decoder
+src/monitoring/delay-events.ts                  Delayed lifecycle decoder
+src/monitoring/notifier.ts                      Non-authorizing notification port
+scripts/plan-deployment.ts
+scripts/verify-dependencies.ts
+scripts/verify-deployment.ts
+scripts/watch-activity.ts
+scripts/rehearse.ts
+test/unit/
+test/integration/
+test/invariant/
+test/fixtures/
 ```
-
-The consumer wallet UI is deliberately a separate plan. Its implementation starts only after Tasks 1–11 prove the security core and freeze its interfaces.
 
 ## Requirement coverage
 
-| Security objective | Implemented and proved by |
+| Requirement | Proof tasks |
 |---|---|
-| Bound compromise of the daily signer | Tasks 2, 5, and 10 |
-| Delay remains after complete approval | Tasks 6 and 10 |
-| Exact transaction binding and replay resistance | Tasks 6 and 10 |
-| No direct-owner, extra-module, or calldata bypass | Tasks 4, 5, 7, and 10 |
-| Independent queue observation | Task 9 |
-| Immediate cancellation and daily-signer revocation | Tasks 5, 6, and 10 |
-| Delayed security weakening | Tasks 4, 6, 7, and 10 |
-| Two-of-three recovery without an instant withdrawal path | Tasks 8, 10, and 11 |
-| Fail-closed dependencies, decoding, and verification | Tasks 2, 3, and 7 |
-| Understandable fast/slow/blocked classification | Task 2; the consumer presentation is a follow-on plan |
-| Reproducible testnet operation | Task 11 |
+| One Safe holds assets | 5, 7, 10, 11 |
+| Passkey-only spending bounded by X | 2, 5, 10 |
+| Combined immediate spending bounded by Y | 2, 5, 10 |
+| Named Burner required above X | 4, 5, 8, 10 |
+| Mandatory cancellable delay above Y | 6, 10, 11 |
+| Owner and module paths both constrained | 4, 6, 7, 10 |
+| Recovery cannot immediately withdraw | 6, 10, 11 |
+| Tier-2 and tier-3 notifications | 9, 10, 11 |
+| Delayed weakening and immediate tightening | 6, 7, 10 |
+| No approval/message/fallback bypass | 4, 5, 7, 10 |
 
 ---
 
-### Task 1: Preserve the prototype and establish reproducible dependencies
+### Task 1: Preserve the historical prototype and establish reproducible dependencies
 
 **Files:**
-- Create: `legacy/README.md`
 - Move: `contracts/RecentTransactionGuard.sol` → `legacy/contracts/RecentTransactionGuard.sol`
 - Move: `contracts/GnosisSafeMock.sol` → `legacy/contracts/GnosisSafeMock.sol`
 - Move: `test/RecentTransactionGuard.ts` → `legacy/test/RecentTransactionGuard.ts`
 - Move: `contracts/ERC20Mock.sol` → `contracts/test/ERC20Mock.sol`
+- Create: `legacy/README.md`
 - Create: `docs/security/dependency-review.md`
 - Modify: `package.json`
 - Modify: `hardhat.config.ts`
 - Create: `package-lock.json`
 
-**Interfaces:**
-- Consumes: Current repository and the version/advisory links in the research document.
-- Produces: A clean active build, exact dependency pins, and a written dependency allowlist used by every later task.
+**Interfaces:** Produces the exact dependency allowlist and a clean active build used by every later task.
 
-- [ ] **Step 1: Record the untouched baseline**
+- [ ] **Step 1: Record the current tree and registry evidence**
 
-Run:
+Run `git status --short` and query exact Safe, Safe passkey, Zodiac, viem, and OpenZeppelin package versions plus registry integrity hashes. Record the pinned Safe Research Policy Engine commit reviewed as prior art.
 
-```bash
-git status --short
-npm view @safe-global/safe-smart-account version dist.integrity
-npm view @gnosis-guild/zodiac version dist.integrity
-npm view zodiac-roles-sdk version dist.integrity
-npm view zodiac-roles-deployments version dist.integrity
-```
+- [ ] **Step 2: Quarantine the old implementation**
 
-Expected: the worktree state is understood and every selected package reports a concrete version and registry integrity hash. If a current release differs from the research snapshot, review its release notes and advisories before selecting it.
+Use `git mv`. State in `legacy/README.md` that the old guard has disabled authorization, no transaction binding, no limits, no queue, and a permissive mock; exclude `legacy/` from compilation.
 
-- [ ] **Step 2: Quarantine the historical code**
+- [ ] **Step 3: Replace deprecated dependencies**
 
-Use `git mv` for the three historical implementation/test files and the ERC-20 fixture. Write `legacy/README.md` with this exact warning:
+Remove `@gnosis.pm/safe-contracts`; install reviewed exact versions with `--save-exact`. Add `build`, `test`, `test:unit`, `test:integration`, `test:invariant`, `check`, `coverage`, `slither`, `plan:deployment`, `verify:dependencies`, `verify:deployment`, `watch:activity`, and `rehearse` scripts.
 
-```markdown
-# Historical prototype
+- [ ] **Step 4: Write the dependency review**
 
-This directory preserves the 2024 RecentTransactionGuard experiment. It is excluded from the active build and must not be deployed. Its authorization is disabled, its validation is not bound to a transaction, and its mock does not reproduce Safe security behavior. See `docs/research/2026-09-16-personal-vault-research.md`.
-```
+For every deployed or compiled security dependency, record version, integrity, tag/commit, audit link, supported chain, canonical address source, runtime code hash, review date, and rejected vulnerable versions. Record the Policy Engine as unaudited prior art, not a deployment dependency.
 
-- [ ] **Step 3: Replace deprecated dependencies and add reproducible scripts**
+- [ ] **Step 5: Verify and commit**
 
-Remove `@gnosis.pm/safe-contracts`. Add the reviewed exact versions of Safe Smart Account, Zodiac registry, Roles SDK, and Roles deployments with `npm install --save-exact`. Change `package.json` to include these scripts:
-
-```json
-{
-  "scripts": {
-    "build": "hardhat compile",
-    "test": "hardhat test",
-    "test:unit": "hardhat test test/unit/**/*.test.ts",
-    "test:integration": "hardhat test test/integration/**/*.test.ts",
-    "check": "npm run build && npm run test",
-    "plan:deployment": "tsx scripts/plan-deployment.ts",
-    "verify:dependencies": "tsx scripts/verify-dependencies.ts",
-    "verify:deployment": "tsx scripts/verify-deployment.ts",
-    "watch:queue": "tsx scripts/watch-queue.ts"
-  }
-}
-```
-
-- [ ] **Step 4: Document dependency evidence**
-
-For each selected Safe/Zodiac package or deployed contract, record version, package integrity, repository tag/commit, audit link, supported networks, canonical address source, runtime bytecode hash, known-vulnerable predecessor, and review date in `docs/security/dependency-review.md`. Explicitly reject Roles 2.1.0 and Delay 1.1.0 unless current upstream documentation has retracted those advisories with evidence.
-
-- [ ] **Step 5: Verify the clean baseline**
-
-Run:
-
-```bash
-npm ci
-npm run build
-npm run test
-git diff --check
-```
-
-Expected: active sources compile without `@gnosis.pm/safe-contracts`; no historical test runs; the lockfile is stable.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add AGENTS.md docs legacy package.json package-lock.json hardhat.config.ts contracts/test
-git commit -m "chore: establish personal vault security baseline"
-```
+Run `npm ci`, `npm run build`, `npm test`, and `git diff --check`. Commit as `chore: establish single-safe security baseline`.
 
 ---
 
-### Task 2: Define the policy model and advisory classifier
+### Task 2: Define the X/Y/Z policy and advisory classifier
 
 **Files:**
 - Create: `src/config/policy.ts`
@@ -184,678 +134,358 @@ git commit -m "chore: establish personal vault security baseline"
 - Create: `test/unit/policy/classify.test.ts`
 
 **Interfaces:**
-- Consumes: Token/destination choices supplied by the caller.
-- Produces: `VaultPolicy`, `PolicyAction`, `SpendState`, `Lane`, and `classifyAction(action, policy, spent)` for deployment planning and future UI use.
-
-- [ ] **Step 1: Write the policy types and failing table tests**
-
-Define this public boundary in `src/config/policy.ts`:
 
 ```ts
-export type Address = `0x${string}`;
-export type Hex = `0x${string}`;
-
 export type AssetPolicy = Readonly<{
-  token: Address; // zero address means native asset
-  perTransaction: bigint;
-  perPeriod: bigint;
-  periodSeconds: number;
+  token: Address;
+  basePerTransaction: bigint;
+  stepUpPerTransaction: bigint;
+  baseDailyLimit: bigint;
+  instantDailyLimit: bigint;
   recipients: readonly Address[];
 }>;
 
 export type VaultPolicy = Readonly<{
   chainId: number;
-  vault: Address;
+  safe: Address;
+  passkey: Address;
+  burner: Address;
+  recovery: Address;
+  delay: Address;
+  periodSeconds: 86400;
+  periodAnchor: bigint;
   cooldownSeconds: number;
   expirationSeconds: number;
   assets: readonly AssetPolicy[];
 }>;
 
-export type PolicyAction = Readonly<{
-  to: Address;
-  value: bigint;
-  data: Hex;
-  operation: 0 | 1;
+export type AssetSpendState = Readonly<{
+  window: bigint;
+  baseSpent: bigint;
+  instantSpent: bigint;
 }>;
 
-export type SpendState = Readonly<Record<Address, bigint>>;
-export type Lane = "fast" | "slow" | "blocked";
+export type Lane = "base" | "step-up" | "delayed" | "blocked";
 ```
 
-Create table tests covering native transfer, ERC-20 transfer, over-per-transaction, over-period, unknown token, unapproved recipient, `approve`, Permit, Permit2, multisend, delegate call, owner/module/guard mutation, malformed calldata, and unknown function.
+- [ ] **Step 1: Write failing table tests**
 
-- [ ] **Step 2: Run the tests and observe the missing implementation**
+Cover repeated transfers below X, exact X, X+1, exact Y, Y+1, a transfer crossing X, step-up before X, base after step-up, both per-transaction caps, aligned reset, native/ERC-20 decoding, unknown token/recipient, approvals, Permit2, batches, delegate calls, malformed calldata, Safe configuration, and recovery calls.
 
-Run:
+- [ ] **Step 2: Prove the tests fail**
 
-```bash
-npm run test:unit -- --grep "classifyAction"
-```
+Run `npm run test:unit -- --grep "classifyAction"`; expect the missing classifier failure.
 
-Expected: FAIL because `classifyAction` does not exist.
+- [ ] **Step 3: Implement fail-closed classification**
 
-- [ ] **Step 3: Implement the closed classifier**
+Return `base` only when both remaining X and Y permit the transfer, `step-up` when Y permits it, `delayed` for a recognized transfer above Y or enumerated weakening/recovery action, and `blocked` otherwise. Reject `X <= 0`, `Y <= X`, misaligned periods, duplicate signers, or invalid caps.
 
-Export this exact signature:
+- [ ] **Step 4: Verify and commit**
 
-```ts
-export function classifyAction(
-  action: PolicyAction,
-  policy: VaultPolicy,
-  spent: SpendState,
-): Lane;
-```
-
-Return `fast` only for a decoded native transfer or ERC-20 `transfer(address,uint256)` that matches an asset, recipient, per-transaction cap, and remaining period cap. Return `slow` only for a recognized native/ERC-20 transfer that exceeds a fast-lane limit, an explicitly enumerated Safe/Roles/Delay configuration selector, or an explicitly enumerated signer-recovery selector. Return `blocked` for delegate calls, batches, approvals, Permit/Permit2, arbitrary message signing, malformed calldata, and every selector outside those allowlists.
-
-- [ ] **Step 4: Prove boundary behavior**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "classifyAction"
-```
-
-Expected: all table rows pass, including exact-limit acceptance and one-unit-over rejection.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/config/policy.ts src/policy/classify.ts test/unit/policy/classify.test.ts
-git commit -m "feat: define closed vault transaction policy"
-```
+Run the classifier tests and `git diff --check`. Commit as `feat: define single-safe tiered policy`.
 
 ---
 
-### Task 3: Verify Safe and Zodiac deployments before encoding transactions
+### Task 3: Verify Safe, passkey, Delay, and Policy Engine assumptions
 
 **Files:**
+- Create: `docs/security/policy-engine-lessons.md`
 - Create: `src/config/deployments.ts`
 - Create: `scripts/verify-dependencies.ts`
 - Create: `test/unit/config/deployments.test.ts`
-- Create: `test/fixtures/deployments.ts`
 
-**Interfaces:**
-- Consumes: chain ID, public viem client, Safe/Zodiac registry metadata, and the dependency-review allowlist.
-- Produces: `resolveVerifiedDeployments(client, chainId): Promise<VerifiedDeployments>`.
+**Interfaces:** Produces `resolveVerifiedDeployments(client, chainId): Promise<VerifiedDeployments>` for Safe singleton/factory, passkey signer factory/verifier, MultiSend, and Delay.
 
-- [ ] **Step 1: Write rejection-first tests**
+- [ ] **Step 1: Write rejection-first deployment tests**
 
-Define:
+Reject unsupported chains, zero code, mismatched hashes, unknown releases, known-vulnerable Delay versions, and any Safe release lacking module guards.
 
-```ts
-export type VerifiedContract = Readonly<{
-  address: Address;
-  version: string;
-  runtimeCodeHash: Hex;
-}>;
+- [ ] **Step 2: Record exact upstream lessons**
 
-export type VerifiedDeployments = Readonly<{
-  safeSingleton: VerifiedContract;
-  safeProxyFactory: VerifiedContract;
-  multiSend: VerifiedContract;
-  roles: VerifiedContract;
-  delay: VerifiedContract;
-}>;
-```
+At the pinned Policy Engine commit, review `SafePolicyGuard`, `CoSignerPolicy`, `IncreasedThresholdPolicy`, `SignatureExtension`, and stateful-policy tests. Document dual guard installation, untrusted context, exact digest verification, `safeTxGas == 0`, `gasPrice == 0`, failed-module rollback, reentrancy gating, namespaced state, and the unaudited warning. Do not copy code without recording license and provenance.
 
-Tests must reject an unsupported chain, zero code, a mismatched code hash, an unknown version, Roles 2.1.0, and Delay 1.1.0. The success fixture must contain only values copied from `docs/security/dependency-review.md`.
+- [ ] **Step 3: Verify exact Safe interfaces**
 
-- [ ] **Step 2: Run the validator tests and confirm failure**
+Record the Safe 1.5 transaction-guard and module-guard ABIs, call order, nonce timing, signature encoding, after-execution behavior, fallback-handler behavior, and Delay proposer/execution ABI. Confirm by tests against compiled upstream contracts rather than memory or old articles.
 
-Run:
+- [ ] **Step 4: Implement read-only bytecode verification**
 
-```bash
-npm run test:unit -- --grep "resolveVerifiedDeployments"
-```
+Resolve addresses through official deployment registries, fetch runtime bytecode, hash it, compare to the committed allowlist, and fail closed on every missing or inconsistent read.
 
-Expected: FAIL because the resolver is missing.
+- [ ] **Step 5: Verify and commit**
 
-- [ ] **Step 3: Implement registry resolution and bytecode verification**
-
-Use the official registries for candidate addresses, fetch runtime code with viem, hash it with `keccak256`, and compare it to the committed allowlist. Throw typed errors before producing transaction calldata when any check fails. Do not silently select the newest version.
-
-- [ ] **Step 4: Run unit and live read-only checks**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "resolveVerifiedDeployments"
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run verify:dependencies -- --chain-id 11155111
-```
-
-Expected: unit tests pass; the live command prints matching versions and code hashes without sending a transaction.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/config/deployments.ts scripts/verify-dependencies.ts test/unit/config test/fixtures/deployments.ts docs/security/dependency-review.md
-git commit -m "feat: verify safe and zodiac deployments"
-```
+Run unit tests and the Sepolia read-only verifier. Commit as `docs: verify single-safe security dependencies`.
 
 ---
 
-### Task 4: Build the deterministic account topology and atomic setup plan
+### Task 4: Implement exact signer and transaction binding in the guard
 
 **Files:**
-- Create: `src/topology/types.ts`
-- Create: `src/topology/build.ts`
-- Create: `test/unit/topology/build.test.ts`
-- Create: `scripts/plan-deployment.ts`
-- Create: `docs/security/call-graph.md`
+- Create: `contracts/TieredSpendingGuard.sol`
+- Create: `contracts/libraries/SafeSignatureDecoder.sol`
+- Create: `contracts/libraries/PolicyDigest.sol`
+- Create: `test/unit/guard/signatures.test.ts`
+- Create: `test/integration/guard-signatures.test.ts`
 
 **Interfaces:**
-- Consumes: three Control Safe signer addresses, threshold `2`, policy, verified deployments, and a temporary bootstrap address.
-- Produces: `buildVaultPlan(input): VaultDeploymentPlan`, including Safe deployments and one atomic Vault Safe setup batch.
 
-- [ ] **Step 1: Define the topology boundary and failing snapshot test**
+```solidity
+enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
 
-Define:
+struct GuardConfig {
+    address safe;
+    address passkey;
+    address burner;
+    address recovery;
+    address delay;
+    uint64 periodSeconds;
+    uint64 periodAnchor;
+}
 
-```ts
-export type MetaTransaction = Readonly<{
-  to: Address;
-  value: bigint;
-  data: Hex;
-  operation: 0 | 1;
-}>;
-
-export type VaultDeploymentPlan = Readonly<{
-  chainId: number;
-  controlSafe: Address;
-  vaultSafe: Address;
-  roles: Address;
-  delay: Address;
-  setupTransactions: readonly MetaTransaction[];
-  expectedRuntime: Readonly<{
-    controlThreshold: 2;
-    controlOwners: readonly [Address, Address, Address];
-    vaultModules: readonly [Address, Address]; // Roles and Delay only
-    unrestrictedVaultOwners: 0;
-  }>;
-}>;
-
-export type RolesConfigurationPlan = Readonly<{
-  fastLaneRole: Hex;
-  emergencyRole: Hex;
-  transactions: readonly MetaTransaction[];
-}>;
+function checkTransaction(
+    address to,
+    uint256 value,
+    bytes calldata data,
+    Enum.Operation operation,
+    uint256 safeTxGas,
+    uint256 baseGas,
+    uint256 gasPrice,
+    address gasToken,
+    address payable refundReceiver,
+    bytes calldata signatures,
+    address executor
+) external;
 ```
 
-`buildVaultPlan` accepts a `RolesConfigurationPlan`. The snapshot test must assert deterministic addresses and ordered setup operations for a fixed salt; use a fully decoded fixture plan until Task 5 supplies the real encoder.
+- [ ] **Step 1: Write failing exact-hash tests**
 
-- [ ] **Step 2: Add negative setup tests**
+Compare the guard's reconstructed hash with Safe `getTransactionHash`. Changing chain, Safe, target, value, calldata, operation, any gas/refund field, or nonce must change the digest. Account for Safe incrementing its nonce before the guard callback.
 
-Reject duplicate Control Safe owners, zero addresses, thresholds other than 2, unsupported chains, expiration not greater than cooldown, empty asset policy, an unverified module, and any final state containing a human Vault Safe owner or an extra module.
+- [ ] **Step 2: Write failing signature tests**
 
-- [ ] **Step 3: Implement deterministic planning**
+Require a validated `v == 0` contract-signature slot naming the configured passkey for all transfer paths. Reject approved-hash `v == 1`, raw EOA substitution, malformed offsets, duplicate/trailing ambiguity, wrong passkey, and signatures not validated by Safe.
 
-Build the Control Safe as 2-of-3. Build the Vault Safe setup as one atomic MultiSend that makes the Vault Safe the owner/avatar/target of Roles and Delay, includes the supplied Roles configuration, enables the Control Safe as a Delay proposer, enables exactly Roles and Delay on the Vault, and replaces the bootstrap owner with `0x0000000000000000000000000000000000000002` only after every earlier operation is encoded. Reject a Roles plan that does not contain exactly one fast-lane role and one emergency role. The Control Safe must not be the owner of Roles or Delay. The planner must generate calldata but never send it.
+- [ ] **Step 3: Define and test the Burner extension**
 
-- [ ] **Step 4: Write the call graph before execution support**
+Use a typed terminal envelope `[burnerSignature][uint256 length][bytes32 typeHash]`. Verify the Burner with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
 
-In `docs/security/call-graph.md`, enumerate these paths with caller, callee, authorization, value capability, configuration capability, and cancellation capability:
+- [ ] **Step 4: Implement atomic guard mechanics**
 
-```text
-passkey -> Roles -> Vault Safe -> native/ERC20 recipient
-Control Safe -> Delay queue -> Vault Safe -> recognized slow-lane target
-Control Safe -> emergency-only Roles role -> Vault Safe -> Delay.setTxNonce
-Control Safe -> emergency-only Roles role -> Vault Safe -> Roles.assignRoles(fixed passkey, fixed role, false)
-bootstrap owner -> atomic setup -> removed final state
-relayer -> execute eligible Delay queue item
-```
+Implement both guard interfaces, only-Safe entry checks, a reentrancy gate, `safeTxGas == 0`, `gasPrice == 0`, and after-execution reverts on failed owner or module execution. State writes during a failed inner call must roll back.
 
-Also enumerate and mark forbidden direct owner execution, unlisted modules, delegate calls, batches, approvals, arbitrary EIP-1271 messages, immediate weakening changes, direct Control Safe ownership of Roles/Delay, and every Roles permission broader than the two declared roles.
+- [ ] **Step 5: Verify against a real Safe and commit**
 
-- [ ] **Step 5: Run deterministic plan tests**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "buildVaultPlan"
-npm run plan:deployment -- --config test/fixtures/policy.json --out /tmp/personal-vault-plan.json
-git diff --check
-```
-
-Expected: tests pass; repeated planning produces byte-identical JSON; no transaction is broadcast.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/topology test/unit/topology scripts/plan-deployment.ts docs/security/call-graph.md
-git commit -m "feat: build deterministic vault topology plan"
-```
+Run unit and integration tests with Safe 1.5, not the legacy mock. Commit as `feat: bind tiered policy to exact safe signatures`.
 
 ---
 
-### Task 5: Encode the fast-lane Roles policy
+### Task 5: Implement base and step-up spending enforcement
 
 **Files:**
-- Create: `src/policy/roles.ts`
-- Create: `test/unit/policy/roles.test.ts`
-- Create: `test/integration/roles-fast-lane.test.ts`
-- Create: `test/fixtures/fork.ts`
-- Modify: `src/topology/build.ts`
-- Modify: `test/unit/topology/build.test.ts`
+- Modify: `contracts/TieredSpendingGuard.sol`
+- Create: `test/unit/guard/spending.test.ts`
+- Create: `test/integration/guard-spending.test.ts`
+- Create: `test/invariant/spending.invariant.ts`
 
-**Interfaces:**
-- Consumes: `VaultPolicy`, passkey member address, verified Roles deployment, and Vault Safe address.
-- Produces: `buildRolesConfiguration(input): RolesConfigurationPlan` and `verifyRolesPolicy(input): Promise<PolicyVerification>` for both the fast-lane and emergency-only roles.
+**Interfaces:** The guard exposes read-only `assetPolicy(token)`, `spendState(token)`, and emits `TransferAuthorized(tier, token, recipient, amount, baseSpent, instantSpent, window)`.
 
-- [ ] **Step 1: Write encoding tests for native and ERC-20 permissions**
+- [ ] **Step 1: Write failing decoding and policy tests**
 
-Tests must decode the produced calldata and prove that each token has one per-transaction cap, one period allowance, the exact period duration, the exact recipients, and only the required execution options. Prove that the Control Safe's second role permits only the selected Delay's `setTxNonce(uint256)` and the exact revocation call `Roles.assignRoles(fixedPasskey, [fastLaneRole], [false])`. Include negative assertions that it cannot assign a role, revoke another member, change an allowance, call another Delay, or invoke any other target/function. Also prove that no `approve`, Permit, Permit2, MultiSend, Safe configuration selector, wildcard target, wildcard function, or delegate-call permission appears.
+Allow only native transfers with empty calldata and ERC-20 `transfer(address,uint256)`. Test exact token, recipient, per-transaction cap, `CALL` operation, and zero unknown trailing calldata. Reject approvals, Permit/Permit2, fallback calls, batches, delegate calls, and unknown selectors.
 
-- [ ] **Step 2: Run the encoding tests and confirm failure**
+- [ ] **Step 2: Write failing X/Y accounting tests**
 
-Run:
+Use X=100 and Y=1,000. Prove repeated passkey transfers total at most 100; crossing X requires Burner; all immediate ordering and splitting totals at most 1,000; base consumes X and Y; step-up consumes Y only; failed transfers consume nothing; both counters reset on the same anchored daily boundary.
 
-```bash
-npm run test:unit -- --grep "buildRolesConfiguration"
-```
+- [ ] **Step 3: Implement minimal tier accounting**
 
-Expected: FAIL because the Roles encoder is missing.
+Compute the window from the immutable 86,400-second period and anchor. Update counters before execution, emit only after checks, and rely on the enforced revert behavior from Task 4 for atomic rollback.
 
-- [ ] **Step 3: Implement configuration using official Roles ABI/SDK**
+- [ ] **Step 4: Add stateful invariants**
 
-Encode only the permission graph required by `VaultPolicy`. Name the spending role deterministically from `keccak256(abi.encode(chainId, vaultSafe, "FAST_LANE_V1"))` and the emergency role from `keccak256(abi.encode(chainId, vaultSafe, "EMERGENCY_V1"))`. Keep onchain allowance identifiers deterministic per token and reject SDK output that contains a target, selector, parameter condition, or execution option not derived from the input policy. The Roles owner must be the Vault Safe. Integrate the returned `RolesConfigurationPlan` into `buildVaultPlan` and prove the final atomic batch contains the exact decoded permissions before the sentinel-owner replacement.
+Generate arbitrary sequences of base attempts, step-up attempts, failures, boundary timestamps, tokens, and recipients. Assert `baseSpent <= X`, `instantSpent <= Y`, no unauthorized balance movement, and no counter decrease inside a window.
 
-- [ ] **Step 4: Prove enforcement on a Sepolia fork**
+- [ ] **Step 5: Verify and commit**
 
-The integration test must use an actual Safe and the verified deployed Roles implementation. Assert:
-
-```text
-PASS  transfer below per-transaction and remaining period limits
-PASS  two transfers whose sum equals the period limit
-FAIL  one unit above the per-transaction limit
-FAIL  one unit above the period limit
-FAIL  unapproved recipient
-FAIL  unknown token
-FAIL  approve / Permit2 / arbitrary call
-FAIL  delegate call
-FAIL  execution by an unassigned address
-PASS  Control Safe calls Delay.setTxNonce through its emergency role
-PASS  Control Safe revokes only the fixed passkey from the fixed fast-lane role
-FAIL  Control Safe uses the emergency role to add a member or call anything else
-```
-
-- [ ] **Step 5: Run the fast-lane suite**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "Roles"
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run test:integration -- --grep "fast lane"
-```
-
-Expected: every allowed case succeeds and every forbidden case reverts at the onchain enforcement layer.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/policy/roles.ts test/unit/policy/roles.test.ts test/integration/roles-fast-lane.test.ts test/fixtures/fork.ts
-git commit -m "feat: encode bounded roles fast lane"
-```
+Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce daily passkey and burner tiers`.
 
 ---
 
-### Task 6: Implement delayed queue, cancellation, expiry, and execution builders
+### Task 6: Integrate Delay, cancellation, tightening, and recovery
 
 **Files:**
+- Modify: `contracts/TieredSpendingGuard.sol`
 - Create: `src/queue/delay.ts`
 - Create: `test/unit/queue/delay.test.ts`
-- Create: `test/integration/delay-slow-lane.test.ts`
+- Create: `test/integration/delayed-tier.test.ts`
+- Modify: `docs/security/call-graph.md`
 
-**Interfaces:**
-- Consumes: exact `PolicyAction`, chain ID, Vault Safe, Control Safe, verified Delay deployment, queue nonce, cooldown, and expiration.
-- Produces: `queueFingerprint`, `buildQueueTransaction`, `buildCancellationTransaction`, `buildExecutionTransaction`, and `readQueueItem`.
+**Interfaces:** Produces `queueFingerprint`, `buildQueueTransaction`, `buildCancellationTransaction`, `buildExecutionTransaction`, and `readQueueItem`.
 
-- [ ] **Step 1: Define the queue item and failing hash tests**
+- [ ] **Step 1: Write delayed-proposal tests**
 
-Define:
+A direct transfer above remaining Y must fail. A Safe call to the exact Delay queue selector succeeds only with passkey plus Burner and only when the decoded inner action is an allowed transfer or enumerated weakening action. Mutation of inner target, value, calldata, operation, nonce, cooldown, or expiration fails.
 
-```ts
-export type QueueItem = Readonly<{
-  chainId: number;
-  delay: Address;
-  vault: Address;
-  nonce: bigint;
-  to: Address;
-  value: bigint;
-  data: Hex;
-  operation: 0 | 1;
-  executableAt: bigint;
-  expiresAt: bigint;
-}>;
+- [ ] **Step 2: Write module-path tests**
 
-export function queueFingerprint(item: QueueItem): Hex;
-```
+Only the verified Delay address may call the Safe module path. Execution before Z, after expiration, after cancellation, through another module, or by delegate call fails. An exact queued transfer succeeds after Z through an unprivileged relayer.
 
-Test that changing any field changes the fingerprint and that normalized input produces a stable fingerprint.
+- [ ] **Step 3: Implement cancellation and emergency rules**
 
-- [ ] **Step 2: Implement exact queue and execution encoding**
+Permit the recovery owner or passkey-plus-Burner to call only the configured Delay's nonce-advance cancellation and guard freeze functions immediately. Enumerate every ordered queue item invalidated by cancellation. Deny recovery transfers and arbitrary queue creation.
 
-The queue builder must bind the complete action; the execution builder must read the onchain queue item rather than accepting an unverified replacement action. Reject delegate calls, approvals, Permit/Permit2, arbitrary message signing, and undecodable actions at the client boundary even if the slow lane could technically carry them. Configuration actions must use an explicit selector allowlist. Because the Vault Safe owns Roles and Delay, accepted configuration calls are queued through Delay and executed by the Vault after cooldown.
+- [ ] **Step 4: Implement delayed recovery and configuration**
 
-- [ ] **Step 3: Write real Delay integration tests**
+Allow recovery to queue only fixed signer replacement, guard repair, and policy repair selectors. Limit increases, recipient additions, delay reductions, owner/module/guard/fallback changes, and unfreezing require Delay. Immediate tightening functions must prove limits only decrease, recipients only disappear, or the system only becomes more restrictive.
 
-Prove on a fork that:
+- [ ] **Step 5: Prove removal and fallback safety**
 
-```text
-FAIL  execute before cooldown
-PASS  cancel before cooldown
-FAIL  execute cancelled item
-PASS  execute exact item after cooldown
-FAIL  substitute destination, value, calldata, operation, vault, chain, or nonce
-FAIL  execute expired item
-PASS  execute by an unprivileged relayer after cooldown
-FAIL  non-Control Safe caller queues or cancels
-FAIL  Control Safe changes Delay cooldown or Roles permissions directly
-PASS  queued Vault Safe configuration call changes policy only after cooldown
-```
+Test atomic delayed replacement of both guard slots, no intermediate unguarded execution, no unlisted module, no unrestricted fallback handler, no direct `signMessage`, and rejection of approved-hash authorization. If Safe cannot replace both guards atomically without a broader delayed batch, stop for a focused maintenance design.
 
-- [ ] **Step 4: Prove approval does not skip the delay**
+- [ ] **Step 6: Verify and commit**
 
-Add one integration test that collects the full Control Safe threshold and asserts that the recipient balance remains unchanged until the Delay cooldown elapses. This is the central acceptance test for the product.
-
-- [ ] **Step 5: Run the queue suite**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "queueFingerprint"
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run test:integration -- --grep "slow lane"
-```
-
-Expected: all timing, mutation, cancellation, expiry, and relayer assertions pass.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/queue test/unit/queue test/integration/delay-slow-lane.test.ts
-git commit -m "feat: add cancellable delayed transaction lane"
-```
+Run queue, module, recovery, and configuration integration tests. Commit as `feat: add cancellable delayed vault tier`.
 
 ---
 
-### Task 7: Add post-deployment topology verification
+### Task 7: Build and verify the deterministic one-Safe topology
 
 **Files:**
+- Create: `src/topology/build.ts`
 - Create: `src/topology/verify.ts`
+- Create: `test/unit/topology/build.test.ts`
 - Create: `test/unit/topology/verify.test.ts`
-- Create: `test/integration/topology-verification.test.ts`
+- Create: `test/integration/topology.test.ts`
+- Create: `scripts/plan-deployment.ts`
 - Create: `scripts/verify-deployment.ts`
+- Create: `docs/security/call-graph.md`
 
-**Interfaces:**
-- Consumes: public client, `VaultDeploymentPlan`, and deployed addresses.
-- Produces: `verifyTopology(input): Promise<TopologyReport>` with structured checks and a nonzero process exit on any mismatch.
+**Interfaces:** `buildVaultPlan(input): VaultDeploymentPlan` produces one Safe, one guard, one Delay, and an unsigned atomic setup; `verifyTopology(input): Promise<TopologyReport>` re-reads every invariant.
 
-- [ ] **Step 1: Write mismatch tests**
+- [ ] **Step 1: Write deterministic plan snapshots**
 
-Create fixtures for an extra Vault module, retained human owner, wrong Safe threshold, wrong Delay cooldown, wrong expiration, wrong Roles member, widened target, widened function, increased allowance, incorrect owner, and mismatched bytecode.
+Assert one Safe address, owners `[passkey, burner, recovery]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
 
-- [ ] **Step 2: Implement fail-closed verification**
+- [ ] **Step 2: Implement atomic planning**
 
-Define:
+Generate unsigned calldata that configures policy, Delay, owners, both guards, and the module graph without a partially protected final state. Never broadcast from the planner.
 
-```ts
-export type TopologyCheck = Readonly<{
-  name: string;
-  ok: boolean;
-  expected: string;
-  actual: string;
-}>;
+- [ ] **Step 3: Implement fail-closed verification**
 
-export type TopologyReport = Readonly<{
-  ok: boolean;
-  checks: readonly TopologyCheck[];
-}>;
-```
+Verify Safe singleton/version, owners, threshold, fallback, guards, modules, guard code hash/config/counters, Delay code hash/owner/avatar/target/members/cooldown/expiration, and absence of unexpected approvals recorded by the runbook.
 
-Verify Safe singleton/version, owners, threshold, guards, modules, module guards, Roles owner/member/targets/functions/conditions/allowances, Delay owner/modules/cooldown/expiration/target/avatar, and runtime code hashes. Never return `ok: true` after an RPC read failure.
+- [ ] **Step 4: Write the complete call graph**
 
-- [ ] **Step 3: Verify the expected final graph on a fork**
+Document base, step-up, queue, Delay execution, cancellation, freeze, recovery, configuration, replacement, and forbidden paths with caller, signer requirement, value capability, and timing.
 
-Deploy the full plan from Task 4 in the integration fixture, execute the atomic setup, and assert `report.ok === true`. Mutate one setting per test and assert `report.ok === false` with the exact failed check.
+- [ ] **Step 5: Verify and commit**
 
-- [ ] **Step 4: Run verification tests**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "verifyTopology"
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run test:integration -- --grep "topology verification"
-```
-
-Expected: the approved topology passes; every unauthorized drift fails.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/topology/verify.ts test/unit/topology/verify.test.ts test/integration/topology-verification.test.ts scripts/verify-deployment.ts
-git commit -m "feat: verify deployed vault topology"
-```
+Run deterministic planning twice for byte-identical output, deploy on a local fork, verify the topology, mutate each invariant individually, and require failure. Commit as `feat: build and verify one-safe vault topology`.
 
 ---
 
-### Task 8: Add passkey and Burner-compatible signer boundaries
+### Task 8: Add passkey, Burner, and recovery signer adapters
 
 **Files:**
 - Create: `src/signers/types.ts`
 - Create: `src/signers/passkey.ts`
 - Create: `src/signers/eip1193.ts`
-- Modify: `docs/security/signer-provider-evaluation.md`
 - Create: `test/unit/signers/passkey.test.ts`
 - Create: `test/unit/signers/eip1193.test.ts`
-- Create: `test/integration/control-safe-signing.test.ts`
+- Create: `test/integration/signer-flow.test.ts`
+- Modify: `docs/security/signer-provider-evaluation.md`
 
-**Interfaces:**
-- Consumes: Safe typed data and either a Safe passkey signer or an EIP-1193 provider exposed by WalletConnect.
-- Produces: a normalized `SafeSigner` whose output is always verified against its expected Safe owner before aggregation.
+**Interfaces:** A `SafeSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; a Burner adapter returns the exact guard extension.
 
-- [ ] **Step 0: Document provider selection rules**
+- [ ] **Step 1: Write provider-neutral conformance tests**
 
-Create `docs/security/signer-provider-evaluation.md` before coding adapters. Record that the security-core baseline uses Safe-native passkey support plus a generic EIP-1193 / WalletConnect adapter. Cometh Connect, Privy, Dynamic, Turnkey, Pimlico social-login flows, ZeroDev, Kernel, Biconomy, Alchemy smart wallets, and similar SDKs are optional future provider adapters only. A provider is acceptable only if tests prove that it signs the exact Safe transaction for the configured Control Safe owner and does not introduce an alternate wallet topology, recovery path, relayer authority, module, owner, session key, or message-signing capability that bypasses the verified Safe/Zodiac call graph.
+Reject chain, Safe, hash, account, or typed-data changes; invalid ERC-1271 response; wrong recovered EOA; duplicate signature; provider account/chain change; user rejection; and extension ambiguity.
 
-- [ ] **Step 1: Define the signer port and failing conformance tests**
+- [ ] **Step 2: Implement Safe-native passkey signing**
 
-```ts
-export interface SafeSigner {
-  readonly owner: Address;
-  readonly kind: "passkey" | "eip1193";
-  signSafeTransaction(input: {
-    chainId: number;
-    safe: Address;
-    safeTxHash: Hex;
-    typedData: unknown;
-  }): Promise<Hex>;
-}
-```
+Use the reviewed Safe passkey contracts and verify the configured signer contract identity. Produce the canonical contract signature expected by Safe and the guard.
 
-Conformance tests must reject chain mismatch, Safe mismatch, hash mismatch, wrong recovered EOA, invalid ERC-1271 response, duplicate signer, user rejection, provider account changes, and provider chain changes.
+- [ ] **Step 3: Implement Burner and recovery adapters**
 
-- [ ] **Step 2: Implement the passkey adapter**
+Use `eth_signTypedData_v4` through generic EIP-1193/WalletConnect. Verify recovered addresses locally. Do not invoke undocumented NFC commands or bypass Burner PIN/connection behavior.
 
-Use Safe’s supported passkey/ERC-1271 flow. Verify the configured signer contract and resulting Safe owner identity. The adapter must not accept a raw assertion that is not bound to the expected Safe transaction typed data.
+- [ ] **Step 4: Prove the complete signer matrix**
 
-- [ ] **Step 3: Implement the EIP-1193 adapter**
+Passkey succeeds only for base. Burner-only and recovery-only transfers fail. Passkey-plus-Burner succeeds within Y and queues above Y. Recovery succeeds only for cancellation, freeze, and enumerated delayed repair.
 
-Use `eth_signTypedData_v4` through the connected provider and verify the recovered address equals `owner`. Treat Burner as this generic provider through its supported WalletConnect flow; do not depend on undocumented NFC commands or bypass the Burner application’s PIN/connection behavior.
+- [ ] **Step 5: Verify and commit**
 
-- [ ] **Step 4: Prove 2-of-3 threshold behavior**
-
-On a fork, verify that passkey alone, Burner-compatible EOA alone, and recovery signer alone fail; any two distinct configured owners pass; a duplicate signature fails; and a correctly signed slow-lane proposal only queues rather than executes.
-
-- [ ] **Step 5: Run signer suites**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "SafeSigner"
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run test:integration -- --grep "Control Safe signing"
-```
-
-Expected: all signer conformance and threshold assertions pass.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/signers test/unit/signers test/integration/control-safe-signing.test.ts
-git commit -m "feat: add passkey and hardware signer adapters"
-```
+Run signer unit tests and real-Safe integration tests. Commit as `feat: add tiered safe signer adapters`.
 
 ---
 
-### Task 9: Monitor the queue and send non-authorizing alerts
+### Task 9: Monitor step-up and delayed activity
 
 **Files:**
+- Create: `src/monitoring/guard-events.ts`
 - Create: `src/monitoring/delay-events.ts`
 - Create: `src/monitoring/notifier.ts`
-- Create: `scripts/watch-queue.ts`
+- Create: `scripts/watch-activity.ts`
+- Create: `test/unit/monitoring/guard-events.test.ts`
 - Create: `test/unit/monitoring/delay-events.test.ts`
 - Create: `test/unit/monitoring/notifier.test.ts`
 
-**Interfaces:**
-- Consumes: verified Delay address, public client, event cursor, and a `Notifier` implementation.
-- Produces: decoded queue alerts containing the canonical fingerprint and no signing or execution authority.
+**Interfaces:** `ActivityAlert` is a union of confirmed `step-up-executed`, `delayed-queued`, `delayed-cancelled`, `delayed-executed`, and derived `delayed-expired` records. The notifier has no signer or RPC write capability.
 
-- [ ] **Step 1: Define event and notification ports**
+- [ ] **Step 1: Write event decoding tests**
 
-```ts
-export type QueueAlert = Readonly<{
-  fingerprint: Hex;
-  chainId: number;
-  delay: Address;
-  vault: Address;
-  nonce: bigint;
-  to: Address;
-  value: bigint;
-  data: Hex;
-  operation: 0 | 1;
-  executableAt: bigint;
-  expiresAt: bigint;
-  transactionHash: Hex;
-  blockNumber: bigint;
-}>;
+Verify chain/log identity, confirmation depth, cursor persistence, reorg removal, restart replay, idempotency, exact guard/Delay addresses, decoded asset/recipient/amount, X/Y state, queue fingerprint, and lifecycle transition.
 
-export interface Notifier {
-  send(alert: QueueAlert): Promise<void>;
-}
-```
+- [ ] **Step 2: Implement verified monitoring**
 
-- [ ] **Step 2: Write reorg, duplicate, and malformed-event tests**
+For step-up events, re-read guard counters and transaction input before notification; do not notify for base events. For Delay events, re-read the queue item and state before notification.
 
-Tests must prove cursor persistence, idempotency by chain/log identity, confirmation depth, replay after restart, removal of reorged events, and rejection of events from an unverified Delay address.
+- [ ] **Step 3: Implement stdout and webhook notifiers**
 
-- [ ] **Step 3: Implement JSON stdout and webhook notifiers**
+Send only public data. Store no private key, passkey assertion, PIN, wallet session, cancellation credential, or method capable of authorizing a transaction.
 
-The webhook payload contains only public transaction data and the canonical fingerprint. The notifier receives no private key, signer, session token, or method capable of queueing, cancelling, or executing.
+- [ ] **Step 4: Verify and commit**
 
-- [ ] **Step 4: Implement the queue watcher**
-
-Start from a configured block, wait the configured confirmation depth, decode `TransactionAdded`, re-read the queue item from the contract, compare it to the event, and only then notify. Exit nonzero on address/code mismatch or persistent RPC inconsistency.
-
-- [ ] **Step 5: Run monitoring tests**
-
-Run:
-
-```bash
-npm run test:unit -- --grep "QueueAlert"
-```
-
-Expected: all replay, reorg, verification, and least-authority assertions pass.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/monitoring scripts/watch-queue.ts test/unit/monitoring
-git commit -m "feat: monitor delayed vault transactions"
-```
+Run monitoring tests including suppressed, duplicate, malformed, and reorged events. Commit as `feat: monitor tiered vault activity`.
 
 ---
 
-### Task 10: Add adversarial end-to-end tests and static analysis
+### Task 10: Prove the threat model end to end
 
 **Files:**
 - Create: `test/integration/adversarial.test.ts`
 - Create: `test/integration/recovery.test.ts`
+- Create: `test/invariant/call-graph.invariant.ts`
 - Create: `scripts/rehearse.ts`
 - Create: `slither.config.json`
 - Modify: `package.json`
 - Modify: `docs/security/call-graph.md`
 
-**Interfaces:**
-- Consumes: all security-core interfaces from Tasks 2–9.
-- Produces: one command that proves the approved threat-model properties on a reproducible fork.
+**Interfaces:** Produces `npm run security:check` as the reproducible local security gate.
 
-- [ ] **Step 1: Write end-to-end attack tests**
+- [ ] **Step 1: Add one test per bypass class**
 
-Implement one test per attack:
+Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, only-one-guard installation, direct Delay injection, immediate weakening, retained unsafe owners, guard removal, cancelled/expired execution, and notification-service authority.
 
-```text
-daily signer attempts to drain more than one period limit
-daily signer splits transfers to evade the per-transaction cap
-daily signer calls an unapproved token or recipient
-daily signer grants approval or signs an unsupported message path
-Control Safe proposal attempts immediate execution
-attacker mutates queued destination/value/calldata/operation/nonce
-attacker enables an extra module or removes enforcement
-attacker raises limits or shortens delay without the slow path
-attacker uses MultiSend or delegate call
-attacker exploits a retained bootstrap owner
-attacker replays on another chain or Safe
-attacker executes a cancelled or expired queue item
-notification service attempts an authorized action
-```
+- [ ] **Step 2: Add recovery and denial-of-service tests**
 
-- [ ] **Step 2: Write loss and recovery tests**
+Test lost passkey, lost Burner, recovery cancellation, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
 
-Prove all three two-signer combinations can control the Control Safe, one lost signer does not lock the account, signer rotation uses the delayed path, and no recovery action moves Vault assets before cooldown.
+- [ ] **Step 3: Add static and invariant gates**
 
-- [ ] **Step 3: Add static and coverage commands**
+Run coverage, Slither, and stateful invariants. Require review of every external/public function, storage write, call, signature parse, and authorization branch. Imported Safe/Zodiac analysis is not presented as their audit.
 
-Add exact scripts:
+- [ ] **Step 4: Implement the rehearsal**
 
-```json
-{
-  "scripts": {
-    "coverage": "hardhat coverage",
-    "slither": "slither . --config-file slither.config.json",
-    "rehearse": "tsx scripts/rehearse.ts",
-    "security:check": "npm run check && npm run coverage && npm run slither"
-  }
-}
-```
+On a time-controlled fork: deploy one Safe, verify topology, spend repeatedly through X, step up through Y, observe the tier-2 alert, reject Y+1 direct, queue Y+1, observe alert, cancel, prove non-execution, queue again, advance Z, execute, freeze, and rehearse delayed recovery. Refuse chain ID 1.
 
-If the prototype contains no active custom Solidity beyond fixtures, document that Slither applies only to fixtures and imported source, and do not present that result as an audit of deployed Safe/Zodiac bytecode.
+- [ ] **Step 5: Verify and commit**
 
-- [ ] **Step 4: Implement the rehearsal script**
-
-`scripts/rehearse.ts` must create or load a testnet plan, verify the topology, execute one fast transfer, queue one slow transfer, observe its alert, cancel it, prove it cannot execute, queue another, wait on a time-controlled local fork, and execute it. It must refuse mainnet chain ID `1`.
-
-- [ ] **Step 5: Run the full gate**
-
-Run:
-
-```bash
-npm run security:check
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run test:integration
-npm run rehearse -- --network hardhat
-git diff --check
-```
-
-Expected: all tests and analysis pass; no mainnet transaction is possible; the rehearsal logs the same queue fingerprints observed by the monitor.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add test/integration scripts/rehearse.ts package.json package-lock.json slither.config.json docs/security/call-graph.md
-git commit -m "test: prove vault threat model end to end"
-```
+Run `npm run security:check`, the complete integration suite, rehearsal, and `git diff --check`. Commit as `test: prove single-safe tiered threat model`.
 
 ---
 
-### Task 11: Produce and execute the Sepolia testnet runbook
+### Task 11: Produce and execute the Sepolia runbook
 
 **Files:**
 - Create: `docs/security/testnet-runbook.md`
@@ -864,82 +494,48 @@ git commit -m "test: prove vault threat model end to end"
 - Modify: `scripts/plan-deployment.ts`
 - Modify: `scripts/verify-deployment.ts`
 
-**Interfaces:**
-- Consumes: audited dependency allowlist, signer public addresses, policy, Sepolia RPC URL, and funded test accounts.
-- Produces: reproducible unsigned deployment plans, verified deployment manifests, and evidence for the architecture gate.
+**Interfaces:** Produces an unsigned reproducible deployment plan, verified public manifest, and testnet evidence bundle with no secrets.
 
-- [ ] **Step 1: Write the runbook with explicit stop conditions**
+- [ ] **Step 1: Write explicit stop conditions**
 
-Include preparation, signer enrollment, duplicate Burner backup check, plan generation, human review, transaction submission, bytecode verification, topology verification, fast transfer, over-limit rejection, delayed transfer, alert, cancellation, delayed execution, lost-signer recovery, and teardown. Stop if any code hash, owner, threshold, module, guard, permission, allowance, cooldown, expiration, or fingerprint differs.
+Stop on any owner, threshold, fallback, guard slot, Safe module, Delay upstream module, bytecode hash, signer identity, X/Y counter, period anchor, cooldown, expiration, queue fingerprint, or notification mismatch.
 
-- [ ] **Step 2: Define the public deployment manifest**
+- [ ] **Step 2: Define the public manifest**
 
-Use this structure and never include seed phrases, passkey secrets, PINs, provider tokens, or private RPC credentials:
+Include chain, Safe, guard, Delay, dependency hashes, policy hash, setup transaction hashes, and verification report hash. Exclude seeds, passkey material, PINs, provider tokens, and private RPC credentials.
 
-```json
-{
-  "chainId": 11155111,
-  "createdAt": "ISO-8601 timestamp",
-  "controlSafe": "0x...",
-  "vaultSafe": "0x...",
-  "roles": "0x...",
-  "delay": "0x...",
-  "policyHash": "0x...",
-  "setupTransactionHashes": [],
-  "verificationReportHash": "0x..."
-}
-```
+- [ ] **Step 3: Generate and human-review the unsigned plan**
 
-- [ ] **Step 3: Generate and review an unsigned plan**
+Run the planner for Sepolia and compare every decoded setup call with the call graph before signing.
 
-Run:
+- [ ] **Step 4: Execute the low-value rehearsal**
 
-```bash
-SEPOLIA_RPC_URL="$SEPOLIA_RPC_URL" npm run plan:deployment -- --chain-id 11155111 --config config/sepolia.example.json --out /tmp/sepolia-vault-plan.json
-```
+Exercise base, step-up, queue, tier-2/tier-3 alerts, cancellation, expiry, delayed execution, freeze, lost-factor recovery, signer rotation, and teardown using deliberately low-value test assets.
 
-Expected: the plan contains no secrets, selects only verified deployments, and prints the expected final owner/module graph before signing.
+- [ ] **Step 5: Hold the architecture gate and commit**
 
-- [ ] **Step 4: Execute the rehearsal with deliberately low-value test assets**
-
-Follow the runbook from clean signer accounts. Record transaction hashes and verification outputs in a copy of the deployment manifest. Do not send production assets.
-
-- [ ] **Step 5: Hold the architecture gate**
-
-Review the evidence against every security objective in the research document. If a property depends only on the client, UI, alert service, or operator discipline rather than onchain enforcement, mark the gate failed and return to the responsible task.
-
-- [ ] **Step 6: Commit the runbook and redacted example only**
-
-```bash
-git add docs/security/testnet-runbook.md deployments/sepolia.example.json config/sepolia.example.json scripts/plan-deployment.ts scripts/verify-deployment.ts
-git commit -m "docs: add personal vault testnet runbook"
-```
+Fail the gate if any security property depends only on UI classification, monitoring, relayer honesty, or operator discipline. Commit the runbook and redacted examples as `docs: add single-safe testnet runbook`.
 
 ---
 
 ## Completion criteria
 
-This plan is complete only when:
-
-- Every task checkbox is checked with its command output reviewed.
-- The historical guard is excluded from the active build.
-- Dependency versions and runtime code hashes are recorded and verified.
-- The final Vault Safe has no unrestricted human-owner or unlisted-module spending path.
-- Fast-lane loss is bounded onchain by per-transaction and per-period token policy.
-- A fully approved slow-lane transaction cannot execute before cooldown.
-- Queued transactions can be cancelled and cannot be mutated or replayed.
-- Security-weakening configuration cannot take effect immediately.
-- Signer loss and rotation do not create an immediate withdrawal path.
-- Monitoring is independent and has no authorization capability.
-- The complete threat-model suite passes against actual Safe/Zodiac behavior.
-- A Sepolia rehearsal completes with deliberately low-value test assets.
-- No claim of production readiness or audit is made.
+- Exactly one Safe holds assets; no auxiliary Safe is deployed.
+- Both Safe guard slots point to the reviewed `TieredSpendingGuard`.
+- Delay is the only module enabled on the Safe, and the Safe is Delay's only enabled upstream module/proposer.
+- The Safe has the exact owners, threshold 1, and no unrestricted fallback handler.
+- Passkey-only daily outflow is bounded onchain by X per token.
+- Combined immediate daily outflow is bounded onchain by Y per token regardless of ordering or splitting.
+- Burner is required above X and its signature is bound to the exact Safe transaction.
+- Transfers above Y cannot execute before delay Z and can be cancelled.
+- Recovery cannot immediately transfer funds or weaken policy.
+- Failed owner and module executions cannot consume counters or authorizations.
+- Direct owner calls, extra modules, approvals, arbitrary messages, approved hashes, batches, and delegate calls cannot bypass policy.
+- Weakening, signer rotation, guard replacement, and module changes are delayed; immediate changes are provably tightening only.
+- Tier-2 executions and the tier-3 lifecycle are independently monitored without authorization capability.
+- Real Safe/Delay integration, invariant, static-analysis, and rehearsal gates pass.
+- The repository makes no production-readiness or audit claim.
 
 ## Follow-on plans
 
-After this plan passes, write separate plans for:
-
-1. The consumer wallet UI and onboarding experience.
-2. Independent cancellation-only guardians, if the reviewed topology requires new Solidity.
-3. Additional assets and carefully decoded DeFi actions.
-4. External review, audit remediation, and a capped production pilot.
+After this plan passes, write separate plans for the consumer wallet UI, external review and audit remediation, carefully decoded DeFi actions, additional chains, and a deliberately capped production pilot.

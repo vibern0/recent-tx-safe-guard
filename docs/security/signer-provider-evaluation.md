@@ -7,7 +7,7 @@ This project should not choose an embedded-wallet or account-abstraction provide
 
 - Safe-native passkey support for the convenient signer
 - Generic EIP-1193 / WalletConnect signing for Burner and other hardware wallets
-- Zodiac Roles and Delay as the onchain policy authority
+- `TieredSpendingGuard` and Zodiac Delay as the onchain policy authority
 - Post-deployment topology verification before meaningful funds are deposited
 
 Provider SDKs are useful only if they fit inside that topology.
@@ -26,13 +26,13 @@ Privy, Dynamic, Turnkey, ZeroDev, Kernel, Biconomy, Alchemy smart wallets, and s
 
 A provider adapter is acceptable only if it proves all of the following:
 
-- It signs the exact Safe transaction typed data for the configured Control Safe.
+- It signs the exact Safe transaction typed data for the configured single Safe.
 - The produced signature verifies against the expected Safe owner.
 - It cannot switch chain, Safe, owner, account, or transaction hash after the user review step.
 - It does not create a second smart account that holds assets outside the Vault Safe.
 - It does not add or retain an unrestricted owner, module, session key, recovery path, relayer authority, or message-signing path.
-- It cannot bypass Zodiac Roles for fast-lane transfers.
-- It cannot bypass Zodiac Delay for slow-lane transfers or security-weakening changes.
+- It cannot bypass the passkey-only X limit, the named Burner co-signature, or the shared immediate Y allowance enforced through `TieredSpendingGuard`.
+- It cannot bypass Zodiac Delay for transfers above Y or security-weakening changes.
 - It exposes user rejection, provider account changes, chain changes, and signature failures as hard failures.
 - It can be exercised in tests without relying on undocumented NFC, passkey, or hosted-service behavior.
 
@@ -44,6 +44,6 @@ Start with:
 
 1. Safe-native passkey adapter.
 2. Generic EIP-1193 / WalletConnect adapter for Burner.
-3. Provider-neutral conformance tests.
+3. Provider-neutral conformance tests against the exact transaction digest and signature-extension formats accepted by `TieredSpendingGuard`.
 
 Evaluate Cometh after the security core passes, as a frontend acceleration path rather than as the authority for custody policy.

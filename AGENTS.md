@@ -27,16 +27,19 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 
 ## Non-negotiable security rules
 
-- Prefer current audited Safe/Zodiac primitives over new security-critical Solidity.
+- Prefer current audited Safe/Zodiac primitives where they satisfy the requirement. The approved exception is the narrowly scoped `TieredSpendingGuard` required to enforce the single-Safe X/Y/Z policy.
 - Verify exact versions, audit status, canonical addresses, and runtime bytecode before use.
 - Pin exact dependency versions and commit the lockfile.
 - Constrain both Safe owner transactions and module transactions.
 - Leave no unrestricted direct-owner or unlisted-module spending path on the Vault Safe.
 - Bind authorization to chain, Safe, destination, value, calldata, operation, and nonce.
-- Keep the MVP fast lane to native transfers and selected ERC-20 `transfer` calls.
-- Deny delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, and unknown calldata on the fast lane.
+- Keep the MVP base and step-up instant tiers to native transfers and selected ERC-20 `transfer` calls.
+- Deny delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, and unknown calldata on both instant tiers.
+- Enforce passkey-only daily spending up to X and combined base-plus-step-up daily spending up to shared Y, per token, with `0 < X < Y`, on one asset-holding Safe.
+- Require the Safe-validated signer to be exactly the configured passkey for transfer paths.
+- Require a self-authenticating Burner co-signature over the exact Safe transaction for the step-up and delayed tiers.
 - Enforce per-transaction and per-period limits onchain and per token.
-- Require a mandatory delay after full approval for slow-lane operations.
+- Require a mandatory delay Z after full approval for delayed-tier operations above Y.
 - Delay security-weakening changes; permit immediate tightening only when enforced onchain.
 - Treat monitoring as mandatory and non-authorizing.
 - Test recovery and cancellation before removing bootstrap control.
@@ -52,10 +55,10 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 - Keep private keys, passkey material, Burner PINs, RPC secrets, and provider credentials out of the repository and logs.
 - Generated deployment plans must be unsigned and reproducible before human review.
 - Prefer read-only verification scripts that fail closed on missing or inconsistent RPC data.
-- Stop and write a focused design proposal if an accepted security property requires custom Solidity not already covered by the plan.
+- Stop and write a focused design proposal if an accepted security property requires custom Solidity beyond `TieredSpendingGuard` and its internal signature/digest helpers.
 
 ## Scope boundaries
 
-The first security-core prototype targets one EVM test network, token-denominated limits, selected native/ERC-20 transfers, a 2-of-3 Control Safe, a module-constrained Vault Safe, and a delayed slow lane.
+The first security-core prototype targets one EVM test network, one Safe holding assets, token-denominated X/Y limits, selected native/ERC-20 transfers, a mandatory transaction/module guard, one reviewed Delay module, and a cancellable delayed tier Z.
 
 Arbitrary DeFi, bridges, NFTs, cross-chain synchronization, fiat-oracle limits, broad message signing, unlimited approvals, and production deployment are outside the first plan.
