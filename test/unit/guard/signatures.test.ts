@@ -63,6 +63,8 @@ describe("TieredSpendingGuard exact signatures", () => {
     await expect(guard.read.decodePasskeySignature([`${valid}00` as Hex])).to.be.rejectedWith("Trailing");
     const approvedHash = `${valid.slice(0, 130)}01` as Hex;
     await expect(guard.read.decodePasskeySignature([approvedHash])).to.be.rejected;
+    const nonCanonical = `0x01${valid.slice(4)}` as Hex;
+    await expect(guard.read.decodePasskeySignature([nonCanonical])).to.be.rejected;
   });
 
   it("uses a terminal typed envelope for the Burner signature", async () => {

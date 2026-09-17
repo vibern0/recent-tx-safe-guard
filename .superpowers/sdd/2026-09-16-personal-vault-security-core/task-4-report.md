@@ -21,3 +21,9 @@ Concerns carried forward:
 - Spending-tier classification/accounting, Delay queue policy, cancellation, and topology hardening remain Task 5/6 work.
 - `Mock1271Signer.sol` is test-only and deliberately accepts any EIP-1271 payload; it is not a production signer.
 - The repository now compiles for Cancun because the pinned OpenZeppelin 5.6.1 `SignatureChecker` uses `mcopy`; deployment-chain activation must be verified before testnet use.
+
+## Follow-up review fixes
+
+- Added real EIP-712 ECDSA Burner tests against the configured Burner owner for exact-hash acceptance, target/value mutation, wrong chain, wrong Safe, wrong nonce, malformed/empty envelope, and replay rejection.
+- Added Safe 1.5 module-guard integration coverage for the configured module, rejection of an unconfigured module, failed-module after-execution rollback, and subsequent successful module execution.
+- Added rejection of nonzero high bits in the Safe contract-signature owner word before address conversion.

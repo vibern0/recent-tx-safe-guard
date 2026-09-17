@@ -6,6 +6,7 @@ library SafeSignatureDecoder {
     error ApprovedHashSignature();
     error UnsupportedSignatureType();
     error TrailingSafeSignatureData();
+    error NonCanonicalOwnerWord();
 
     function decode(bytes calldata signatures) internal pure returns (address signer, uint256 ownerEnd) {
         if (signatures.length < 65) revert MalformedSafeSignature();
@@ -14,7 +15,9 @@ library SafeSignatureDecoder {
         if (v == 1) revert ApprovedHashSignature();
         if (v != 0) revert UnsupportedSignatureType();
 
-        signer = address(uint160(uint256(bytes32(signatures[0:32]))));
+        bytes32 ownerWord = bytes32(signatures[0:32]);
+        if (uint256(ownerWord) >> 160 != 0) revert NonCanonicalOwnerWord();
+        signer = address(uint160(uint256(ownerWord)));
         uint256 offset = uint256(bytes32(signatures[32:64]));
         if (offset != 65 || signatures.length < 65 + 32) revert MalformedSafeSignature();
 
