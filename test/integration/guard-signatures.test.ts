@@ -129,6 +129,6 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
     await expect(otherModule.write.execute([safe.address, recipient.account.address, 0n, "0x", 0], { account: deployer.account })).to.be.rejected;
     await expect(module.write.execute([safe.address, passkey.address, 0n, encodeFunctionData({ abi: [{ name: "revertCall", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] }], functionName: "revertCall" }), 0], { account: deployer.account })).to.be.rejected;
-    await module.write.execute([safe.address, recipient.account.address, 0n, "0x", 0], { account: deployer.account });
+    await expect(module.write.execute([safe.address, recipient.account.address, 0n, "0x", 0], { account: deployer.account })).to.be.rejected;
   });
 });

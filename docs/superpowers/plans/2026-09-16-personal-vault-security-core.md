@@ -322,27 +322,27 @@ Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce 
 
 **Interfaces:** Produces `queueFingerprint`, `buildQueueTransaction`, `buildCancellationTransaction`, `buildExecutionTransaction`, and `readQueueItem`.
 
-- [ ] **Step 1: Write delayed-proposal tests**
+- [x] **Step 1: Write delayed-proposal tests**
 
 A direct transfer above remaining Y must fail. A Safe call to the exact Delay queue selector succeeds only with passkey plus Burner and only when the decoded inner action is an allowed transfer or enumerated weakening action. Mutation of inner target, value, calldata, operation, nonce, cooldown, or expiration fails.
 
-- [ ] **Step 2: Write module-path tests**
+- [x] **Step 2: Write module-path tests**
 
 Only the verified Delay address may call the Safe module path. Execution before Z, after expiration, after cancellation, through another module, or by delegate call fails. An exact queued transfer succeeds after Z through an unprivileged relayer.
 
-- [ ] **Step 3: Implement cancellation and emergency rules**
+- [x] **Step 3: Implement cancellation and emergency rules**
 
 Permit the recovery owner or passkey-plus-Burner to call only the configured Delay's nonce-advance cancellation and guard freeze functions immediately. Enumerate every ordered queue item invalidated by cancellation. Deny recovery transfers and arbitrary queue creation.
 
-- [ ] **Step 4: Implement delayed recovery and configuration**
+- [x] **Step 4: Implement delayed recovery and configuration**
 
 Allow recovery to queue only fixed signer replacement, guard repair, and policy repair selectors. Limit increases, recipient additions, delay reductions, owner/module/guard/fallback changes, and unfreezing require Delay. Immediate tightening functions must prove limits only decrease, recipients only disappear, or the system only becomes more restrictive.
 
-- [ ] **Step 5: Prove removal and fallback safety**
+- [x] **Step 5: Prove removal and fallback safety**
 
 Test atomic delayed replacement of both guard slots, no intermediate unguarded execution, no unlisted module, no unrestricted fallback handler, no direct `signMessage`, and rejection of approved-hash authorization. If Safe cannot replace both guards atomically without a broader delayed batch, stop for a focused maintenance design.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run queue, module, recovery, and configuration integration tests. Commit as `feat: add cancellable delayed vault tier`.
 

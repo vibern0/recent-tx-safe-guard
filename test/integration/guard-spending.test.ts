@@ -39,16 +39,20 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
     const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
       { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
-    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] });
+    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address, other.account.address]] });
     await execute(guard.address, 0n, policyData, await sign(guard.address, 0n, policyData));
     const replacementPolicy = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
       { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
-    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [other.account.address]] });
+    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] });
     await execute(guard.address, 0n, replacementPolicy, await sign(guard.address, 0n, replacementPolicy));
-    expect(await guard.read.allowedRecipient([token.address, recipient.account.address])).to.equal(false);
-    expect(await guard.read.allowedRecipient([token.address, other.account.address])).to.equal(true);
-    await execute(guard.address, 0n, policyData, await sign(guard.address, 0n, policyData));
+    expect(await guard.read.allowedRecipient([token.address, recipient.account.address])).to.equal(true);
+    expect(await guard.read.allowedRecipient([token.address, other.account.address])).to.equal(false);
+    const addition = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address, other.account.address]] });
+    await expect(execute(guard.address, 0n, addition, await sign(guard.address, 0n, addition))).to.be.rejected;
     const setGuardData = encodeFunctionData({ abi: [{ name: "setGuard", type: "function", stateMutability: "nonpayable", inputs: [{ name: "guard", type: "address" }], outputs: [] }], functionName: "setGuard", args: [guard.address] });
     await execute(safe.address, 0n, setGuardData, await sign(safe.address, 0n, setGuardData));
 

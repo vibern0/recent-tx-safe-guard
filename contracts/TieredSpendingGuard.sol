@@ -38,6 +38,13 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
     bytes32 public constant BURNER_SIGNATURE_TYPE_HASH = keccak256("TieredSpendingGuard.BurnerSignature.v1");
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
+    bytes4 private constant DELAY_QUEUE_SELECTOR = 0x468721a7; // execTransactionFromModule(address,uint256,bytes,uint8)
+    bytes4 private constant DELAY_SET_NONCE_SELECTOR = 0x46ba2307; // setTxNonce(uint256)
+    bytes4 private constant FREEZE_SELECTOR = bytes4(keccak256("freeze()"));
+    bytes4 private constant REPLACE_GUARDS_SELECTOR = 0x7ec60d4f;
+    bytes4 private constant REPAIR_SIGNER_SELECTOR = bytes4(keccak256("repairSigner(uint8,address)"));
+    bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
+    bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
 
     GuardConfig public config;
     mapping(address => AssetPolicy) public assetPolicy;
@@ -52,6 +59,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     uint256 private pendingSafeBalance;
     uint256 private pendingRecipientBalance;
     bool private pendingTokenProof;
+    address public maintenance;
+    bool public frozen;
 
     error OnlySafe();
     error ReentrantCheck();
@@ -70,6 +79,10 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     error InvalidAssetPolicy();
     error TransferExceedsLimit();
     error RecipientNotAllowed();
+    error InvalidDelayedAction();
+    error Frozen();
+    error MaintenanceAlreadySet();
+    error InvalidRepair();
 
     event TransferAuthorized(
         AuthorizationTier tier,
@@ -103,6 +116,13 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             instantDailyLimit <= baseDailyLimit || basePerTransaction > baseDailyLimit ||
             stepUpPerTransaction > instantDailyLimit || recipients.length == 0
         ) revert InvalidAssetPolicy();
+        AssetPolicy memory previous = assetPolicy[token];
+        if (previous.instantDailyLimit != 0) {
+            if (basePerTransaction > previous.basePerTransaction || stepUpPerTransaction > previous.stepUpPerTransaction || baseDailyLimit > previous.baseDailyLimit || instantDailyLimit > previous.instantDailyLimit) revert InvalidAssetPolicy();
+            for (uint256 i; i < recipients.length; ++i) {
+                if (!allowedRecipient[token][recipients[i]]) revert InvalidAssetPolicy();
+            }
+        }
         assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
         address[] storage previousRecipients = policyRecipients[token];
         for (uint256 i; i < previousRecipients.length; ++i) {
@@ -114,6 +134,33 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             allowedRecipient[token][recipients[i]] = true;
             policyRecipients[token].push(recipients[i]);
         }
+    }
+
+    function setMaintenance(address replacementMaintenance) external onlySafe {
+        if (maintenance != address(0) || replacementMaintenance == address(0)) revert MaintenanceAlreadySet();
+        maintenance = replacementMaintenance;
+    }
+
+    function freeze() external onlySafe {
+        frozen = true;
+    }
+
+    function repairSigner(uint8 role, address replacement) external onlySafe {
+        if (replacement == address(0) || replacement == config.passkey || replacement == config.burner || replacement == config.recovery || role > 2) revert InvalidRepair();
+        if (role == 0) config.passkey = replacement;
+        else if (role == 1) config.burner = replacement;
+        else config.recovery = replacement;
+    }
+
+    function repairPolicy(address token, uint256 basePerTx, uint256 stepUpPerTx, uint256 baseDaily, uint256 instantDaily, address[] calldata recipients) external onlySafe {
+        if (token == address(0) || recipients.length == 0) revert InvalidRepair();
+        for (uint256 i; i < recipients.length; ++i) {
+            if (recipients[i] == address(0)) revert InvalidRepair();
+            for (uint256 j; j < i; ++j) if (recipients[i] == recipients[j]) revert InvalidRepair();
+        }
+        AssetPolicy memory current = assetPolicy[token];
+        if (current.instantDailyLimit != 0 && (basePerTx > current.basePerTransaction || stepUpPerTx > current.stepUpPerTransaction || baseDaily > current.baseDailyLimit || instantDaily > current.instantDailyLimit)) revert InvalidRepair();
+        _setAssetPolicy(token, basePerTx, stepUpPerTx, baseDaily, instantDaily, recipients);
     }
 
     modifier onlySafe() {
@@ -173,10 +220,12 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         bytes32 txHash = PolicyDigest.safeTransactionHash(config.safe, to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, currentNonce - 1);
         (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures);
         (address passkeySigner,) = SafeSignatureDecoder.decode(signatures);
-        if (passkeySigner != config.passkey) revert InvalidPasskeySignature();
+        bool recoveryAction = _isRecoveryAction(to, value, data, operation);
+        if (passkeySigner != (recoveryAction ? config.recovery : config.passkey)) revert InvalidPasskeySignature();
         try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, signatures, 1) {} catch { revert InvalidPasskeySignature(); }
 
         if (signatures.length > ownerEnd) {
+            if (recoveryAction) revert InvalidDelayedAction();
             bytes calldata burnerSignature = _burnerExtension(signatures, ownerEnd);
             if (!SignatureChecker.isValidSignatureNow(config.burner, txHash, burnerSignature)) revert InvalidBurnerSignature();
             bytes32 authorization = keccak256(abi.encode(txHash, keccak256(burnerSignature)));
@@ -184,7 +233,15 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             burnerAuthorizationUsed[authorization] = true;
         }
 
-        _authorizeTransfer(to, value, data, operation, signatures.length > ownerEnd);
+        if (recoveryAction) {
+            _authorizeRecovery(to, value, data, operation);
+        } else if (_isExactSetAssetPolicy(data) && to == address(this) && value == 0 && operation == Enum.Operation.Call) {
+            revert InvalidPasskeySignature();
+        } else if (_isQueueProposal(to, value, data, operation)) {
+            _authorizeQueueProposal(data, signatures.length > ownerEnd, recoveryAction);
+        } else {
+            _authorizeTransfer(to, value, data, operation, signatures.length > ownerEnd);
+        }
     }
 
     function checkAfterExecution(bytes32, bool success) external override onlySafe {
@@ -206,8 +263,13 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         external override onlySafe returns (bytes32 moduleTxHash)
     {
         if (checking) revert ReentrantCheck();
-        if (module != config.delay) revert InvalidConfig();
+        if (module != config.delay || module == address(0)) revert InvalidConfig();
         checking = true;
+        if (operation == Enum.Operation.DelegateCall) {
+            if (maintenance == address(0) || to != maintenance || data.length != 68 || bytes4(data[:4]) != REPLACE_GUARDS_SELECTOR) revert InvalidDelayedAction();
+        } else {
+            _authorizeDelayedExecution(to, value, data, operation);
+        }
         return PolicyDigest.moduleTransactionHash(config.safe, module, to, value, data, operation);
     }
 
@@ -230,6 +292,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     function _authorizeTransfer(address to, uint256 value, bytes calldata data, Enum.Operation operation, bool burnerApproved) internal {
+        if (frozen) revert Frozen();
         if (operation != Enum.Operation.Call) revert UnsupportedTransfer();
 
         address token;
@@ -277,6 +340,107 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             pendingTokenProof = true;
         }
         emit TransferAuthorized(tier, token, recipient, amount, state.baseSpent, state.instantSpent, window);
+    }
+
+    function _isQueueProposal(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
+        return to == config.delay && value == 0 && operation == Enum.Operation.Call && data.length >= 4 && bytes4(data[:4]) == DELAY_QUEUE_SELECTOR;
+    }
+
+    function _authorizeQueueProposal(bytes calldata data, bool burnerApproved, bool recoveryApproved) internal view {
+        if (data.length < 4 + 32 * 4) revert InvalidDelayedAction();
+        (address target, uint256 value, bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
+        if (keccak256(data) != keccak256(abi.encodeWithSelector(DELAY_QUEUE_SELECTOR, target, value, innerData, operation))) revert InvalidDelayedAction();
+        if (operation == uint8(Enum.Operation.DelegateCall)) {
+            if (maintenance == address(0) || target != maintenance || innerData.length != 68 || bytes4(innerData) != REPLACE_GUARDS_SELECTOR) revert InvalidDelayedAction();
+            return;
+        }
+        if (operation != uint8(Enum.Operation.Call)) revert InvalidDelayedAction();
+        if (target == address(this)) {
+            if (!_isExactRepair(innerData) || (!recoveryApproved && !burnerApproved)) revert InvalidRepair();
+            return;
+        }
+        if (!burnerApproved) revert MissingBurnerExtension();
+        (address token, address recipient, uint256 amount) = _decodeTransfer(target, value, innerData);
+        AssetPolicy memory policy = assetPolicy[token];
+        SpendState memory state = spendState[token];
+        uint256 window = _currentWindow();
+        uint256 spent = state.window == window ? state.instantSpent : 0;
+        if (policy.instantDailyLimit == 0 || amount <= policy.instantDailyLimit - spent || !allowedRecipient[token][recipient]) revert InvalidDelayedAction();
+    }
+
+    function _authorizeDelayedExecution(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view {
+        if (frozen || operation != Enum.Operation.Call) revert InvalidDelayedAction();
+        if (to == address(this)) {
+            if (!_isExactRepair(data)) revert InvalidRepair();
+            return;
+        }
+        (address token, address recipient, uint256 amount) = _decodeTransfer(to, value, data);
+        if (assetPolicy[token].instantDailyLimit == 0 || !allowedRecipient[token][recipient] || amount == 0) revert InvalidDelayedAction();
+    }
+
+    function _decodeTransfer(address to, uint256 value, bytes memory data) internal pure returns (address token, address recipient, uint256 amount) {
+        if (data.length == 0) return (address(0), to, value);
+        if (value != 0 || data.length != 68 || bytes4(data) != bytes4(0xa9059cbb)) revert InvalidDelayedAction();
+        bytes memory args = new bytes(data.length - 4);
+        for (uint256 i; i < args.length; ++i) args[i] = data[i + 4];
+        (recipient, amount) = abi.decode(args, (address, uint256));
+        return (to, recipient, amount);
+    }
+
+    function _isRecoveryAction(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
+        if (value != 0 || operation != Enum.Operation.Call) return false;
+        if (to == address(this) && data.length == 4 && bytes4(data[:4]) == FREEZE_SELECTOR) return true;
+        if (to == address(this) && _isExactSetAssetPolicy(data)) return true;
+        if (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR) return true;
+        return _isQueueProposal(to, value, data, operation) && _queueContainsRepair(data);
+    }
+
+    function _queueContainsRepair(bytes calldata data) internal view returns (bool) {
+        (, , bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
+        return operation == uint8(Enum.Operation.Call) && _isExactRepair(innerData);
+    }
+
+    function _isExactRepair(bytes memory data) internal pure returns (bool) {
+        if (data.length < 4) return false;
+        if (bytes4(data) == REPAIR_SIGNER_SELECTOR) {
+            if (data.length != 68) return false;
+            (uint8 role, address replacement) = abi.decode(_copy(data, 4), (uint8, address));
+            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, replacement));
+        }
+        if (bytes4(data) == REPAIR_POLICY_SELECTOR) {
+            if (data.length < 4 + 32 * 6) return false;
+            (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(_copy(data, 4), (address, uint256, uint256, uint256, uint256, address[]));
+            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, token, a, b, c, d, recipients));
+        }
+        return false;
+    }
+
+    function _copy(bytes memory input, uint256 start) internal pure returns (bytes memory output) {
+        output = new bytes(input.length - start);
+        for (uint256 i; i < output.length; ++i) output[i] = input[i + start];
+    }
+
+    function _setAssetPolicy(address token, uint256 basePerTransaction, uint256 stepUpPerTransaction, uint256 baseDailyLimit, uint256 instantDailyLimit, address[] calldata recipients) internal {
+        if (basePerTransaction == 0 || stepUpPerTransaction == 0 || baseDailyLimit == 0 || instantDailyLimit <= baseDailyLimit || basePerTransaction > baseDailyLimit || stepUpPerTransaction > instantDailyLimit) revert InvalidAssetPolicy();
+        assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        address[] storage previousRecipients = policyRecipients[token];
+        for (uint256 i; i < previousRecipients.length; ++i) allowedRecipient[token][previousRecipients[i]] = false;
+        delete policyRecipients[token];
+        for (uint256 i; i < recipients.length; ++i) {
+            if (recipients[i] == address(0)) revert InvalidAssetPolicy();
+            allowedRecipient[token][recipients[i]] = true;
+            policyRecipients[token].push(recipients[i]);
+        }
+    }
+
+    function _authorizeRecovery(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view {
+        if (!_isRecoveryAction(to, value, data, operation)) revert InvalidDelayedAction();
+    }
+
+    function _isExactSetAssetPolicy(bytes calldata data) internal pure returns (bool) {
+        if (data.length < 4 + 32 * 6 || bytes4(data[:4]) != SET_ASSET_POLICY_SELECTOR) return false;
+        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[]));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(SET_ASSET_POLICY_SELECTOR, token, a, b, c, d, recipients));
     }
 
     function _readBalance(address token, address account) internal view returns (uint256 balance) {
