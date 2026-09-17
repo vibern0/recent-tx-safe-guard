@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { encodeAbiParameters, encodeEventTopics, getAddress, keccak256, parseAbiItem, toHex } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, keccak256, parseAbi, parseAbiItem, toHex } from "viem";
 import {
   decodeGuardLog,
   guardEventAbi,
@@ -36,26 +36,32 @@ function log(name: "TransferAuthorized" | "AuthorizationUsed", args: readonly un
 }
 
 describe("guard activity decoding", () => {
-  it("decodes only confirmed step-up authorizations and preserves X/Y state", () => {
-    const result = decodeGuardLog(log("TransferAuthorized", [1, identity.safe, getAddress("0x0000000000000000000000000000000000000004"), 25n, 7n, 25n, 1n]), identity, 12n);
+  const token = getAddress("0x0000000000000000000000000000000000000004");
+  const recipient = getAddress("0x0000000000000000000000000000000000000005");
+  const transfer = encodeFunctionData({ abi: parseAbi(["function transfer(address,uint256) returns (bool)"]), functionName: "transfer", args: [recipient, 25n] });
+  const binding = { readSafeTransaction: async () => ({ safe: identity.safe, to: token, value: 0n, data: transfer, operation: 0, nonce: 9n }), readSpendState: async () => ({ baseSpent: 7n, instantSpent: 25n, window: 1n }) };
+
+  it("decodes only confirmed step-up authorizations and preserves X/Y state", async () => {
+    const result = await decodeGuardLog(log("TransferAuthorized", [1, token, recipient, 25n, 7n, 25n, 1n]), identity, 12n, binding);
     expect(result).to.deep.include({ kind: "step-up-executed", amount: 25n, baseSpent: 7n, instantSpent: 25n, window: 1n });
   });
 
-  it("suppresses base events and unconfirmed logs", () => {
-    expect(decodeGuardLog(log("TransferAuthorized", [0, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n)).to.equal(undefined);
-    expect(decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 10n)).to.equal(undefined);
+  it("suppresses base events and unconfirmed logs", async () => {
+    expect(await decodeGuardLog(log("TransferAuthorized", [0, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, binding)).to.equal(undefined);
+    expect(await decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 10n, binding)).to.equal(undefined);
   });
 
-  it("fails closed on wrong identity, malformed data, and a mismatched transaction binding", () => {
-    expect(() => decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n], { address: identity.delay }), identity, 12n)).to.throw(/identity/i);
-    expect(() => decodeGuardLog({ ...log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), data: "0x12" }, identity, 12n)).to.throw(/malformed/i);
-    expect(() => decodeGuardLog(log("AuthorizationUsed", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, { expectedSafe: identity.delay })).to.throw(/binding/i);
+  it("fails closed on wrong identity, malformed data, and a mismatched transaction binding", async () => {
+    await expect(decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n], { address: identity.delay }), identity, 12n, binding)).to.be.rejectedWith(/identity/i);
+    await expect(decodeGuardLog({ ...log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), data: "0x12" }, identity, 12n, binding)).to.be.rejectedWith(/malformed/i);
+    await expect(decodeGuardLog(log("AuthorizationUsed", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, { expectedSafe: identity.delay } as never)).to.be.rejectedWith(/binding/i);
   });
 
   it("requires read-only transaction and counter revalidation before notification", async () => {
-    const result = decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n)!;
-    const tx = { to: identity.guard, value: 0n, data: "0x" as const, operation: 0 };
-    await expect(verifyGuardBinding(result, { expectedTransaction: tx, readTransaction: async () => tx, readSpendState: async () => ({ baseSpent: 1n, instantSpent: 1n, window: 1n }) }, identity)).to.be.fulfilled;
-    await expect(verifyGuardBinding(result, { expectedTransaction: tx, readTransaction: async () => ({ ...tx, value: 1n }), readSpendState: async () => ({ baseSpent: 1n, instantSpent: 1n, window: 1n }) }, identity)).to.be.rejectedWith(/binding/i);
+    const result = await decodeGuardLog(log("TransferAuthorized", [1, token, recipient, 25n, 7n, 25n, 1n]), identity, 12n, binding);
+    const tx = { to: token, value: 0n, data: transfer, operation: 0 };
+    const expected = { safe: identity.safe, ...tx, nonce: 9n };
+    await expect(verifyGuardBinding(result!, { expectedTransaction: expected, ...binding }, identity)).to.be.fulfilled;
+    await expect(verifyGuardBinding(result!, { expectedTransaction: expected, readSafeTransaction: async () => ({ safe: identity.safe, ...tx, value: 1n, nonce: 9n }), readSpendState: binding.readSpendState }, identity)).to.be.rejectedWith(/binding/i);
   });
 });

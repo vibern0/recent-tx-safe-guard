@@ -1,56 +1,10 @@
 import type { Address, Hex } from "viem";
-
-export type ActivityKind = "step-up-executed" | "delayed-queued" | "delayed-cancelled" | "delayed-executed" | "delayed-expired" | "delayed-frozen" | "delayed-repair";
-
-export type ActivityBase = Readonly<{
-  kind: ActivityKind;
-  chainId: number;
-  safe: Address;
-  transactionHash: Hex;
-  blockNumber: bigint;
-  logIndex: number;
-}>;
-
-export type ActivityAlert = ActivityBase & Readonly<{
-  guard?: Address;
-  delay?: Address;
-  token?: Address;
-  recipient?: Address;
-  amount?: bigint;
-  baseSpent?: bigint;
-  instantSpent?: bigint;
-  window?: bigint;
-  queueNonce?: bigint;
-  queueFingerprint?: Hex;
-  createdAt?: bigint;
-  expiresAt?: bigint;
-  cancelledThrough?: bigint;
-  repairSelector?: Hex;
-}>;
-
-/** Notification is intentionally the only capability exposed by this port. */
-export interface Notifier {
-  notify(alert: ActivityAlert): Promise<void>;
-}
-
-export function createStdoutNotifier(write: (line: string) => void = console.log): Notifier {
-  return { notify: async alert => write(JSON.stringify(alert, (_, value) => typeof value === "bigint" ? value.toString() : value)) };
-}
-
-export type WebhookFetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number }>;
-
-export function createWebhookNotifier(url: string, fetcher: WebhookFetch = async (target, init) => {
-  const response = await fetch(target, init);
-  return { ok: response.ok, status: response.status };
-}): Notifier {
-  return {
-    notify: async alert => {
-      const response = await fetcher(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(alert, (_, value) => typeof value === "bigint" ? value.toString() : value),
-      });
-      if (!response.ok) throw new Error(`notification webhook returned HTTP ${response.status}`);
-    },
-  };
-}
+export type ActivityKind="step-up-executed"|"delayed-queued"|"delayed-cancelled";
+export type ActivityAlert=Readonly<{kind:ActivityKind;chainId:number;safe:Address;transactionHash:Hex;blockNumber:bigint;logIndex:number;guard?:Address;delay?:Address;token?:Address;recipient?:Address;amount?:bigint;baseSpent?:bigint;instantSpent?:bigint;window?:bigint;queueNonce?:bigint;queueFingerprint?:Hex;createdAt?:bigint;expiresAt?:bigint;cancelledThrough?:bigint}>;
+export interface Notifier{notify(alert:ActivityAlert):Promise<void>}
+const fields:Record<ActivityKind,readonly string[]>={"step-up-executed":["kind","chainId","safe","transactionHash","blockNumber","logIndex","guard","token","recipient","amount","baseSpent","instantSpent","window"],"delayed-queued":["kind","chainId","safe","transactionHash","blockNumber","logIndex","delay","queueNonce","queueFingerprint","createdAt","expiresAt"],"delayed-cancelled":["kind","chainId","safe","transactionHash","blockNumber","logIndex","delay","cancelledThrough"]};
+export function publicAlert(alert:ActivityAlert):Record<string,unknown>{const allowed=fields[alert.kind];if(!allowed)throw new Error("unknown alert kind");for(const key of Object.keys(alert as object))if(!allowed.includes(key))throw new Error(`unknown or sensitive alert field: ${key}`);const out:Record<string,unknown>={};for(const key of allowed)if(key in alert)out[key]=(alert as Record<string,unknown>)[key];return out;}
+const serialize=(a:ActivityAlert)=>JSON.stringify(publicAlert(a),(_,v)=>typeof v==="bigint"?v.toString():v);
+export function createStdoutNotifier(write:(line:string)=>void=console.log):Notifier{return{notify:async a=>write(serialize(a))};}
+export type WebhookFetch=(url:string,init?:{method?:string;headers?:Record<string,string>;body?:string})=>Promise<{ok:boolean;status:number}>;
+export function createWebhookNotifier(url:string,fetcher:WebhookFetch=async(target,init)=>{const r=await fetch(target,init);return{ok:r.ok,status:r.status};}):Notifier{return{notify:async a=>{const r=await fetcher(url,{method:"POST",headers:{"content-type":"application/json"},body:serialize(a)});if(!r.ok)throw new Error(`notification webhook returned HTTP ${r.status}`);}};}

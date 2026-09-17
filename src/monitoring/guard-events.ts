@@ -1,53 +1,18 @@
-import { decodeEventLog, getAddress, parseAbi, type Address, type Hex } from "viem";
+import { decodeEventLog, encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
 import type { ActivityAlert } from "./notifier";
-
-export const guardEventAbi = parseAbi([
-  "event TransferAuthorized(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)",
-  "event AuthorizationUsed(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)",
-  "event SpendingUpdated(address token,uint256 baseSpent,uint256 instantSpent,uint256 window)",
-]);
-
-export type MonitoringIdentity = Readonly<{ chainId: number; safe: Address; guard: Address; delay: Address; confirmations: number }>;
-export type MonitorLog = Readonly<{ address: Address; chainId?: number; blockNumber: bigint; blockHash: Hex; transactionHash: Hex; logIndex: number; topics: readonly Hex[]; data: Hex; removed?: boolean }>;
-export type GuardBinding = Readonly<{ expectedSafe?: Address; expectedTransaction?: Readonly<{ to: Address; value: bigint; data: Hex; operation: number }>; readTransaction?: (hash: Hex) => Promise<Readonly<{ to: Address; value: bigint; data: Hex; operation: number }>>; readSpendState?: (token: Address) => Promise<Readonly<{ baseSpent: bigint; instantSpent: bigint; window: bigint }>> }>;
-
+export const guardEventAbi = parseAbi(["event TransferAuthorized(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)","event AuthorizationUsed(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)","event SpendingUpdated(address token,uint256 baseSpent,uint256 instantSpent,uint256 window)"]);
+export type MonitoringIdentity = Readonly<{ chainId:number; safe:Address; guard:Address; delay:Address; confirmations:number }>;
+export type MonitorLog = Readonly<{ address:Address; chainId?:number; blockNumber:bigint; blockHash:Hex; transactionHash:Hex; logIndex:number; topics:readonly Hex[]; data:Hex; removed?:boolean }>;
+export type SafeTransaction = Readonly<{ safe:Address; to:Address; value:bigint; data:Hex; operation:number; nonce:bigint }>;
+export type GuardBinding = Readonly<{ readSafeTransaction:(hash:Hex)=>Promise<SafeTransaction>; readSpendState:(token:Address)=>Promise<Readonly<{baseSpent:bigint;instantSpent:bigint;window:bigint}>>; expectedTransaction?:SafeTransaction }>;
 export class MonitoringDecodeError extends Error {}
-
-function same(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }
-function identity(log: MonitorLog, expected: MonitoringIdentity): void {
-  if (!same(log.address, expected.guard) || (log.chainId !== undefined && log.chainId !== expected.chainId)) throw new MonitoringDecodeError("guard event identity mismatch");
-  if (log.removed) throw new MonitoringDecodeError("reorged guard event");
-  if (!Number.isInteger(expected.confirmations) || expected.confirmations < 1) throw new MonitoringDecodeError("invalid confirmation depth");
+const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
+function check(log:MonitorLog,e:MonitoringIdentity):void { if(!same(log.address,e.guard)||log.chainId!==e.chainId||log.removed) throw new MonitoringDecodeError("guard event identity/reorg mismatch"); if(!Number.isInteger(e.confirmations)||e.confirmations<1) throw new MonitoringDecodeError("invalid confirmation depth"); }
+export async function decodeGuardLog(log:MonitorLog,e:MonitoringIdentity,latestBlock:bigint,binding?:GuardBinding):Promise<ActivityAlert|undefined>{
+ check(log,e); if(latestBlock-log.blockNumber+1n<BigInt(e.confirmations)) return undefined; if(!binding||typeof binding.readSafeTransaction!=="function"||typeof binding.readSpendState!=="function") throw new MonitoringDecodeError("verified guard binding callbacks required");
+ let decoded:{eventName:string;args:readonly unknown[]}; try{decoded=decodeEventLog({abi:guardEventAbi,data:log.data,topics:[...log.topics] as [Hex,...Hex[]]}) as unknown as typeof decoded;}catch{throw new MonitoringDecodeError("malformed guard event");}
+ if(decoded.eventName==="SpendingUpdated") return undefined; if(decoded.eventName!=="TransferAuthorized"&&decoded.eventName!=="AuthorizationUsed") return undefined;
+ const [tier,token,recipient,amount,baseSpent,instantSpent,window]=(Array.isArray(decoded.args)?decoded.args:Object.values(decoded.args)) as [number,Address,Address,bigint,bigint,bigint,bigint]; if(Number(tier)!==1)return undefined;
+ return verifyGuardBinding({kind:"step-up-executed",chainId:e.chainId,safe:e.safe,guard:e.guard,transactionHash:log.transactionHash,blockNumber:log.blockNumber,logIndex:log.logIndex,token:getAddress(token),recipient:getAddress(recipient),amount,baseSpent,instantSpent,window},binding,e);
 }
-function confirmed(log: MonitorLog, expected: MonitoringIdentity, latestBlock: bigint): boolean { return latestBlock - log.blockNumber + 1n >= BigInt(expected.confirmations); }
-function equalTx(a: Readonly<{ to: Address; value: bigint; data: Hex; operation: number }>, b: Readonly<{ to: Address; value: bigint; data: Hex; operation: number }>): boolean {
-  return same(a.to, b.to) && a.value === b.value && a.data.toLowerCase() === b.data.toLowerCase() && a.operation === b.operation;
-}
-
-export function decodeGuardLog(log: MonitorLog, expected: MonitoringIdentity, latestBlock: bigint, binding?: GuardBinding): ActivityAlert | undefined {
-  identity(log, expected);
-  if (!confirmed(log, expected, latestBlock)) return undefined;
-  let decoded: { eventName: string; args: readonly unknown[] };
-  try {
-    decoded = decodeEventLog({ abi: guardEventAbi, data: log.data, topics: [...log.topics] as [Hex, ...Hex[]] }) as unknown as typeof decoded;
-  } catch { throw new MonitoringDecodeError("malformed guard event"); }
-  if (decoded.eventName === "SpendingUpdated") return undefined;
-  if (decoded.eventName !== "TransferAuthorized" && decoded.eventName !== "AuthorizationUsed") return undefined;
-  const values = Array.isArray(decoded.args) ? decoded.args : Object.values(decoded.args);
-  const [tier, token, recipient, amount, baseSpent, instantSpent, window] = values as [number, Address, Address, bigint, bigint, bigint, bigint];
-  if (Number(tier) !== 1) return undefined;
-  if (binding?.expectedSafe) throw new MonitoringDecodeError("guard transaction binding missing Safe field");
-  // The log is only a candidate. Callers with an RPC client must call
-  // verifyGuardBinding before handing the alert to a notifier.
-  return { kind: "step-up-executed", chainId: expected.chainId, safe: expected.safe, guard: expected.guard, transactionHash: log.transactionHash, blockNumber: log.blockNumber, logIndex: log.logIndex, token: getAddress(token), recipient: getAddress(recipient), amount, baseSpent, instantSpent, window };
-}
-
-export async function verifyGuardBinding(alert: ActivityAlert, binding: Required<Pick<GuardBinding, "readTransaction" | "readSpendState">> & Pick<GuardBinding, "expectedTransaction">, expected: MonitoringIdentity): Promise<ActivityAlert> {
-  if (!binding.expectedTransaction || !equalTx(await binding.readTransaction(alert.transactionHash), binding.expectedTransaction)) throw new MonitoringDecodeError("guard transaction binding mismatch");
-  if (alert.token && alert.baseSpent !== undefined && alert.instantSpent !== undefined && alert.window !== undefined) {
-    const state = await binding.readSpendState(alert.token);
-    if (state.baseSpent !== alert.baseSpent || state.instantSpent !== alert.instantSpent || state.window !== alert.window) throw new MonitoringDecodeError("guard spend state binding mismatch");
-  }
-  if (!same(alert.safe, expected.safe) || !same(alert.guard ?? "0x0", expected.guard)) throw new MonitoringDecodeError("guard binding identity mismatch");
-  return alert;
-}
+export async function verifyGuardBinding(alert:ActivityAlert,binding:GuardBinding,e:MonitoringIdentity):Promise<ActivityAlert>{const tx=await binding.readSafeTransaction(alert.transactionHash); if(!same(tx.safe,e.safe)||!same(alert.safe,e.safe)||!same(alert.guard??"0x0",e.guard))throw new MonitoringDecodeError("guard binding identity mismatch"); if(binding.expectedTransaction&&(!same(tx.safe,binding.expectedTransaction.safe)||!same(tx.to,binding.expectedTransaction.to)||tx.value!==binding.expectedTransaction.value||tx.data.toLowerCase()!==binding.expectedTransaction.data.toLowerCase()||tx.operation!==binding.expectedTransaction.operation||tx.nonce!==binding.expectedTransaction.nonce))throw new MonitoringDecodeError("guard transaction binding mismatch"); const state=await binding.readSpendState(alert.token!); if(state.baseSpent!==alert.baseSpent||state.instantSpent!==alert.instantSpent||state.window!==alert.window)throw new MonitoringDecodeError("guard spend state binding mismatch"); if(!Number.isInteger(tx.operation)||tx.operation!==0||tx.nonce<0n)throw new MonitoringDecodeError("invalid Safe transaction binding"); const zero="0x0000000000000000000000000000000000000000";const expectedTo=alert.token&&same(alert.token,zero)?alert.recipient!:alert.token!;const expectedData=alert.token&&same(alert.token,zero)?"0x":encodeFunctionData({abi:parseAbi(["function transfer(address,uint256) returns (bool)"]),functionName:"transfer",args:[alert.recipient!,alert.amount!]});if(!same(tx.to,expectedTo)||tx.value!==(alert.token&&same(alert.token,zero)?alert.amount!:0n)||tx.data.toLowerCase()!==expectedData.toLowerCase())throw new MonitoringDecodeError("guard Safe transaction fields mismatch"); return alert;}

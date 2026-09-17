@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { getAddress } from "viem";
-import { createWebhookNotifier, type ActivityAlert, type Notifier } from "../../../src/monitoring/notifier";
+import { createWebhookNotifier, publicAlert, type ActivityAlert, type Notifier } from "../../../src/monitoring/notifier";
 
 const alert: ActivityAlert = {
   kind: "step-up-executed",
@@ -37,5 +37,10 @@ describe("non-authorizing notifiers", () => {
     expect(body).to.contain('"kind":"step-up-executed"');
     expect(body).to.not.contain("privateKey");
     expect(body).to.not.contain("sign");
+  });
+
+  it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {
+    expect(() => publicAlert({ ...alert, privateKey: "secret" } as never)).to.throw(/unknown|sensitive/i);
+    expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
   });
 });

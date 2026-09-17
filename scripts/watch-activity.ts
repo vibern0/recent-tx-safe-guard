@@ -1,54 +1,15 @@
-import { createPublicClient, http, parseAbi, type Address, type Hex } from "viem";
-import { decodeDelayLog, type DelayMonitoringContext } from "../src/monitoring/delay-events";
-import { decodeGuardLog, type MonitorLog, type MonitoringIdentity } from "../src/monitoring/guard-events";
-import { ActivityLedger, InMemoryActivityStore } from "../src/monitoring/ledger";
+import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
+import { decodeDelayLog, delayEventAbi, verifyDelayBinding, type DelayMonitoringContext, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
+import { decodeGuardLog, verifyGuardBinding, type MonitoringIdentity, type SafeTransaction } from "../src/monitoring/guard-events";
+import { ActivityLedger, FileActivityStore } from "../src/monitoring/ledger";
 import { createStdoutNotifier } from "../src/monitoring/notifier";
-
-function env(name: string): string { const value = process.env[name]; if (!value) throw new Error(`missing ${name}`); return value; }
-function address(name: string): Address { return env(name) as Address; }
-function asLog(log: { address: Address; blockNumber: bigint; blockHash: Hex; transactionHash: Hex; logIndex: number; topics: readonly Hex[]; data: Hex }): MonitorLog { return { ...log, chainId: Number(env("MONITOR_CHAIN_ID")) }; }
-
-async function main(): Promise<void> {
-  const chainId = Number(env("MONITOR_CHAIN_ID"));
-  const safe = address("MONITOR_SAFE");
-  const guard = address("MONITOR_GUARD");
-  const delay = address("MONITOR_DELAY");
-  const confirmations = Number(process.env.MONITOR_CONFIRMATIONS ?? "6");
-  const fromBlock = BigInt(env("MONITOR_FROM_BLOCK"));
-  const client = createPublicClient({ transport: http(env("MONITOR_RPC_URL")) });
-  const latest = await client.getBlockNumber();
-  const identity: MonitoringIdentity = { chainId, safe, guard, delay, confirmations };
-  const delayContext: DelayMonitoringContext = { chainId, safe, delay, confirmations, cooldownSeconds: BigInt(env("MONITOR_COOLDOWN")), expirationSeconds: BigInt(process.env.MONITOR_EXPIRATION ?? "0") };
-  const ledger = new ActivityLedger(new InMemoryActivityStore());
-  const notifier = createStdoutNotifier();
-  const [guardLogs, delayLogs] = await Promise.all([
-    client.getLogs({ address: guard, fromBlock, toBlock: latest }),
-    client.getLogs({ address: delay, fromBlock, toBlock: latest }),
-  ]);
-  for (const raw of guardLogs) {
-    const log = asLog(raw);
-    try {
-      const alert = decodeGuardLog(log, identity, latest);
-      if (alert && ledger.accept({ chainId, blockHash: log.blockHash, transactionHash: log.transactionHash, logIndex: log.logIndex }, alert)) await notifier.notify(alert);
-    } catch (error) { console.error(`ignored malformed guard log ${log.transactionHash}:${log.logIndex}`, error); }
-  }
-  const delayAbi = parseAbi(["function getTxHash(uint256) view returns (bytes32)", "function getTxCreatedAt(uint256) view returns (uint256)"]);
-  for (const raw of delayLogs) {
-    const log = asLog(raw);
-    try {
-      const observedAt = (await client.getBlock({ blockNumber: log.blockNumber })).timestamp;
-      const alert = decodeDelayLog(log, delayContext, latest, observedAt);
-      if (alert.queueNonce !== undefined) {
-        const [txHash, createdAt] = await Promise.all([
-          client.readContract({ address: delay, abi: delayAbi, functionName: "getTxHash", args: [alert.queueNonce] }),
-          client.readContract({ address: delay, abi: delayAbi, functionName: "getTxCreatedAt", args: [alert.queueNonce] }),
-        ]);
-        if (alert.queueFingerprint && txHash.toLowerCase() !== alert.queueFingerprint.toLowerCase()) throw new Error("queue hash binding mismatch");
-        if (alert.createdAt !== undefined && createdAt !== alert.createdAt) throw new Error("queue creation binding mismatch");
-      }
-      if (ledger.accept({ chainId, blockHash: log.blockHash, transactionHash: log.transactionHash, logIndex: log.logIndex }, alert)) await notifier.notify(alert);
-    } catch (error) { console.error(`ignored malformed Delay log ${log.transactionHash}:${log.logIndex}`, error); }
-  }
+const env=(n:string)=>{const v=process.env[n];if(!v)throw new Error(`missing ${n}`);return v;};const address=(n:string)=>env(n) as Address;
+const safeAbi=parseAbi(["function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)","function spendState(address) view returns (uint256,uint256,uint256)","function getTxHash(uint256) view returns (bytes32)","function getTxCreatedAt(uint256) view returns (uint256)","function txNonce() view returns (uint256)"]);
+type RawLog={address:Address;blockNumber:bigint;blockHash:Hex;transactionHash:Hex;logIndex:number;topics:readonly Hex[];data:Hex;removed?:boolean};
+async function main():Promise<void>{const expectedChain=Number(env("MONITOR_CHAIN_ID"));if(!Number.isSafeInteger(expectedChain)||expectedChain<=0)throw new Error("invalid MONITOR_CHAIN_ID");const client=createPublicClient({transport:http(env("MONITOR_RPC_URL"))});const rpcChain=await client.getChainId();if(rpcChain!==expectedChain)throw new Error(`RPC chain identity mismatch: expected ${expectedChain}, got ${rpcChain}`);const safe=address("MONITOR_SAFE"),guard=address("MONITOR_GUARD"),delay=address("MONITOR_DELAY"),confirmations=Number(process.env.MONITOR_CONFIRMATIONS??"6"),fromBlock=BigInt(env("MONITOR_FROM_BLOCK"));const latest=await client.getBlockNumber();const identity:MonitoringIdentity={chainId:rpcChain,safe,guard,delay,confirmations};const dc:DelayMonitoringContext={chainId:rpcChain,safe,delay,confirmations,cooldownSeconds:BigInt(env("MONITOR_COOLDOWN")),expirationSeconds:BigInt(process.env.MONITOR_EXPIRATION??"0")};const ledger=new ActivityLedger(new FileActivityStore(env("MONITOR_STATE_FILE")));const cursor=ledger.cursor();const start=cursor&&cursor.blockNumber>=fromBlock?cursor.blockNumber:fromBlock;const canonical=new Map<number,Hex>();for(const r of ledger.records()){if(r.chainId!==rpcChain)continue;const n=Number(r.blockNumber);if(!canonical.has(n)){const b=await client.getBlock({blockNumber:r.blockNumber});if(!b.hash)throw new Error("missing canonical record block hash");canonical.set(n,b.hash);}}ledger.reconcileCanonical(rpcChain,n=>canonical.get(n));const [gl,dl]=await Promise.all([client.getLogs({address:guard,fromBlock:start,toBlock:latest}),client.getLogs({address:delay,fromBlock:start,toBlock:latest})]);const notifier=createStdoutNotifier();
+ const as=(l:RawLog):MonitorLog=>({...l,chainId:rpcChain});
+ const readSafeTransaction=async(hash:Hex):Promise<SafeTransaction>=>{const tx=await client.getTransaction({hash});if(!tx.input)throw new Error("missing Safe transaction input");const decoded=decodeFunctionData({abi:safeAbi,data:tx.input});const a=decoded.args as readonly[Address,bigint,Hex,number,bigint,bigint,bigint,Address,Address,Hex];return{safe,to:a[0],value:a[1],data:a[2],operation:a[3],nonce:a[4]};};
+ const guardBinding={readSafeTransaction,readSpendState:async(token:Address)=>{const s=await client.readContract({address:guard,abi:safeAbi,functionName:"spendState",args:[token]});return{baseSpent:s[0],instantSpent:s[1],window:s[2]};}};
+ for(const raw of [...gl,...dl].sort((a,b)=>a.blockNumber===b.blockNumber?a.logIndex-b.logIndex:Number(a.blockNumber-b.blockNumber))){const log=as(raw);try{const key={chainId:rpcChain,blockHash:log.blockHash,transactionHash:log.transactionHash,logIndex:log.logIndex};if(log.removed){ledger.remove(key);continue;}if(same(log.address,guard)){const alert=await decodeGuardLog(log,identity,latest,guardBinding);if(alert){await verifyGuardBinding(alert,guardBinding,identity);if(ledger.accept(key,alert))await notifier.notify(alert);}}else{const block=await client.getBlock({blockNumber:log.blockNumber});const queueBinding:QueueBinding={readNonce:async()=>client.readContract({address:delay,abi:safeAbi,functionName:"txNonce"}),readQueue:async n=>{const [txHash,createdAt]=await Promise.all([client.readContract({address:delay,abi:safeAbi,functionName:"getTxHash",args:[n]}),client.readContract({address:delay,abi:safeAbi,functionName:"getTxCreatedAt",args:[n]})]);const d=decodeEventLog({abi:delayEventAbi,data:log.data,topics:[...log.topics] as [Hex,...Hex[]]});const v=(Array.isArray(d.args)?d.args:Object.values(d.args)) as readonly unknown[];return{txHash,createdAt,to:v[2] as Address,value:v[3] as bigint,data:v[4] as Hex,operation:v[5] as number};}};const alert=await decodeDelayLog(log,dc,latest,block.timestamp,queueBinding);await verifyDelayBinding(alert,queueBinding,dc);if(ledger.accept(key,alert))await notifier.notify(alert);}}catch(error){console.error(`ignored malformed or unverified log ${log.transactionHash}:${log.logIndex}`,error);}}
 }
-
-main().catch(error => { console.error(error); process.exitCode = 1; });
+const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();main().catch(error=>{console.error(error);process.exitCode=1;});
