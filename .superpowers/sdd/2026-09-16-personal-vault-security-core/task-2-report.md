@@ -53,3 +53,17 @@ npm run test:integration                                                       #
 npm run test:invariant                                                         # passed; clean skip (directory absent)
 git diff --check                                                               # passed
 ```
+
+## Final delayed-calldata fix
+
+The final review finding was addressed by decoding every enumerated delayed action against its ABI and requiring canonical re-encoding to match the complete calldata byte-for-byte. Typed argument checks additionally reject invalid Delay execution operations and malformed payloads. Regression tests cover truncated, extra, selector-only, and invalid-argument calls.
+
+Final verification:
+
+```text
+npx hardhat test test/unit/policy/classify.test.ts --grep "classifyAction|delayed|inconsistent"  # passed; 9 passing
+npm test                                                                                   # passed; 9 passing
+npm run build                                                                              # passed; Nothing to compile
+npm run coverage                                                                           # passed; 9 passing
+git diff --check                                                                          # passed
+```

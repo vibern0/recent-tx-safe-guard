@@ -1,4 +1,4 @@
-import { isAddress, toFunctionSelector, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, isAddress, parseAbi, toFunctionSelector, type Address, type Hex } from "viem";
 import { assertValidVaultPolicy, type AssetPolicy, type AssetSpendState, type VaultPolicy } from "../config/policy";
 
 export type Lane = "base" | "step-up" | "delayed" | "blocked";
@@ -37,8 +37,39 @@ const RECOVERY_SELECTORS = new Set([
   "freeze()",
   "queueRepair(bytes)",
 ].map((signature) => toFunctionSelector(signature).slice(2)));
+const SAFE_DELAYED_ABI = parseAbi([
+  "function setGuard(address)",
+  "function setModuleGuard(address)",
+  "function enableModule(address)",
+  "function disableModule(address,address)",
+  "function addOwnerWithThreshold(address,uint256)",
+  "function removeOwner(address,address,address)",
+  "function swapOwner(address,address,address)",
+  "function changeThreshold(uint256)",
+  "function setFallbackHandler(address)",
+  "function setNonce(uint256)",
+]);
+const DELAY_ABI = parseAbi([
+  "function executeNextTx(address,uint256,bytes,uint8)",
+  "function skipExpired()",
+  "function invalidate(bytes32)",
+  "function setTxNonce(uint256)",
+]);
+const RECOVERY_ABI = parseAbi(["function cancel(bytes32)", "function freeze()", "function queueRepair(bytes)"]);
 
 function same(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }
+
+function exactCall(abi: any, data: Hex, functionName: string, validate: (args: readonly unknown[]) => boolean = () => true): boolean {
+  try {
+    const decoded = decodeFunctionData({ abi, data }) as { functionName: string; args?: readonly unknown[] };
+    if (decoded.functionName !== functionName) return false;
+    const args = decoded.args ?? [];
+    const canonical = encodeFunctionData({ abi, functionName: functionName as never, args: args as never });
+    return canonical.toLowerCase() === data.toLowerCase() && validate(args);
+  } catch {
+    return false;
+  }
+}
 
 function currentWindow(policy: VaultPolicy, now: bigint): bigint {
   if (now < policy.periodAnchor) throw new Error("timestamp precedes policy anchor");
@@ -55,10 +86,25 @@ function decodeTransfer(action: ClassifiableAction, asset: AssetPolicy): bigint 
 }
 
 function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction): boolean {
-  if (same(action.to, policy.delay)) return action.data.length >= 10 && DELAY_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
-  if (same(action.to, policy.recovery)) return action.data.length >= 10 && RECOVERY_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
-  if (!same(action.to, policy.safe) || action.data.length < 10) return false;
-  return DELAYED_SAFE_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
+  if (same(action.to, policy.delay)) {
+    if (action.data.length < 10 || !DELAY_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
+    if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("executeNextTx(address,uint256,bytes,uint8)").slice(2)) {
+      return exactCall(DELAY_ABI, action.data, "executeNextTx", (args) => isAddress(args[0] as string) && args[3] === 0);
+    }
+    if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("skipExpired()").slice(2)) return exactCall(DELAY_ABI, action.data, "skipExpired");
+    if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("invalidate(bytes32)").slice(2)) return exactCall(DELAY_ABI, action.data, "invalidate");
+    return exactCall(DELAY_ABI, action.data, "setTxNonce");
+  }
+  if (same(action.to, policy.recovery)) {
+    if (action.data.length < 10 || !RECOVERY_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
+    const selector = action.data.slice(2, 10).toLowerCase();
+    if (selector === toFunctionSelector("cancel(bytes32)").slice(2)) return exactCall(RECOVERY_ABI, action.data, "cancel");
+    if (selector === toFunctionSelector("freeze()").slice(2)) return exactCall(RECOVERY_ABI, action.data, "freeze");
+    return exactCall(RECOVERY_ABI, action.data, "queueRepair");
+  }
+  if (!same(action.to, policy.safe) || action.data.length < 10 || !DELAYED_SAFE_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
+  const functionName = ["setGuard", "setModuleGuard", "enableModule", "disableModule", "addOwnerWithThreshold", "removeOwner", "swapOwner", "changeThreshold", "setFallbackHandler", "setNonce"].find((name) => toFunctionSelector(`${name}(${name === "setGuard" || name === "setModuleGuard" || name === "enableModule" || name === "setFallbackHandler" ? "address" : name === "disableModule" || name === "removeOwner" || name === "swapOwner" ? "address,address,address" : name === "addOwnerWithThreshold" ? "address,uint256" : "uint256"})`).slice(2) === action.data.slice(2, 10).toLowerCase());
+  return functionName !== undefined && exactCall(SAFE_DELAYED_ABI, action.data, functionName);
 }
 
 export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, state: AssetSpendState, now: bigint, burnerApproved = action.burnerApproved ?? false): Lane {

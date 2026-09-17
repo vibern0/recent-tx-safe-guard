@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { encodeFunctionData, toFunctionSelector, type Address } from "viem";
+import { encodeFunctionData, parseAbi, toFunctionSelector, type Address } from "viem";
 import {
   assertValidVaultPolicy,
   type AssetPolicy,
@@ -105,11 +105,20 @@ describe("classifyAction", () => {
 
   it("delays recognized transfer, Safe configuration, Delay, and recovery actions", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { burnerApproved: true }), state, 1n)).to.equal("delayed");
-    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: "0xe19a9dd9" }, state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("delayed");
+  });
+
+  it("blocks truncated, extra, malformed, and invalid-argument delayed calldata", () => {
+    const validSetGuard = encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] });
+    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: validSetGuard.slice(0, -2) as `0x${string}` }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: `${validSetGuard}00` as `0x${string}` }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: "0xe19a9dd9" }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: `${toFunctionSelector("skipExpired()")}00` as `0x${string}` }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: encodeFunctionData({ abi: parseAbi(["function executeNextTx(address,uint256,bytes,uint8)"]), functionName: "executeNextTx", args: [RECIPIENT, 1n, "0x", 1] }) }, state, 1n)).to.equal("blocked");
   });
 
   it("blocks inconsistent spend counters", () => {
