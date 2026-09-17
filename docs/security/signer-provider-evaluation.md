@@ -16,6 +16,16 @@ Provider SDKs are useful only if they fit inside that topology.
 
 The first security-core prototype uses Safe-native passkey contracts and a generic EIP-1193 signer boundary. This keeps the custody graph small enough to verify and avoids coupling the core vault to a vendor account model.
 
+## Implemented signer boundary
+
+Task 8 implements the provider-neutral boundary in `src/signers/types.ts`. A signer receives one immutable request containing `chainId`, the configured Safe, the exact `safeTxHash`, and the complete `SafeTx` EIP-712 typed data. The adapter rejects mismatched chain/Safe/domain/hash data before provider interaction and verifies provider state again after signing. No seed, passkey credential, Burner PIN, provider token, or RPC credential is accepted or logged by this boundary.
+
+The passkey adapter accepts only the reviewed Safe-native WebAuthn raw signature, verifies it through the configured ERC-1271 checker, and emits exactly one canonical Safe contract-signature slot: configured signer address, `v = 0`, `s = 65`, and the length-prefixed raw WebAuthn payload. It does not emit ECDSA, approved-hash, or arbitrary message signatures.
+
+The EIP-1193 adapter is used for Burner and offline recovery. It requests only `eth_signTypedData_v4`, verifies the selected account and chain before and after the request, recovers the EOA locally from the exact typed data, rejects user/provider failures and ambiguous injected-provider lists, and rejects duplicate Safe transaction hashes. Burner appends only the versioned `TieredSpendingGuard.BurnerSignature.v1` terminal extension; recovery returns the ECDSA signature without a Burner extension. Recovery authorization remains an onchain guard rule: cancellation, freeze, and enumerated delayed repairs only, never immediate transfers or policy broadening.
+
+The adapters are transport components, not policy authorities. The deployed Safe 1.5 plus `TieredSpendingGuard` integration proves the matrix: passkey-only base succeeds, Burner-only/recovery-only transfer attempts fail, passkey plus Burner step-up succeeds within the shared immediate limit, delayed proposals queue through Delay, and recovery cannot spend.
+
 Cometh Connect remains a credible future frontend/onboarding candidate because it supports WebAuthn, ERC-4337, and Gnosis Safe based smart wallets. It is not the default security dependency for the MVP. It may be added later as a provider adapter if it passes the acceptance tests below.
 
 Pimlico and `permissionless.js` are account-abstraction infrastructure. They may help with bundlers, paymasters, gas sponsorship, and user-operation transport, but they are not the root policy layer.

@@ -397,23 +397,23 @@ Run deterministic planning twice for byte-identical output, assert fail-closed b
 
 **Interfaces:** A `SafeSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; a Burner adapter returns the exact guard extension.
 
-- [ ] **Step 1: Write provider-neutral conformance tests**
+- [x] **Step 1: Write provider-neutral conformance tests**
 
 Reject chain, Safe, hash, account, or typed-data changes; invalid ERC-1271 response; wrong recovered EOA; duplicate signature; provider account/chain change; user rejection; and extension ambiguity.
 
-- [ ] **Step 2: Implement Safe-native passkey signing**
+- [x] **Step 2: Implement Safe-native passkey signing**
 
 Use the reviewed Safe passkey contracts and verify the configured signer contract identity. Produce the canonical contract signature expected by Safe and the guard.
 
-- [ ] **Step 3: Implement Burner and recovery adapters**
+- [x] **Step 3: Implement Burner and recovery adapters**
 
 Use `eth_signTypedData_v4` through generic EIP-1193/WalletConnect. Verify recovered addresses locally. Do not invoke undocumented NFC commands or bypass Burner PIN/connection behavior.
 
-- [ ] **Step 4: Prove the complete signer matrix**
+- [x] **Step 4: Prove the complete signer matrix**
 
 Passkey succeeds only for base. Burner-only and recovery-only transfers fail. Passkey-plus-Burner succeeds within Y and queues above Y. Recovery succeeds only for cancellation, freeze, and enumerated delayed repair.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run signer unit tests and real-Safe integration tests. Commit as `feat: add tiered safe signer adapters`.
 

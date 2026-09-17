@@ -21,6 +21,8 @@ No production helper contract is added to manufacture Safe-originated calls. Unt
 
 `Safe.execTransaction` → transaction guard `TieredSpendingGuard.checkTransaction` → exact Safe signature and policy check → Safe target call → `checkAfterExecution`.
 
+The offchain signer path is provider-neutral: the passkey adapter emits the one canonical Safe contract-signature slot after ERC-1271 verification; Burner and recovery adapters use `eth_signTypedData_v4` only after checking the configured chain/account and recover the exact SafeTx locally. The Burner extension is terminal and versioned; recovery output is never sufficient for a transfer because the guard applies its cancellation/freeze/enumerated-repair allowlist.
+
 Only native transfers and selected ERC-20 `transfer` calls are admitted. The guard rejects delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, and non-passkey transfer signatures. Failed execution rolls back the counter update.
 
 ## Delayed proposal and execution
