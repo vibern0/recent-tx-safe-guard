@@ -18,6 +18,32 @@ const alert: ActivityAlert = {
   window: 1n,
 };
 
+const delayedQueued: ActivityAlert = {
+  kind: "delayed-queued",
+  chainId: 31337,
+  safe: alert.safe,
+  delay: getAddress("0x0000000000000000000000000000000000000002"),
+  transactionHash: alert.transactionHash,
+  blockNumber: 10n,
+  logIndex: 0,
+  queueNonce: 1n,
+  queueFingerprint: alert.transactionHash,
+  createdAt: 10n,
+};
+
+const delayedCancelled: ActivityAlert = {
+  kind: "delayed-cancelled",
+  chainId: 31337,
+  safe: alert.safe,
+  delay: delayedQueued.delay,
+  transactionHash: alert.transactionHash,
+  blockNumber: 10n,
+  logIndex: 0,
+  cancelledThrough: 1n,
+};
+
+const alerts: readonly ActivityAlert[] = [alert, delayedQueued, delayedCancelled];
+
 describe("non-authorizing notifiers", () => {
   it("exposes only notification and does not retain a signing or execution capability", async () => {
     const calls: unknown[] = [];
@@ -44,5 +70,22 @@ describe("non-authorizing notifiers", () => {
     expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
     expect(() => publicAlert({ ...alert, amount: "25" } as never)).to.throw(/type|required/i);
     expect(() => publicAlert({ ...alert, recipient: undefined } as never)).to.throw(/required/i);
+  });
+
+  for (const field of ["safe", "transactionHash", "blockNumber", "logIndex"] as const) {
+    it(`rejects omission of common field ${field} for every alert kind`, () => {
+      for (const value of alerts) {
+        const omitted = { ...value } as Record<string, unknown>;
+        delete omitted[field];
+        expect(() => publicAlert(omitted as never)).to.throw(new RegExp(`required.*${field}`));
+      }
+    });
+  }
+
+  it("rejects a type mismatch in each common public alert field", () => {
+    expect(() => publicAlert({ ...alert, safe: 1 } as never)).to.throw(/type/i);
+    expect(() => publicAlert({ ...alert, transactionHash: 1 } as never)).to.throw(/type/i);
+    expect(() => publicAlert({ ...alert, blockNumber: 10 } as never)).to.throw(/type/i);
+    expect(() => publicAlert({ ...alert, logIndex: 0n } as never)).to.throw(/type/i);
   });
 });
