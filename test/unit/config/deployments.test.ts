@@ -2,6 +2,8 @@ import { expect } from "chai";
 import { keccak256, type Address, type Hex } from "viem";
 import {
   resolveVerifiedDeployments,
+  resolveVerifiedDeploymentsForTest,
+  OFFICIAL_DEPLOYMENT_REGISTRY,
   type DeploymentRegistry,
   type ReadOnlyDeploymentClient,
 } from "../../../src/config/deployments";
@@ -77,7 +79,7 @@ const clientFor = (
 
 describe("resolveVerifiedDeployments", () => {
   it("rejects an unsupported chain before reading bytecode", async () => {
-    await expect(resolveVerifiedDeployments(clientFor(), OTHER_CHAIN_ID, fixtureRegistry())).to.be.rejectedWith(
+    await expect(resolveVerifiedDeploymentsForTest(clientFor(), OTHER_CHAIN_ID, fixtureRegistry())).to.be.rejectedWith(
       "unsupported chain",
     );
   });
@@ -85,21 +87,21 @@ describe("resolveVerifiedDeployments", () => {
   it("rejects an address with no runtime bytecode", async () => {
     const registry = fixtureRegistry();
     await expect(
-      resolveVerifiedDeployments(clientFor({ [addresses.delay]: ZERO_CODE }), CHAIN_ID, registry),
+      resolveVerifiedDeploymentsForTest(clientFor({ [addresses.delay]: ZERO_CODE }), CHAIN_ID, registry),
     ).to.be.rejectedWith("no runtime bytecode");
   });
 
   it("rejects runtime bytecode whose hash is not allowlisted", async () => {
     const registry = fixtureRegistry();
     await expect(
-      resolveVerifiedDeployments(clientFor({ [addresses.multiSend]: "0x6002" }), CHAIN_ID, registry),
+      resolveVerifiedDeploymentsForTest(clientFor({ [addresses.multiSend]: "0x6002" }), CHAIN_ID, registry),
     ).to.be.rejectedWith("runtime code hash mismatch");
   });
 
   it("rejects an unknown release", async () => {
     const registry = fixtureRegistry();
     registry[CHAIN_ID]!.delay.version = "9.9.9";
-    await expect(resolveVerifiedDeployments(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
+    await expect(resolveVerifiedDeploymentsForTest(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
       "unknown release",
     );
   });
@@ -107,7 +109,7 @@ describe("resolveVerifiedDeployments", () => {
   it("rejects known-vulnerable Zodiac Delay releases", async () => {
     const registry = fixtureRegistry();
     registry[CHAIN_ID]!.delay.version = "1.1.0";
-    await expect(resolveVerifiedDeployments(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
+    await expect(resolveVerifiedDeploymentsForTest(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
       "known-vulnerable Delay release",
     );
   });
@@ -115,16 +117,47 @@ describe("resolveVerifiedDeployments", () => {
   it("rejects Safe releases without module-guard support", async () => {
     const registry = fixtureRegistry();
     registry[CHAIN_ID]!.safeSingleton.supportsModuleGuards = false;
-    await expect(resolveVerifiedDeployments(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
+    await expect(resolveVerifiedDeploymentsForTest(clientFor(), CHAIN_ID, registry)).to.be.rejectedWith(
       "module guards",
     );
   });
 
   it("returns every verified dependency only after all reads pass", async () => {
-    const result = await resolveVerifiedDeployments(clientFor(), CHAIN_ID, fixtureRegistry());
+    const result = await resolveVerifiedDeploymentsForTest(clientFor(), CHAIN_ID, fixtureRegistry());
     expect(result.chainId).to.equal(CHAIN_ID);
     expect(Object.keys(result.dependencies)).to.have.length(6);
     expect(result.dependencies.delay.version).to.equal("1.1.1");
     expect(result.dependencies.safeSingleton.runtimeCodeHash).to.equal(CODE_HASH);
+  });
+
+  it("rejects malformed and zero addresses before any RPC read", async () => {
+    const registry = fixtureRegistry();
+    registry[CHAIN_ID]!.delay.address = "not-an-address" as Address;
+    let reads = 0;
+    const client: ReadOnlyDeploymentClient = {
+      getBytecode: async () => {
+        reads += 1;
+        return CODE;
+      },
+    };
+    await expect(resolveVerifiedDeploymentsForTest(client, CHAIN_ID, registry)).to.be.rejectedWith(
+      "invalid address",
+    );
+    expect(reads).to.equal(5);
+
+    const zeroRegistry = fixtureRegistry();
+    zeroRegistry[CHAIN_ID]!.delay.address = "0x0000000000000000000000000000000000000000" as Address;
+    await expect(resolveVerifiedDeploymentsForTest(clientFor(), CHAIN_ID, zeroRegistry)).to.be.rejectedWith(
+      "zero address",
+    );
+  });
+
+  it("does not allow caller metadata to replace the production official registry", async () => {
+    expect(OFFICIAL_DEPLOYMENT_REGISTRY[CHAIN_ID]!.passkeySignerFactory.address).to.equal(undefined);
+    expect(resolveVerifiedDeployments.length).to.equal(2);
+    await expect(
+      (resolveVerifiedDeployments as unknown as (...args: unknown[]) => Promise<unknown>)
+        (clientFor(), CHAIN_ID, fixtureRegistry()),
+    ).to.be.rejectedWith("safeSingleton runtime code hash mismatch");
   });
 });

@@ -1,4 +1,4 @@
-import { keccak256, type Address, type Hex } from "viem";
+import { isAddress, keccak256, type Address, type Hex } from "viem";
 
 export const SUPPORTED_CHAIN_IDS = [11155111] as const;
 export type SupportedChainId = (typeof SUPPORTED_CHAIN_IDS)[number];
@@ -17,6 +17,7 @@ export type DeploymentRecord = {
   address?: Address;
   runtimeCodeHash?: Hex;
   supportsModuleGuards?: boolean;
+  evidence?: "verified" | "absent";
   source: string;
 };
 
@@ -42,9 +43,9 @@ const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
 const ZODIAC = "https://github.com/gnosisguild/zodiac";
 
 // This is deliberately an evidence ledger, not a claim that these contracts are
-// deployed on Sepolia. Missing passkey and Delay bytecode evidence stays missing
-// until an official registry snapshot and deployment review provide it.
-export const OFFICIAL_DEPLOYMENT_REGISTRY: DeploymentRegistry = Object.freeze({
+// deployed on Sepolia. The official registries do not publish canonical passkey
+// or Delay runtime evidence for this prototype, so those absences are explicit.
+const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentRegistry = {
   11155111: {
     safeSingleton: {
       name: "Safe singleton",
@@ -64,11 +65,13 @@ export const OFFICIAL_DEPLOYMENT_REGISTRY: DeploymentRegistry = Object.freeze({
     passkeySignerFactory: {
       name: "Safe passkey signer factory",
       version: "0.2.0",
+      evidence: "absent",
       source: SAFE_MODULES,
     },
     passkeySignerVerifier: {
       name: "Safe passkey verifier",
       version: "0.2.0",
+      evidence: "absent",
       source: SAFE_MODULES,
     },
     multiSend: {
@@ -82,10 +85,22 @@ export const OFFICIAL_DEPLOYMENT_REGISTRY: DeploymentRegistry = Object.freeze({
       name: "Zodiac Delay",
       version: "1.1.1",
       address: "0x824175b945838d127c1ca83cbce11d8e44f6df01",
+      evidence: "absent",
       source: ZODIAC,
     },
   },
-} as DeploymentRegistry);
+};
+
+const freezeRegistry = (registry: DeploymentRegistry): Readonly<DeploymentRegistry> => {
+  for (const chain of Object.values(registry)) {
+    if (!chain) continue;
+    for (const record of Object.values(chain)) Object.freeze(record);
+    Object.freeze(chain);
+  }
+  return Object.freeze(registry);
+};
+
+export const OFFICIAL_DEPLOYMENT_REGISTRY = freezeRegistry(OFFICIAL_DEPLOYMENT_REGISTRY_DATA);
 
 const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
   safeSingleton: ["1.5.0"],
@@ -106,13 +121,18 @@ const failClosed = (message: string): never => {
 const requireAddress = (dependency: DependencyName, record: DeploymentRecord): Address => {
   const address = record.address;
   if (!address) failClosed(`${dependency} has no official deployment address`);
-  return address as Address;
+  if (!isAddress(address as string)) failClosed(`${dependency} has invalid address`);
+  const validatedAddress = address as Address;
+  if (validatedAddress.toLowerCase() === "0x0000000000000000000000000000000000000000") {
+    failClosed(`${dependency} has zero address`);
+  }
+  return validatedAddress;
 };
 
-export async function resolveVerifiedDeployments(
+async function resolveWithRegistry(
   client: ReadOnlyDeploymentClient,
   chainId: number,
-  registry: DeploymentRegistry = OFFICIAL_DEPLOYMENT_REGISTRY,
+  registry: DeploymentRegistry | Readonly<DeploymentRegistry>,
 ): Promise<VerifiedDeployments> {
   if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
     failClosed(`unsupported chain ${chainId}`);
@@ -158,4 +178,20 @@ export async function resolveVerifiedDeployments(
   }
 
   return { chainId, dependencies };
+}
+
+export async function resolveVerifiedDeployments(
+  client: ReadOnlyDeploymentClient,
+  chainId: number,
+): Promise<VerifiedDeployments> {
+  return resolveWithRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY);
+}
+
+/** @internal Test-only fixture injection; production callers must use the two-argument resolver. */
+export async function resolveVerifiedDeploymentsForTest(
+  client: ReadOnlyDeploymentClient,
+  chainId: number,
+  fixtureRegistry: DeploymentRegistry,
+): Promise<VerifiedDeployments> {
+  return resolveWithRegistry(client, chainId, fixtureRegistry);
 }
