@@ -512,9 +512,11 @@ Run the planner for Sepolia and compare every decoded setup call with the call g
 
 Exercise base, step-up, queue, tier-2/tier-3 alerts, cancellation, expiry, delayed execution, freeze, lost-factor recovery, signer rotation, and teardown using deliberately low-value test assets.
 
-- [x] **Step 5: Hold the architecture gate and commit**
+- [ ] **Step 5: Hold the architecture gate and commit**
 
 Fail the gate if any security property depends only on UI classification, monitoring, relayer honesty, or operator discipline. Commit the runbook and redacted examples as `docs: add single-safe testnet runbook`.
+
+The live Sepolia rehearsal and architecture gate were not completed in this worktree; no live evidence bundle was collected, so this task remains open.
 
 ---
 

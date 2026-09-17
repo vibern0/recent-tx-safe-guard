@@ -43,9 +43,49 @@ function hash(value: unknown, path: string): string {
   return value.toLowerCase();
 }
 
+function unsignedInteger(value: unknown, path: string): bigint {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value)) return BigInt(value);
+  throw new Error(`${path} must be a non-negative decimal integer`);
+}
+
+function evidenceHashes(value: unknown, path: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${path} must be an explicit array of hashes`);
+  return value.map((entry, index) => hash(entry, `${path}[${index}]`));
+}
+
+function validatePolicy(value: unknown): asserts value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("missing policy");
+  const policy = value as Record<string, unknown>;
+  if (policy.periodSeconds !== 86400) throw new Error("policy.periodSeconds must be 86400");
+  unsignedInteger(policy.periodAnchor, "policy.periodAnchor");
+  unsignedInteger(policy.cooldownSeconds, "policy.cooldownSeconds");
+  unsignedInteger(policy.expirationSeconds, "policy.expirationSeconds");
+  if (unsignedInteger(policy.expirationSeconds, "policy.expirationSeconds") < unsignedInteger(policy.cooldownSeconds, "policy.cooldownSeconds")) throw new Error("policy.expirationSeconds must be at least cooldownSeconds");
+  if (!Array.isArray(policy.assets) || policy.assets.length === 0) throw new Error("policy.assets must be a non-empty array");
+  for (const [index, rawAsset] of policy.assets.entries()) {
+    const path = `policy.assets[${index}]`;
+    if (!rawAsset || typeof rawAsset !== "object" || Array.isArray(rawAsset)) throw new Error(`${path} must be an object`);
+    const asset = rawAsset as Record<string, unknown>;
+    address(asset.token, `${path}.token`);
+    const basePerTransaction = unsignedInteger(asset.basePerTransaction, `${path}.basePerTransaction`);
+    const stepUpPerTransaction = unsignedInteger(asset.stepUpPerTransaction, `${path}.stepUpPerTransaction`);
+    const baseDailyLimit = unsignedInteger(asset.baseDailyLimit, `${path}.baseDailyLimit`);
+    const instantDailyLimit = unsignedInteger(asset.instantDailyLimit, `${path}.instantDailyLimit`);
+    if (baseDailyLimit === 0n || baseDailyLimit >= instantDailyLimit) throw new Error(`${path}: 0 < baseDailyLimit < instantDailyLimit is required`);
+    if (basePerTransaction === 0n || basePerTransaction > baseDailyLimit) throw new Error(`${path}.basePerTransaction must be positive and no greater than baseDailyLimit`);
+    if (stepUpPerTransaction === 0n || stepUpPerTransaction > instantDailyLimit) throw new Error(`${path}.stepUpPerTransaction must be positive and no greater than instantDailyLimit`);
+    if (!Array.isArray(asset.recipients) || asset.recipients.length === 0) throw new Error(`${path}.recipients must be a non-empty array`);
+    asset.recipients.forEach((recipient, recipientIndex) => address(recipient, `${path}.recipients[${recipientIndex}]`));
+  }
+}
+
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
   if (config.network !== "sepolia" || config.chainId !== 11155111) throw new Error("planner is Sepolia-only");
+  if (!Array.isArray(config.setupTransactionHashes) || !Array.isArray(config.expectedQueueFingerprints)) throw new Error("evidence arrays must be explicit");
+  const setupTransactionHashes = evidenceHashes(config.setupTransactionHashes, "setupTransactionHashes");
+  const queueFingerprints = evidenceHashes(config.expectedQueueFingerprints, "expectedQueueFingerprints");
   const deployments = {
     safe: address(config.safe, "safe"),
     guard: address(config.guard, "guard"),
@@ -66,7 +106,7 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     return { description: String(item.description ?? ""), to: address(item.to, `setupCalls[${index}].to`), value: String(item.value ?? "0"), data: String(item.data ?? "0x").toLowerCase() };
   });
   const policy = config.policy;
-  if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error("missing policy");
+  validatePolicy(policy);
   return {
     formatVersion: 1,
     network: "sepolia",
@@ -80,6 +120,8 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
       guardRuntimeCodeHash: hash(config.guardRuntimeCodeHash, "guardRuntimeCodeHash"),
     },
     policyHash: sha256(policy),
+    setupTransactionHashes,
+    queueFingerprints,
     setupCalls: calls,
   };
 }

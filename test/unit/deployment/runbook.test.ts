@@ -24,6 +24,8 @@ const config = {
     expirationSeconds: 172800,
     assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }],
   },
+  expectedQueueFingerprints: [hash(10)],
+  setupTransactionHashes: [hash(11)],
   setupCalls: [{ to: address(1), value: "0", data: "0x", description: "atomic setup placeholder" }],
 } as const;
 
@@ -33,8 +35,8 @@ const observed = {
   safe: { address: address(1), owners: [address(4), address(5), address(6)], threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
   guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), recovery: address(6), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000" }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
   delay: { address: address(3), runtimeCodeHash: hash(3), owner: address(1), avatar: address(1), target: address(1), enabledUpstreamModules: [address(1)], cooldownSeconds: 86400, expirationSeconds: 172800 },
-  queueFingerprints: [],
-  setupTransactionHashes: [],
+  queueFingerprints: [hash(10)],
+  setupTransactionHashes: [hash(11)],
   notifications: { stepUp: true, delayedLifecycle: true },
 };
 
@@ -58,5 +60,25 @@ describe("Sepolia deployment runbook scripts", () => {
     const report = verifyDeployment(config, observed);
     expect(report.ok).to.equal(true);
     expect(report.failures).to.deep.equal([]);
+  });
+
+  it("rejects missing deployment evidence arrays", () => {
+    const incomplete = { ...config } as Record<string, unknown>;
+    delete incomplete.expectedQueueFingerprints;
+    delete incomplete.setupTransactionHashes;
+    expect(() => buildDeploymentPlan(incomplete)).to.throw("evidence arrays");
+  });
+
+  it("rejects malformed evidence entries and invalid policy limits", () => {
+    expect(() => buildDeploymentPlan({ ...config, setupTransactionHashes: ["0x1234"] })).to.throw("setupTransactionHashes[0]");
+    expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, assets: [{ ...config.policy.assets[0], baseDailyLimit: "1000", instantDailyLimit: "100" }] } })).to.throw("0 < baseDailyLimit < instantDailyLimit");
+    expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, periodSeconds: 60 } })).to.throw("periodSeconds must be 86400");
+  });
+
+  it("returns a hashed failure report for malformed observed snapshots", () => {
+    const report = verifyDeployment(config, null as unknown as Record<string, unknown>);
+    expect(report.ok).to.equal(false);
+    expect(report.failures.join(" ")).to.contain("observed snapshot");
+    expect(report.reportHash).to.match(/^0x[0-9a-f]{64}$/);
   });
 });
