@@ -432,19 +432,19 @@ Run signer unit tests and real-Safe integration tests. Commit as `feat: add tier
 
 **Interfaces:** `ActivityAlert` is a union of confirmed `step-up-executed`, `delayed-queued`, `delayed-cancelled`, `delayed-executed`, and derived `delayed-expired` records. The notifier has no signer or RPC write capability.
 
-- [ ] **Step 1: Write event decoding tests**
+- [x] **Step 1: Write event decoding tests**
 
 Verify chain/log identity, confirmation depth, cursor persistence, reorg removal, restart replay, idempotency, exact guard/Delay addresses, decoded asset/recipient/amount, X/Y state, queue fingerprint, and lifecycle transition.
 
-- [ ] **Step 2: Implement verified monitoring**
+- [x] **Step 2: Implement verified monitoring**
 
 For step-up events, re-read guard counters and transaction input before notification; do not notify for base events. For Delay events, re-read the queue item and state before notification.
 
-- [ ] **Step 3: Implement stdout and webhook notifiers**
+- [x] **Step 3: Implement stdout and webhook notifiers**
 
 Send only public data. Store no private key, passkey assertion, PIN, wallet session, cancellation credential, or method capable of authorizing a transaction.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run monitoring tests including suppressed, duplicate, malformed, and reorged events. Commit as `feat: monitor tiered vault activity`.
 

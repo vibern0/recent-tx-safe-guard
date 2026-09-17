@@ -49,3 +49,9 @@ Signer repair atomically updates guard configuration and rotates the correspondi
 ## Forbidden paths
 
 Direct owner transfers, unlisted modules, a second enabled module, nonzero fallback handler, delegatecalls outside fixed maintenance, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, unknown assets/recipients, malformed Delay calls, nonzero Safe gas/refunds, approved-hash authorization, and any missing or inconsistent verification read are rejected. Monitoring and relaying can observe or execute an already-delay-approved item, but neither is an authorizer.
+
+## Monitoring path
+
+Read-only log polling → chain/address/topic/confirmation checks → exact `TieredSpendingGuard` event decoding → transaction-input and `spendState` re-reads → suppress base-tier events → `step-up-executed` alert. Read-only log polling → exact Delay event decoding → queue hash, tuple, and creation-time re-reads → `delayed-queued`, `delayed-executed`, `delayed-cancelled`, `delayed-expired`, `delayed-frozen`, or `delayed-repair` alert. The monitoring ledger persists a block cursor, deduplicates `(chain, transaction, logIndex, blockHash)`, removes reorged records, and permits deterministic restart replay.
+
+The notifier boundary accepts only public `ActivityAlert` data and exposes only `notify`. Stdout and webhook implementations cannot sign, send, execute, mutate chain state, or retain passkey, Burner, recovery, RPC-write, or session credentials. Unknown and malformed events fail closed; monitoring never changes guard, Safe, Delay, queue, signer, or policy state.

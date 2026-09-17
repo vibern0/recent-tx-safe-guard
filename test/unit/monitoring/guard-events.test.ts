@@ -1,0 +1,61 @@
+import { expect } from "chai";
+import { encodeAbiParameters, encodeEventTopics, getAddress, keccak256, parseAbiItem, toHex } from "viem";
+import {
+  decodeGuardLog,
+  guardEventAbi,
+  verifyGuardBinding,
+  type MonitoringIdentity,
+} from "../../../src/monitoring/guard-events";
+
+const identity: MonitoringIdentity = {
+  chainId: 31337,
+  safe: getAddress("0x0000000000000000000000000000000000000001"),
+  guard: getAddress("0x0000000000000000000000000000000000000002"),
+  delay: getAddress("0x0000000000000000000000000000000000000003"),
+  confirmations: 2,
+};
+
+function log(name: "TransferAuthorized" | "AuthorizationUsed", args: readonly unknown[], overrides = {}) {
+  const item = parseAbiItem(name === "TransferAuthorized"
+    ? "event TransferAuthorized(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)"
+    : "event AuthorizationUsed(uint8 tier,address token,address recipient,uint256 amount,uint256 baseSpent,uint256 instantSpent,uint256 window)");
+  const encoded = { topics: encodeEventTopics({ abi: [item], eventName: name, args: args as never }), data: encodeAbiParameters([
+    { type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
+  ], args as never) };
+  return {
+    address: identity.guard,
+    chainId: identity.chainId,
+    blockNumber: 10n,
+    blockHash: keccak256(toHex("block")),
+    transactionHash: keccak256(toHex("tx")),
+    logIndex: 0,
+    topics: [...encoded.topics] as `0x${string}`[],
+    data: encoded.data,
+    ...overrides,
+  };
+}
+
+describe("guard activity decoding", () => {
+  it("decodes only confirmed step-up authorizations and preserves X/Y state", () => {
+    const result = decodeGuardLog(log("TransferAuthorized", [1, identity.safe, getAddress("0x0000000000000000000000000000000000000004"), 25n, 7n, 25n, 1n]), identity, 12n);
+    expect(result).to.deep.include({ kind: "step-up-executed", amount: 25n, baseSpent: 7n, instantSpent: 25n, window: 1n });
+  });
+
+  it("suppresses base events and unconfirmed logs", () => {
+    expect(decodeGuardLog(log("TransferAuthorized", [0, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n)).to.equal(undefined);
+    expect(decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 10n)).to.equal(undefined);
+  });
+
+  it("fails closed on wrong identity, malformed data, and a mismatched transaction binding", () => {
+    expect(() => decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n], { address: identity.delay }), identity, 12n)).to.throw(/identity/i);
+    expect(() => decodeGuardLog({ ...log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), data: "0x12" }, identity, 12n)).to.throw(/malformed/i);
+    expect(() => decodeGuardLog(log("AuthorizationUsed", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n, { expectedSafe: identity.delay })).to.throw(/binding/i);
+  });
+
+  it("requires read-only transaction and counter revalidation before notification", async () => {
+    const result = decodeGuardLog(log("TransferAuthorized", [1, identity.safe, identity.safe, 1n, 1n, 1n, 1n]), identity, 12n)!;
+    const tx = { to: identity.guard, value: 0n, data: "0x" as const, operation: 0 };
+    await expect(verifyGuardBinding(result, { expectedTransaction: tx, readTransaction: async () => tx, readSpendState: async () => ({ baseSpent: 1n, instantSpent: 1n, window: 1n }) }, identity)).to.be.fulfilled;
+    await expect(verifyGuardBinding(result, { expectedTransaction: tx, readTransaction: async () => ({ ...tx, value: 1n }), readSpendState: async () => ({ baseSpent: 1n, instantSpent: 1n, window: 1n }) }, identity)).to.be.rejectedWith(/binding/i);
+  });
+});
