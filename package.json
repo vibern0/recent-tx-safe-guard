@@ -10,7 +10,7 @@
     "check": "npm run build && npm test",
     "coverage": "SOLIDITY_COVERAGE=true hardhat coverage",
     "slither": "tsx scripts/slither-gate.ts",
-    "security:check": "npm run build && npm test && npm run test:invariant && npm run coverage && npm run slither && npm run rehearse && git diff --check",
+    "security:check": "npx hardhat clean && npm run build && npm test && npm run test:invariant && npm run coverage && npm run slither && npm run rehearse && git diff --check",
     "plan:deployment": "if [ -f scripts/plan-deployment.ts ]; then tsx scripts/plan-deployment.ts; else echo 'scripts/plan-deployment.ts not present; skipped until a later task adds it'; fi",
     "verify:dependencies": "if [ -f scripts/verify-dependencies.ts ]; then tsx scripts/verify-dependencies.ts; else echo 'scripts/verify-dependencies.ts not present; skipped until a later task adds it'; fi",
     "verify:deployment": "if [ -f scripts/verify-deployment.ts ]; then tsx scripts/verify-deployment.ts; else echo 'scripts/verify-deployment.ts not present; skipped until a later task adds it'; fi",

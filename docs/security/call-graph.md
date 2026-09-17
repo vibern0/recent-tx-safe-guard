@@ -50,6 +50,41 @@ Signer repair atomically updates guard configuration and rotates the correspondi
 
 Direct owner transfers, unlisted modules, a second enabled module, nonzero fallback handler, delegatecalls outside fixed maintenance, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, unknown assets/recipients, malformed Delay calls, nonzero Safe gas/refunds, approved-hash authorization, and any missing or inconsistent verification read are rejected. Monitoring and relaying can observe or execute an already-delay-approved item, but neither is an authorizer.
 
+## Repository security-contract ABI inventory
+
+The following is the complete ABI surface of the repository security contracts. Every entry is classified by mutability and authorization role; imported Safe/Zodiac ABIs are out of scope for this inventory.
+
+| Surface | Classification |
+| --- | --- |
+| `TieredSpendingGuard.BURNER_SIGNATURE_TYPE_HASH` | view constant |
+| `TieredSpendingGuard.allowedRecipient` | view state |
+| `TieredSpendingGuard.assetPolicy` | view state |
+| `TieredSpendingGuard.burnerAuthorizationUsed` | view state |
+| `TieredSpendingGuard.checkAfterExecution` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkAfterModuleExecution` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkModuleTransaction` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkTransaction` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.computeSafeTransactionHash` | view pure computation |
+| `TieredSpendingGuard.config` | view state |
+| `TieredSpendingGuard.decodeBurnerExtension` | view decoder |
+| `TieredSpendingGuard.decodePasskeySignature` | view decoder |
+| `TieredSpendingGuard.freeze` | state-changing, Safe-only emergency action |
+| `TieredSpendingGuard.frozen` | view state |
+| `TieredSpendingGuard.getConfiguredTokens` | view inventory |
+| `TieredSpendingGuard.getPolicyRecipients` | view inventory |
+| `TieredSpendingGuard.maintenance` | view state |
+| `TieredSpendingGuard.policyHash` | view inventory |
+| `TieredSpendingGuard.repairPolicy` | state-changing, Safe-only delayed repair |
+| `TieredSpendingGuard.repairSigner` | state-changing, Safe-only delayed repair |
+| `TieredSpendingGuard.setAssetPolicy` | state-changing, Safe-only monotonic policy action |
+| `TieredSpendingGuard.setMaintenance` | state-changing, Safe-only one-time setup |
+| `TieredSpendingGuard.spendState` | view state |
+| `TieredSpendingGuard.supportsInterface` | pure interface probe |
+| `GuardReplacementMaintenance.delay` | view immutable configuration |
+| `GuardReplacementMaintenance.replaceGuards` | state-changing, configured Delay-only maintenance |
+| `GuardReplacementMaintenance.replaceSigner` | state-changing, configured Delay-only maintenance |
+| `GuardReplacementMaintenance.safe` | view immutable configuration |
+
 ## Monitoring path
 
 Read-only log polling → RPC chain identity/address/topic/confirmation checks → exact pinned `TieredSpendingGuard.TransferAuthorized` decoding → Safe transaction lookup whose outer RPC `to` must equal `MONITOR_SAFE`, exact Safe transaction fields/nonce, and event-block-tagged `spendState` re-read → suppress base-tier events → `step-up-executed` alert. Read-only log polling → exact pinned Delay ABI (`TransactionAdded`, `TxNonceSet`) → event-block-tagged queue tuple/hash/creation-time and nonce reads → `delayed-queued` or `delayed-cancelled` alert. Because the pinned fixture emits no execution/expiry lifecycle events, the watcher derives `delayed-executed` only from a successful canonical receipt to Delay whose receipt depth is at least the configured confirmation count, decoded `executeNextTx` tuple, and pre/post nonce transition exactly match persisted queue evidence; it derives `delayed-expired` only from a successful canonical receipt with the same confirmation depth for `skipExpired`, exact queue hash/creation-time state, post-expiry canonical block timestamp, and a nonce transition covering that item. Failed, unconfirmed, non-canonical, undecodable, ambiguous, or cancellation-covered observations produce no derived alert. Derived records use the receipt transaction hash, canonical receipt block hash, and synthetic log index 0 because no fixture lifecycle log exists. The durable monitoring ledger atomically persists a block cursor, log records, and pending notification outbox before notification; it fsyncs replacements, holds an exclusive writer lock, reconciles canonical block hashes, removes reorged records, and retries undelivered alerts after restart. Delivery is marked only after notifier success.

@@ -1,6 +1,11 @@
 export type SlitherFinding = { check?: unknown; first_markdown_element?: unknown; elements?: unknown };
 export type SlitherReport = { success?: unknown; error?: unknown; results?: { detectors?: unknown } };
 
+export function validateSlitherExit(status: number | null, error?: Error | null, validReport = false): void {
+  if (error) throw error;
+  if (status !== 0 && !(status === 255 && validReport)) throw new Error(`Slither failed with exit ${String(status)}`);
+}
+
 function findingKey(finding: SlitherFinding): string {
   if (typeof finding.check !== "string" || typeof finding.first_markdown_element !== "string" || !Array.isArray(finding.elements)) throw new Error("malformed Slither detector");
   const elements = finding.elements as Array<Record<string, unknown>>;

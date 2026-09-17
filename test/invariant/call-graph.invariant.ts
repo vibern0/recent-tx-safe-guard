@@ -17,12 +17,17 @@ describe("call-graph security invariant", () => {
   });
 
   it("checks the deployed public/state surface and Safe-only entry points", async () => {
-    const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");
-    const functions = artifact.abi.filter((item): item is { type: "function"; name: string } => item.type === "function").map((item) => item.name);
-    for (const name of ["checkTransaction", "checkAfterExecution", "checkModuleTransaction", "checkAfterModuleExecution", "setAssetPolicy", "repairSigner", "repairPolicy", "freeze", "config", "assetPolicy", "spendState", "frozen"]) expect(functions).to.include(name);
-    expect(functions).not.to.include.members(["withdraw", "transfer", "execute", "send"]);
-    const maintenance = await hre.artifacts.readArtifact("GuardReplacementMaintenance");
-    expect(maintenance.abi.filter((item) => item.type === "function").map((item) => item.type === "function" ? item.name : "")).to.include.members(["replaceGuards", "replaceSigner", "safe", "delay"]);
+    const documented = new Map([...graph.matchAll(/^\| `([^`]+)` \| ([^|]+) \|/gm)].map((match) => [match[1], match[2]]));
+    for (const contractName of ["TieredSpendingGuard", "GuardReplacementMaintenance"]) {
+      const artifact = await hre.artifacts.readArtifact(contractName);
+      for (const item of artifact.abi.filter((entry): entry is { type: "function"; name: string; stateMutability: string } => entry.type === "function")) {
+        const classification = documented.get(`${contractName}.${item.name}`);
+        expect(classification, `${contractName}.${item.name} missing from call graph`).to.be.a("string");
+        expect(classification, `${contractName}.${item.name} missing mutability classification`).to.match(item.stateMutability === "nonpayable" || item.stateMutability === "payable" ? /state-changing/i : new RegExp(item.stateMutability, "i"));
+      }
+    }
+    const guardFunctions = (await hre.artifacts.readArtifact("TieredSpendingGuard")).abi.filter((item) => item.type === "function").map((item) => item.type === "function" ? item.name : "");
+    expect(guardFunctions).not.to.include.members(["withdraw", "transfer", "execute", "send"]);
     expect(source).to.match(/function checkTransaction[\s\S]*?external override onlySafe/);
     expect(source).to.match(/function checkModuleTransaction[\s\S]*?external override onlySafe/);
     expect(source).to.not.match(/function (withdraw|transfer|execute|send)\s*\(/);

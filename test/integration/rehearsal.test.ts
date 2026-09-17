@@ -52,10 +52,10 @@ describe("local time-controlled security rehearsal", () => {
     await expect(exec(recipient.account.address, 101n, "0x", passkeySignature)).to.be.rejected;
     await time.increase(86401);
 
-    const queue = async (value: bigint, data: Hex = "0x", target: Address = recipient.account.address, operation = 0 as const) => {
+    const queue = async (value: bigint, data: Hex = "0x", target: Address = recipient.account.address, operation = 0 as const, signer = burner, includeBurner = true) => {
       const inner = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [target, value, data, operation] });
-      const burnerSignature = await sign(delay.address, 0n, inner, burner);
-      await exec(delay.address, 0n, inner, envelope(burnerSignature));
+      const signature = await sign(delay.address, 0n, inner, signer);
+      await exec(delay.address, 0n, inner, includeBurner ? envelope(signature) : signature);
       return { inner, target, value, data, operation };
     };
     const beforeCancelSafe = await publicClient.getBalance({ address: safe.address });
@@ -76,11 +76,13 @@ describe("local time-controlled security rehearsal", () => {
 
     const expired = await queue(150n);
     const txNonceBeforeExpiry = await delay.read.txNonce();
-    await time.increase(61);
+    const cooldown = await delay.read.txCooldown();
+    const expiration = await delay.read.txExpiration();
+    await time.increase(cooldown + expiration + 1n);
     await delay.write.skipExpired({ account: deployer.account });
     expect(await delay.read.txNonce()).to.equal(txNonceBeforeExpiry + 1n);
     await expect(delay.write.executeNextTx([expired.target, expired.value, expired.data, expired.operation], { account: deployer.account })).to.be.rejected;
-    expect(await publicClient.getBalance({ address: safe.address })).to.equal(beforeCancelSafe - 300n);
+    expect(await publicClient.getBalance({ address: safe.address })).to.equal(beforeCancelSafe - 150n);
     expect(await publicClient.getBalance({ address: recipient.account.address })).to.equal(beforeCancelRecipient + 150n);
 
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("freeze", []), functionName: "freeze", args: [] }));
@@ -88,7 +90,7 @@ describe("local time-controlled security rehearsal", () => {
     const burnerIndex = owners.findIndex((owner) => owner.toLowerCase() === burner.account.address.toLowerCase());
     const previousOwner = (burnerIndex === 0 ? "0x0000000000000000000000000000000000000001" : owners[burnerIndex - 1]) as Address;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, burner.account.address, replacement.account.address, previousOwner, 1n] });
-    const repairQueue = await queue(0n, repair, maintenance.address, 1);
+    const repairQueue = await queue(0n, repair, maintenance.address, 1, recovery, false);
     await expect(delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account })).to.be.rejected;
     await time.increase(11);
     await delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account });
