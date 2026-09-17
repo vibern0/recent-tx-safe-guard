@@ -257,23 +257,23 @@ function checkTransaction(
 ) external;
 ```
 
-- [ ] **Step 1: Write failing exact-hash tests**
+- [x] **Step 1: Write failing exact-hash tests**
 
 Compare the guard's reconstructed hash with Safe `getTransactionHash`. Changing chain, Safe, target, value, calldata, operation, any gas/refund field, or nonce must change the digest. Account for Safe incrementing its nonce before the guard callback.
 
-- [ ] **Step 2: Write failing signature tests**
+- [x] **Step 2: Write failing signature tests**
 
 Require a validated `v == 0` contract-signature slot naming the configured passkey for all transfer paths. Reject approved-hash `v == 1`, raw EOA substitution, malformed offsets, duplicate/trailing ambiguity, wrong passkey, and signatures not validated by Safe.
 
-- [ ] **Step 3: Define and test the Burner extension**
+- [x] **Step 3: Define and test the Burner extension**
 
 Use a typed terminal envelope `[burnerSignature][uint256 length][bytes32 typeHash]`. Verify the Burner with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
 
-- [ ] **Step 4: Implement atomic guard mechanics**
+- [x] **Step 4: Implement atomic guard mechanics**
 
 Implement both guard interfaces, only-Safe entry checks, a reentrancy gate, `safeTxGas == 0`, `gasPrice == 0`, and after-execution reverts on failed owner or module execution. State writes during a failed inner call must roll back.
 
-- [ ] **Step 5: Verify against a real Safe and commit**
+- [x] **Step 5: Verify against a real Safe and commit**
 
 Run unit and integration tests with Safe 1.5, not the legacy mock. Commit as `feat: bind tiered policy to exact safe signatures`.
 
