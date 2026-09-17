@@ -1,9 +1,8 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { encodeFunctionData, hashTypedData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
+import { encodeFunctionData, hashTypedData, toFunctionSelector, type Address, type Hex } from "viem";
 import { createBurnerSigner, createRecoverySigner } from "../../src/signers/eip1193";
-import { createPasskeySigner } from "../../src/signers/passkey";
-import { brandVerifiedDeploymentsFixture } from "../unit/config/deployments.fixture";
+import { signPasskeyRequest } from "../../src/signers/passkey";
 import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -36,16 +35,13 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     // Test-only ERC-1271 mock; this is not a WebAuthn implementation or deployment evidence.
-    const passkeyCode = await publicClient.getBytecode({ address: passkey.address });
-    if (!passkeyCode) throw new Error("mock passkey runtime missing");
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burnerWallet.account.address, recoveryWallet.account.address, delay.address, 86400n, 0n]]);
     await safe.write.setup([[passkey.address, burnerWallet.account.address, recoveryWallet.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())), 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const provider = (wallet: typeof recoveryWallet) => walletProvider(wallet as never, publicClient);
     const recovery = createRecoverySigner({ provider: provider(recoveryWallet), account: recoveryWallet.account.address });
-    const deployments = brandVerifiedDeploymentsFixture(Object.freeze({ chainId: 31337, dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ name: "Mock ERC-1271 verifier", version: "test-only", address: passkey.address, runtimeCodeHash: keccak256(passkeyCode), evidence: "verified" as const, source: "test-only mock; not WebAuthn" }) }) })) as never;
-    const passkeySigner = createPasskeySigner({ address: passkey.address, deployments, provider: provider(deployer), sign: async () => "0x" });
+    const passkeySigner = Object.freeze({ address: passkey.address, sign: (request: SafeSignerRequest) => signPasskeyRequest({ address: passkey.address, verifierAddress: passkey.address, chainId: 31337, provider: provider(deployer), sign: async () => "0x" }, request) });
     const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
       const nonce = providedNonce ?? await safe.read.nonce();
