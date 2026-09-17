@@ -5,6 +5,25 @@
 **Repository:** `/Users/bernardo/.codex/worktrees/308c/recent-tx-safe-guard`
 **Security posture:** Testnet security research only. No deployment or production-readiness claim is made.
 
+## Follow-up review fix
+
+The review identified that advertised later-task lanes and script entrypoints failed while their inputs were not yet present, and that coverage did not enable Solidity instrumentation. The package scripts now explicitly skip absent future directories/files, execute the real command when those inputs exist, propagate command failures, and run coverage with `SOLIDITY_COVERAGE=true`.
+
+Follow-up verification on 2026-09-17:
+
+```text
+npm run test:unit             # passed; explicit skip (directory absent)
+npm run test:integration      # passed; explicit skip (directory absent)
+npm run test:invariant        # passed; explicit skip (directory absent)
+npm run plan:deployment       # passed; explicit skip (file absent)
+npm run verify:dependencies   # passed; explicit skip (file absent)
+npm run verify:deployment     # passed; explicit skip (file absent)
+npm run watch:activity        # passed; explicit skip (file absent)
+npm run rehearse              # passed; explicit skip (file absent)
+npm run coverage              # passed; solidity-coverage v0.8.14, SOLIDITY_COVERAGE=true
+git diff --check              # passed
+```
+
 ## Scope completed
 
 - Moved `RecentTransactionGuard.sol`, `GnosisSafeMock.sol`, and `RecentTransactionGuard.ts` under `legacy/` with `git mv`.
@@ -14,6 +33,7 @@
 - Removed deprecated `@gnosis.pm/safe-contracts` from the active dependency manifest.
 - Added exact direct dependency pins and generated `package-lock.json` with `npm install --package-lock-only` followed by a clean `npm ci`.
 - Added all Task 1 package scripts: build, test, unit/integration/invariant test lanes, check, coverage, slither, deployment planning/verification, activity watch, and rehearsal.
+- Made the future-facing test lanes and TypeScript script entrypoints executable at the current repository state by skipping only when their later-task directory/file is absent; once present, each command runs directly and propagates failures. Coverage explicitly sets `SOLIDITY_COVERAGE=true`.
 - Added `docs/security/dependency-review.md` with package integrity, provenance, audit/evidence links, chain/address verification requirements, runtime-hash status, rejected versions, and Policy Engine prior-art status.
 
 ## Exact dependency evidence recorded
@@ -47,4 +67,5 @@ The active build contains only the relocated `contracts/test/ERC20Mock.sol` amon
 - npm reports 54 transitive vulnerabilities (4 low, 13 moderate, 29 high, 8 critical) and several deprecated transitive packages from the pinned Hardhat/tooling graph. They were not auto-fixed because changing them would exceed Task 1’s approved dependency evidence scope.
 - npm also reports an optional TypeScript peer warning from viem’s transitive `ox` package; the lockfile still resolves reproducibly and the required build passes.
 - Task 1 does not verify chain-specific deployed addresses, runtime bytecode hashes, or live audit scope. Those remain fail-closed gates for later dependency/deployment verification tasks.
-- The future-facing scripts reference files introduced by later tasks and are not claimed executable until those tasks add the files.
+- The future-facing scripts reference files introduced by later tasks. They currently report an explicit skip for absent inputs; once those inputs exist, the actual command executes and failures are not masked.
+- The baseline script lanes currently report an explicit skip for absent later-task inputs; they do not suppress failures after those inputs are added.
