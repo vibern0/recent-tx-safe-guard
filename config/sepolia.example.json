@@ -34,6 +34,7 @@
     ]
   },
   "expectedQueueFingerprints": [],
+  "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "setupCalls": [
     {
       "description": "Replace with decoded atomic Safe setup calls after independently reviewed deployment",

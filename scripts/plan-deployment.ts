@@ -43,6 +43,17 @@ function hash(value: unknown, path: string): string {
   return value.toLowerCase();
 }
 
+function record(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(value: Record<string, unknown>, expected: readonly string[], path: string, optional: readonly string[] = []): void {
+  const allowed = new Set([...expected, ...optional]);
+  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`${path}.${key} is unknown`);
+  for (const key of expected) if (!(key in value)) throw new Error(`${path}.${key} is required${key === "expectedQueueFingerprints" || key === "setupTransactionHashes" ? "; evidence arrays must be explicit" : ""}`);
+}
+
 function unsignedInteger(value: unknown, path: string): bigint {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
   if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value)) return BigInt(value);
@@ -55,8 +66,8 @@ function evidenceHashes(value: unknown, path: string): string[] {
 }
 
 function validatePolicy(value: unknown): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("missing policy");
-  const policy = value as Record<string, unknown>;
+  const policy = record(value, "policy");
+  exactKeys(policy, ["periodSeconds", "periodAnchor", "cooldownSeconds", "expirationSeconds", "assets"], "policy");
   if (policy.periodSeconds !== 86400) throw new Error("policy.periodSeconds must be 86400");
   unsignedInteger(policy.periodAnchor, "policy.periodAnchor");
   unsignedInteger(policy.cooldownSeconds, "policy.cooldownSeconds");
@@ -65,8 +76,8 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
   if (!Array.isArray(policy.assets) || policy.assets.length === 0) throw new Error("policy.assets must be a non-empty array");
   for (const [index, rawAsset] of policy.assets.entries()) {
     const path = `policy.assets[${index}]`;
-    if (!rawAsset || typeof rawAsset !== "object" || Array.isArray(rawAsset)) throw new Error(`${path} must be an object`);
-    const asset = rawAsset as Record<string, unknown>;
+    const asset = record(rawAsset, path);
+    exactKeys(asset, ["token", "basePerTransaction", "stepUpPerTransaction", "baseDailyLimit", "instantDailyLimit", "recipients"], path);
     address(asset.token, `${path}.token`);
     const basePerTransaction = unsignedInteger(asset.basePerTransaction, `${path}.basePerTransaction`);
     const stepUpPerTransaction = unsignedInteger(asset.stepUpPerTransaction, `${path}.stepUpPerTransaction`);
@@ -82,6 +93,8 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
 
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
+  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "recovery", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "setupCalls"], "config", ["policyHash", "expectedCounters"]);
+  if (config.formatVersion !== 1) throw new Error("config.formatVersion must be 1");
   if (config.network !== "sepolia" || config.chainId !== 11155111) throw new Error("planner is Sepolia-only");
   if (!Array.isArray(config.setupTransactionHashes) || !Array.isArray(config.expectedQueueFingerprints)) throw new Error("evidence arrays must be explicit");
   const setupTransactionHashes = evidenceHashes(config.setupTransactionHashes, "setupTransactionHashes");
@@ -94,16 +107,22 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     burner: address(config.burner, "burner"),
     recovery: address(config.recovery, "recovery"),
   };
-  const singleton = config.safeSingleton as Record<string, unknown>;
-  const delayDependency = config.delayDependency as Record<string, unknown>;
-  if (!singleton || !delayDependency) throw new Error("missing dependency records");
+  const singleton = record(config.safeSingleton, "safeSingleton");
+  const delayDependency = record(config.delayDependency, "delayDependency");
+  exactKeys(singleton, ["address", "runtimeCodeHash"], "safeSingleton");
+  exactKeys(delayDependency, ["address", "runtimeCodeHash"], "delayDependency");
+  if (config.policyHash !== undefined) hash(config.policyHash, "policyHash");
+  if (config.expectedCounters !== undefined && !Array.isArray(config.expectedCounters)) throw new Error("expectedCounters must be an array");
   const setupCalls = config.setupCalls;
   if (!Array.isArray(setupCalls)) throw new Error("setupCalls must be an array");
   const calls = setupCalls.map((call, index) => {
-    if (!call || typeof call !== "object" || Array.isArray(call)) throw new Error(`setupCalls[${index}] must be an object`);
-    const item = call as Record<string, unknown>;
+    const item = record(call, `setupCalls[${index}]`);
+    exactKeys(item, ["description", "to", "value", "data"], `setupCalls[${index}]`);
     if ("signature" in item || "privateKey" in item) throw new Error(`setupCalls[${index}] must be unsigned`);
-    return { description: String(item.description ?? ""), to: address(item.to, `setupCalls[${index}].to`), value: String(item.value ?? "0"), data: String(item.data ?? "0x").toLowerCase() };
+    if (typeof item.description !== "string") throw new Error(`setupCalls[${index}].description must be a string`);
+    if (typeof item.value !== "string" || !/^(0|[1-9][0-9]*)$/.test(item.value)) throw new Error(`setupCalls[${index}].value must be a decimal string`);
+    if (typeof item.data !== "string" || !/^0x(?:[0-9a-fA-F]{2})*$/.test(item.data)) throw new Error(`setupCalls[${index}].data must be byte-aligned hex`);
+    return { description: item.description, to: address(item.to, `setupCalls[${index}].to`), value: item.value, data: item.data.toLowerCase() };
   });
   const policy = config.policy;
   validatePolicy(policy);

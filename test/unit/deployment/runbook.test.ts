@@ -6,6 +6,7 @@ const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as `0x${s
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as `0x${string}`;
 
 const config = {
+  formatVersion: 1,
   network: "sepolia",
   chainId: 11155111,
   safe: address(1),
@@ -73,6 +74,28 @@ describe("Sepolia deployment runbook scripts", () => {
     expect(() => buildDeploymentPlan({ ...config, setupTransactionHashes: ["0x1234"] })).to.throw("setupTransactionHashes[0]");
     expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, assets: [{ ...config.policy.assets[0], baseDailyLimit: "1000", instantDailyLimit: "100" }] } })).to.throw("0 < baseDailyLimit < instantDailyLimit");
     expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, periodSeconds: 60 } })).to.throw("periodSeconds must be 86400");
+  });
+
+  it("rejects unknown or missing public configuration fields", () => {
+    expect(() => buildDeploymentPlan({ ...config, unexpected: true })).to.throw("config.unexpected");
+    const incomplete = { ...config } as Record<string, unknown>;
+    delete incomplete.safe;
+    expect(() => buildDeploymentPlan(incomplete)).to.throw("config.safe");
+    expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, assets: [{ ...config.policy.assets[0], extra: true }] } })).to.throw("policy.assets[0].extra");
+  });
+
+  it("requires setup calls to use explicit decimal values and byte-aligned hex data", () => {
+    expect(() => buildDeploymentPlan({ ...config, setupCalls: [{ ...config.setupCalls[0], value: 0 }] })).to.throw("setupCalls[0].value");
+    expect(() => buildDeploymentPlan({ ...config, setupCalls: [{ ...config.setupCalls[0], value: "01" }] })).to.throw("setupCalls[0].value");
+    expect(() => buildDeploymentPlan({ ...config, setupCalls: [{ ...config.setupCalls[0], data: "0x123" }] })).to.throw("setupCalls[0].data");
+    expect(() => buildDeploymentPlan({ ...config, setupCalls: [{ ...config.setupCalls[0], description: undefined }] })).to.throw("setupCalls[0].description");
+  });
+
+  it("rejects unknown snapshot fields and incomplete or nullable evidence", () => {
+    expect(verifyDeployment(config, { ...observed, extra: true }).failures.join(" ")).to.contain("snapshot.extra");
+    expect(verifyDeployment(config, { ...observed, setupTransactionHashes: undefined }).failures.join(" ")).to.contain("setupTransactionHashes");
+    expect(verifyDeployment(config, { ...observed, guard: { ...observed.guard, counters: null } }).failures.join(" ")).to.contain("counters");
+    expect(verifyDeployment(config, { ...observed, notifications: { stepUp: true } }).failures.join(" ")).to.contain("delayedLifecycle");
   });
 
   it("returns a hashed failure report for malformed observed snapshots", () => {
