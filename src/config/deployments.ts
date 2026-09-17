@@ -1,0 +1,161 @@
+import { keccak256, type Address, type Hex } from "viem";
+
+export const SUPPORTED_CHAIN_IDS = [11155111] as const;
+export type SupportedChainId = (typeof SUPPORTED_CHAIN_IDS)[number];
+
+export type DependencyName =
+  | "safeSingleton"
+  | "safeProxyFactory"
+  | "passkeySignerFactory"
+  | "passkeySignerVerifier"
+  | "multiSend"
+  | "delay";
+
+export type DeploymentRecord = {
+  name: string;
+  version: string;
+  address?: Address;
+  runtimeCodeHash?: Hex;
+  supportsModuleGuards?: boolean;
+  source: string;
+};
+
+export type ChainDeploymentRegistry = Record<DependencyName, DeploymentRecord>;
+export type DeploymentRegistry = Partial<Record<number, ChainDeploymentRegistry>>;
+
+export type ReadOnlyDeploymentClient = {
+  getBytecode(args: { address: Address }): Promise<Hex | undefined>;
+};
+
+export type VerifiedDependency = DeploymentRecord & {
+  address: Address;
+  runtimeCodeHash: Hex;
+};
+
+export type VerifiedDeployments = {
+  chainId: number;
+  dependencies: Record<DependencyName, VerifiedDependency>;
+};
+
+const SAFE_DEPLOYMENTS = "https://github.com/safe-global/safe-deployments";
+const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
+const ZODIAC = "https://github.com/gnosisguild/zodiac";
+
+// This is deliberately an evidence ledger, not a claim that these contracts are
+// deployed on Sepolia. Missing passkey and Delay bytecode evidence stays missing
+// until an official registry snapshot and deployment review provide it.
+export const OFFICIAL_DEPLOYMENT_REGISTRY: DeploymentRegistry = Object.freeze({
+  11155111: {
+    safeSingleton: {
+      name: "Safe singleton",
+      version: "1.5.0",
+      address: "0xFf51A5898e281Db6DfC7855790607438dF2ca44b" as Address,
+      runtimeCodeHash: "0xdda019cbd7c867a533a2a86e5c53434fdc50b13122b5a5ddb4a8df61b31c20f2" as Hex,
+      supportsModuleGuards: true,
+      source: SAFE_DEPLOYMENTS,
+    },
+    safeProxyFactory: {
+      name: "Safe proxy factory",
+      version: "1.5.0",
+      address: "0x14F2982D601c9458F93bd70B218933A6f8165e7b" as Address,
+      runtimeCodeHash: "0x967dae4cda22b0c9ef7f31b010bdc1ceb0af9904b0c3dc060b5302e4c18a4529" as Hex,
+      source: SAFE_DEPLOYMENTS,
+    },
+    passkeySignerFactory: {
+      name: "Safe passkey signer factory",
+      version: "0.2.0",
+      source: SAFE_MODULES,
+    },
+    passkeySignerVerifier: {
+      name: "Safe passkey verifier",
+      version: "0.2.0",
+      source: SAFE_MODULES,
+    },
+    multiSend: {
+      name: "Safe MultiSend",
+      version: "1.5.0",
+      address: "0x218543288004CD07832472D464648173c77D7eB7" as Address,
+      runtimeCodeHash: "0xca1147a12963172a93910c5cb2bfa5ad0e941c7f03fc7eb017dd06a8ea4e5604" as Hex,
+      source: SAFE_DEPLOYMENTS,
+    },
+    delay: {
+      name: "Zodiac Delay",
+      version: "1.1.1",
+      address: "0x824175b945838d127c1ca83cbce11d8e44f6df01",
+      source: ZODIAC,
+    },
+  },
+} as DeploymentRegistry);
+
+const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
+  safeSingleton: ["1.5.0"],
+  safeProxyFactory: ["1.5.0"],
+  passkeySignerFactory: ["0.2.0"],
+  passkeySignerVerifier: ["0.2.0"],
+  multiSend: ["1.5.0"],
+  delay: ["1.1.1"],
+};
+
+const VULNERABLE_DELAY_RELEASES = new Set(["1.1.0"]);
+const DEPENDENCIES = Object.keys(EXPECTED_RELEASES) as DependencyName[];
+
+const failClosed = (message: string): never => {
+  throw new Error(`deployment verification failed closed: ${message}`);
+};
+
+const requireAddress = (dependency: DependencyName, record: DeploymentRecord): Address => {
+  const address = record.address;
+  if (!address) failClosed(`${dependency} has no official deployment address`);
+  return address as Address;
+};
+
+export async function resolveVerifiedDeployments(
+  client: ReadOnlyDeploymentClient,
+  chainId: number,
+  registry: DeploymentRegistry = OFFICIAL_DEPLOYMENT_REGISTRY,
+): Promise<VerifiedDeployments> {
+  if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
+    failClosed(`unsupported chain ${chainId}`);
+  }
+
+  const chain = registry[chainId];
+  if (!chain) failClosed(`no official registry entry for chain ${chainId}`);
+  const selectedChain = chain as ChainDeploymentRegistry;
+
+  const dependencies = {} as Record<DependencyName, VerifiedDependency>;
+  for (const dependency of DEPENDENCIES) {
+    const record = selectedChain[dependency];
+    if (!record) failClosed(`missing registry entry for ${dependency}`);
+    if (dependency === "delay" && VULNERABLE_DELAY_RELEASES.has(record.version)) {
+      failClosed(`known-vulnerable Delay release ${record.version}`);
+    }
+    if (!EXPECTED_RELEASES[dependency].includes(record.version)) {
+      failClosed(`unknown release ${record.version} for ${dependency}`);
+    }
+    if (dependency === "safeSingleton" && record.supportsModuleGuards !== true) {
+      failClosed(`Safe release ${record.version} lacks module guards`);
+    }
+
+    const address = requireAddress(dependency, record);
+    const runtimeCode = await client.getBytecode({ address });
+    if (!runtimeCode || runtimeCode === "0x") {
+      failClosed(`${dependency} at ${address} has no runtime bytecode`);
+    }
+    const verifiedRuntimeCode = runtimeCode as Hex;
+    if (!record.runtimeCodeHash) {
+      failClosed(`${dependency} has no committed runtime code hash`);
+    }
+    const committedRuntimeCodeHash = record.runtimeCodeHash;
+    if (!committedRuntimeCodeHash) {
+      failClosed(`${dependency} has no committed runtime code hash`);
+    }
+    const expectedRuntimeCodeHash = committedRuntimeCodeHash as Hex;
+    const runtimeCodeHash = keccak256(verifiedRuntimeCode);
+    if (runtimeCodeHash.toLowerCase() !== expectedRuntimeCodeHash.toLowerCase()) {
+      failClosed(`${dependency} runtime code hash mismatch`);
+    }
+    dependencies[dependency] = { ...record, address, runtimeCodeHash };
+  }
+
+  return { chainId, dependencies };
+}
