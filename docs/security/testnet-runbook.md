@@ -19,7 +19,9 @@ The verifier must fail closed on missing RPC reads, missing bytecode, malformed 
 
 ## Inputs and outputs
 
-`config/sepolia.example.json` is a public, redacted input template. `deployments/sepolia.example.json` is a public manifest template. Replace example addresses and hashes only after a separate human review; never add private keys, passkey material, Burner PINs, seed phrases, provider tokens, or private RPC credentials.
+`config/sepolia.example.json` is the public, redacted planner and verifier configuration. The verifier does not consume a deployment-plan output as its configuration: it consumes this config plus a separately collected observed snapshot. Replace example addresses and hashes only after a separate human review; never add private keys, passkey material, Burner PINs, seed phrases, provider tokens, or private RPC credentials.
+
+The observed snapshot must include the recomputed `policyHash`, nested Safe singleton and Delay dependency address/code-hash records, Safe-to-singleton and Delay-to-dependency topology bindings, exact recipient arrays, and one unique counter record for every configured token. Counter values must be canonical decimal strings and remain within the configured per-token daily limits.
 
 Generate an unsigned, reproducible plan:
 
@@ -32,10 +34,10 @@ Review every decoded setup call against `docs/security/call-graph.md` before any
 Verify using a separately collected public read-only snapshot:
 
 ```sh
-npx ts-node scripts/verify-deployment.ts deployments/sepolia.example.json /tmp/sepolia-observed.json
+npx ts-node scripts/verify-deployment.ts config/sepolia.example.json /tmp/sepolia-observed.json
 ```
 
-Archive the unsigned plan, public manifest, observed snapshot, verification report, report hash, block number, and source revision as the evidence bundle. Redact logs before sharing.
+Archive the unsigned plan, public config, observed snapshot, verification report, report hash, block number, and source revision as the evidence bundle. Redact logs before sharing.
 
 ## Rehearsal sequence
 

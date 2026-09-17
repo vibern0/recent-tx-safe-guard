@@ -93,7 +93,7 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
 
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
-  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "recovery", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "setupCalls"], "config", ["policyHash", "expectedCounters"]);
+  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "recovery", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash"]);
   if (config.formatVersion !== 1) throw new Error("config.formatVersion must be 1");
   if (config.network !== "sepolia" || config.chainId !== 11155111) throw new Error("planner is Sepolia-only");
   if (!Array.isArray(config.setupTransactionHashes) || !Array.isArray(config.expectedQueueFingerprints)) throw new Error("evidence arrays must be explicit");
@@ -112,7 +112,6 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   exactKeys(singleton, ["address", "runtimeCodeHash"], "safeSingleton");
   exactKeys(delayDependency, ["address", "runtimeCodeHash"], "delayDependency");
   if (config.policyHash !== undefined) hash(config.policyHash, "policyHash");
-  if (config.expectedCounters !== undefined && !Array.isArray(config.expectedCounters)) throw new Error("expectedCounters must be an array");
   const setupCalls = config.setupCalls;
   if (!Array.isArray(setupCalls)) throw new Error("setupCalls must be an array");
   const calls = setupCalls.map((call, index) => {
@@ -126,6 +125,23 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   });
   const policy = config.policy;
   validatePolicy(policy);
+  const policyAssets = (policy as Record<string, unknown>).assets as Record<string, unknown>[];
+  if (!Array.isArray(config.expectedCounters) || config.expectedCounters.length !== policyAssets.length) throw new Error("expectedCounters must exactly cover policy assets");
+  const counterTokens = new Set<string>();
+  const expectedCounters = config.expectedCounters.map((raw, index) => {
+    const counter = record(raw, `expectedCounters[${index}]`);
+    exactKeys(counter, ["token", "window", "baseSpent", "instantSpent"], `expectedCounters[${index}]`);
+    const token = address(counter.token, `expectedCounters[${index}].token`);
+    if (counterTokens.has(token)) throw new Error("expectedCounters tokens must be unique");
+    counterTokens.add(token);
+    const asset = policyAssets.find((candidate) => address(candidate.token, "policy asset token") === token);
+    if (!asset) throw new Error("expectedCounters token coverage mismatch");
+    const baseSpent = unsignedInteger(counter.baseSpent, `expectedCounters[${index}].baseSpent`);
+    const instantSpent = unsignedInteger(counter.instantSpent, `expectedCounters[${index}].instantSpent`);
+    if (baseSpent > unsignedInteger(asset.baseDailyLimit, "policy asset baseDailyLimit") || instantSpent > unsignedInteger(asset.instantDailyLimit, "policy asset instantDailyLimit")) throw new Error("expectedCounters values must be bounded by policy limits");
+    return { token, window: unsignedInteger(counter.window, `expectedCounters[${index}].window`).toString(), baseSpent: baseSpent.toString(), instantSpent: instantSpent.toString() };
+  });
+  if (counterTokens.size !== policyAssets.length) throw new Error("expectedCounters token coverage mismatch");
   return {
     formatVersion: 1,
     network: "sepolia",
@@ -139,6 +155,7 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
       guardRuntimeCodeHash: hash(config.guardRuntimeCodeHash, "guardRuntimeCodeHash"),
     },
     policyHash: sha256(policy),
+    expectedCounters,
     setupTransactionHashes,
     queueFingerprints,
     setupCalls: calls,

@@ -34,6 +34,14 @@
     ]
   },
   "expectedQueueFingerprints": [],
+  "expectedCounters": [
+    {
+      "token": "0x0000000000000000000000000000000000000008",
+      "window": "0",
+      "baseSpent": "0",
+      "instantSpent": "0"
+    }
+  ],
   "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "setupCalls": [
     {
