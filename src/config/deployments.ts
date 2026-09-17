@@ -142,6 +142,14 @@ async function resolveWithRegistry(
   if (!chain) failClosed(`no official registry entry for chain ${chainId}`);
   const selectedChain = chain as ChainDeploymentRegistry;
 
+  // Validate the complete production evidence ledger before making any RPC
+  // reads, so an incomplete official registry can never look partially usable.
+  for (const dependency of DEPENDENCIES) {
+    const record = selectedChain[dependency];
+    if (!record) failClosed(`missing registry entry for ${dependency}`);
+    if (record.evidence === "absent") failClosed(`${dependency} has no official deployment evidence`);
+  }
+
   const dependencies = {} as Record<DependencyName, VerifiedDependency>;
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];

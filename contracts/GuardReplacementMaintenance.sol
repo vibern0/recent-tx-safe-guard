@@ -10,7 +10,12 @@ interface ISafeOwnerMaintenance {
 }
 
 interface IGuardSignerRepair {
+    function config() external view returns (address safe, address passkey, address burner, address recovery, address delay, uint64 periodSeconds, uint64 periodAnchor);
     function repairSigner(uint8 role, address expectedOld, address replacement) external;
+}
+
+interface IGuardMaintenance {
+    function maintenance() external view returns (address);
 }
 
 /// @notice The only delegatecall target permitted for dual-guard maintenance.
@@ -57,7 +62,7 @@ contract GuardReplacementMaintenance {
         (bool first,) = address(this).call(abi.encodeWithSignature("setGuard(address)", replacement));
         (bool second,) = address(this).call(abi.encodeWithSignature("setModuleGuard(address)", replacement));
         (bool configured,) = replacement.call(abi.encodeWithSignature("setMaintenance(address)", address(this)));
-        if (!first || !second || !configured) revert SetterFailed();
+        if (!first || !second || !configured || !_matchesGuardConfiguration(replacement, address(0), 0) || !_hasMaintenance(replacement)) revert SetterFailed();
         assembly { sstore(LOCK_SLOT, 0) }
     }
 
@@ -72,6 +77,13 @@ contract GuardReplacementMaintenance {
         if (msg.sender != delay) revert OnlyDelay();
         if (address(this) != safe) revert WrongExecutionContext();
         if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || previousOwner == address(0) || replacement == expectedOld) revert InvalidReplacement();
+        address currentGuard;
+        address currentModuleGuard;
+        assembly {
+            currentGuard := sload(GUARD_SLOT)
+            currentModuleGuard := sload(MODULE_GUARD_SLOT)
+        }
+        if (currentGuard != guard || currentModuleGuard != guard || !_matchesGuardConfiguration(guard, expectedOld, role)) revert InvalidReplacement();
         (bool repaired,) = guard.call(abi.encodeWithSelector(IGuardSignerRepair.repairSigner.selector, role, expectedOld, replacement));
         (bool removed,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.removeOwner.selector, previousOwner, expectedOld, threshold));
         (bool added,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.addOwnerWithThreshold.selector, replacement, threshold));
@@ -81,5 +93,23 @@ contract GuardReplacementMaintenance {
     function _supports(address candidate, bytes4 interfaceId) private view returns (bool supported) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(0x01ffc9a7, interfaceId));
         supported = ok && result.length == 32 && abi.decode(result, (bool));
+    }
+
+    function _hasMaintenance(address candidate) private view returns (bool) {
+        (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardMaintenance.maintenance.selector));
+        return ok && result.length == 32 && abi.decode(result, (address)) == address(this);
+    }
+
+    function _matchesGuardConfiguration(address candidate, address expectedOld, uint8 role) private view returns (bool) {
+        (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.config.selector));
+        if (!ok || result.length != 224) return false;
+        (address configuredSafe, address passkey, address burner, address recovery, address configuredDelay,,) = abi.decode(
+            result,
+            (address, address, address, address, address, uint64, uint64)
+        );
+        if (configuredSafe != safe || configuredDelay != delay) return false;
+        if (expectedOld == address(0)) return true;
+        address configuredSigner = role == 0 ? passkey : role == 1 ? burner : role == 2 ? recovery : address(0);
+        return configuredSigner == expectedOld;
     }
 }

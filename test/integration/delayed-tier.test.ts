@@ -48,6 +48,30 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, passkeySig, envelope, execute };
   }
 
+  it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
+    const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
+    const singleton = await hre.viem.deployContract("Safe");
+    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
+    const safe = await hre.viem.getContractAt("Safe", proxy.address);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, burner.account.address, recovery.account.address, delay.address, 86400n, 0n]]);
+    const owners = [deployer.account.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
+    const sign = async (to: Address, data: Hex, signer = recovery) => signer.signTypedData({
+      domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx",
+      message: { to, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await safe.read.nonce() },
+    });
+    const ownerCall = async (to: Address, data: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, await sign(to, data)], { account: deployer.account });
+    await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ]), functionName: "setAssetPolicy", args: [ZERO, 1n, 2n, 1n, 2n, [recipient.account.address]] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [recipient.account.address, 2n, "0x", 0] });
+    await expect(ownerCall(delay.address, queued)).to.be.rejected;
+  });
+
   it("exercises real Delay cooldown, FIFO execution, cancellation, and requeue", async () => {
     const f = await fixture();
     expect(await (await hre.viem.getPublicClient()).getBalance({ address: f.safe.address })).to.equal(500n);

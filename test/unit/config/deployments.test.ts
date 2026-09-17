@@ -158,6 +158,13 @@ describe("resolveVerifiedDeployments", () => {
     await expect(
       (resolveVerifiedDeployments as unknown as (...args: unknown[]) => Promise<unknown>)
         (clientFor(), CHAIN_ID, fixtureRegistry()),
-    ).to.be.rejectedWith("safeSingleton runtime code hash mismatch");
+    ).to.be.rejectedWith("passkeySignerFactory has no official deployment evidence");
+  });
+
+  it("fails closed when the official production artifact has no deployment evidence", async () => {
+    const client: ReadOnlyDeploymentClient = { getBytecode: async () => CODE };
+    await expect(resolveVerifiedDeployments(client, CHAIN_ID)).to.be.rejectedWith(
+      "passkeySignerFactory has no official deployment evidence",
+    );
   });
 });

@@ -196,12 +196,12 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     function decodePasskeySignature(bytes calldata signatures) external view returns (address signer, uint256 ownerEnd) {
-        (signer, ownerEnd) = SafeSignatureDecoder.decode(signatures, bytes32(0));
+        (signer, ownerEnd,) = SafeSignatureDecoder.decode(signatures, bytes32(0), false);
         SafeSignatureDecoder.requireNoTrailingData(signatures, ownerEnd);
     }
 
     function decodeBurnerExtension(bytes calldata signatures) external view returns (bytes calldata burnerSignature) {
-        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures, bytes32(0));
+        (, uint256 ownerEnd,) = SafeSignatureDecoder.decode(signatures, bytes32(0), false);
         return _burnerExtension(signatures, ownerEnd);
     }
 
@@ -226,15 +226,16 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 currentNonce = ISafe(payable(config.safe)).nonce();
         if (currentNonce == 0) revert InvalidPasskeySignature();
         bytes32 txHash = PolicyDigest.safeTransactionHash(config.safe, to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, currentNonce - 1);
-        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures, txHash);
-        (address passkeySigner,) = SafeSignatureDecoder.decode(signatures, txHash);
         bool recoveryAction = _isRecoveryAction(to, value, data, operation);
         bool emergencyAction = _isEmergencyAction(to, value, data, operation);
+        (, uint256 ownerEnd, bool isContractSignature) = SafeSignatureDecoder.decode(signatures, txHash, recoveryAction);
+        (address passkeySigner,,) = SafeSignatureDecoder.decode(signatures, txHash, recoveryAction);
         if (recoveryAction && !emergencyAction) {
             if (passkeySigner != config.recovery) revert InvalidPasskeySignature();
         } else if (emergencyAction) {
             if (passkeySigner != config.passkey && passkeySigner != config.recovery) revert InvalidPasskeySignature();
-        } else if (passkeySigner != config.passkey) revert InvalidPasskeySignature();
+        } else if (passkeySigner != config.passkey || !isContractSignature) revert InvalidPasskeySignature();
+        if (passkeySigner == config.passkey && !isContractSignature) revert InvalidPasskeySignature();
         try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, signatures, 1) {} catch { revert InvalidPasskeySignature(); }
 
         if (signatures.length > ownerEnd) {
