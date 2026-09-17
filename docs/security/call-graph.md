@@ -1,6 +1,12 @@
 # Security-core call graph
 
-This document records the Task 6 execution paths. The repository remains a testnet security prototype.
+This document records the complete Task 7 topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
+
+## Topology authority
+
+One asset-holding Safe has exactly three owners: configured passkey, Burner, and recovery, with threshold 1 and no fallback handler. The same TieredSpendingGuard occupies both Safe transaction-guard and module-guard slots. Zodiac Delay is the only Safe module. Delay has the Safe as owner, avatar, and target, and the Safe is its only upstream module. No second Safe, signer account, module, or custody account is created.
+
+buildVaultPlan emits only deterministic, unsigned deployment/configuration data. It does not sign, broadcast, or invent registry addresses. verifyTopology re-reads bytecode hashes, Safe graph, guard configuration/counters, asset recipients, and Delay settings; missing reads and mismatches are failures.
 
 ## Instant owner path
 
@@ -27,3 +33,7 @@ Immediate `setAssetPolicy` is accepted only for an unset token or a numeric decr
 The module guard permits this one target, selector, and operation only when the caller module is the configured Delay. In Safe storage, the maintenance code verifies both current guard slots, verifies both interfaces on the replacement, sets a reentrancy lock, and performs exactly two Safe self-calls: `setGuard` and `setModuleGuard`. Any failure reverts the complete operation. No arbitrary target list, calldata batch, or general delegatecall is exposed.
 
 Signer repair atomically updates guard configuration and rotates the corresponding Safe owner; replacement guards receive the same maintenance authorization before the old guard can be removed. Both currently installed guard slots and the old guard's Safe, Delay, and role-signer configuration are checked before rotation. Role 0 additionally requires deployed replacement code and an ERC-1271-compatible passkey signer response; roles 1 and 2 retain their Burner/recovery rotation semantics. All other module addresses, targets, selectors, and operations are denied by the module guard.
+
+## Forbidden paths
+
+Direct owner transfers, unlisted modules, a second enabled module, nonzero fallback handler, delegatecalls outside fixed maintenance, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, unknown assets/recipients, malformed Delay calls, nonzero Safe gas/refunds, approved-hash authorization, and any missing or inconsistent verification read are rejected. Monitoring and relaying can observe or execute an already-delay-approved item, but neither is an authorizer.

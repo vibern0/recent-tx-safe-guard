@@ -362,23 +362,23 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 
 **Interfaces:** `buildVaultPlan(input): VaultDeploymentPlan` produces one Safe, one guard, one Delay, and an unsigned atomic setup; `verifyTopology(input): Promise<TopologyReport>` re-reads every invariant.
 
-- [ ] **Step 1: Write deterministic plan snapshots**
+- [x] **Step 1: Write deterministic plan snapshots**
 
 Assert one Safe address, owners `[passkey, burner, recovery]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
 
-- [ ] **Step 2: Implement atomic planning**
+- [x] **Step 2: Implement atomic planning**
 
 Generate unsigned calldata that configures policy, Delay, owners, both guards, and the module graph without a partially protected final state. Never broadcast from the planner.
 
-- [ ] **Step 3: Implement fail-closed verification**
+- [x] **Step 3: Implement fail-closed verification**
 
 Verify Safe singleton/version, owners, threshold, fallback, guards, modules, guard code hash/config/counters, Delay code hash/owner/avatar/target/members/cooldown/expiration, and absence of unexpected approvals recorded by the runbook.
 
-- [ ] **Step 4: Write the complete call graph**
+- [x] **Step 4: Write the complete call graph**
 
 Document base, step-up, queue, Delay execution, cancellation, freeze, recovery, configuration, replacement, and forbidden paths with caller, signer requirement, value capability, and timing.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run deterministic planning twice for byte-identical output, deploy on a local fork, verify the topology, mutate each invariant individually, and require failure. Commit as `feat: build and verify one-safe vault topology`.
 

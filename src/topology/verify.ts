@@ -1,0 +1,31 @@
+import { keccak256, parseAbi, type Address, type Hex } from "viem";
+import { assertValidVaultPolicy, type VaultPolicy } from "../config/policy";
+export type TopologyReadClient = { getBytecode(args: { address: Address }): Promise<Hex | undefined>; readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown> };
+export type TopologyInput = Readonly<{ chainId: number; policy: VaultPolicy; safe: Address; guard: Address; delay: Address; expectedGuardCodeHash: Hex; expectedDelayCodeHash: Hex; client: TopologyReadClient }>;
+export type TopologyReport = Readonly<{ ok: boolean; failures: readonly string[]; checked: readonly string[] }>;
+const ABI = parseAbi([
+  "function getOwners() view returns (address[])", "function getThreshold() view returns (uint256)", "function getFallbackHandler() view returns (address)", "function getGuard() view returns (address)", "function getModuleGuard() view returns (address)", "function getModules() view returns (address[])", "function isModuleEnabled(address) view returns (bool)",
+  "function config() view returns (address,address,address,address,address,uint64,uint64)", "function assetPolicy(address) view returns (uint256,uint256,uint256,uint256)", "function spendState(address) view returns (uint256,uint256,uint256)", "function allowedRecipient(address,address) view returns (bool)",
+  "function owner() view returns (address)", "function avatar() view returns (address)", "function target() view returns (address)", "function txCooldown() view returns (uint256)", "function txExpiration() view returns (uint256)",
+]);
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const same = (a: unknown, b: unknown) => typeof a === "string" && typeof b === "string" ? a.toLowerCase() === b.toLowerCase() : a === b;
+const tuple = (value: unknown): readonly unknown[] | undefined => Array.isArray(value) ? value : undefined;
+async function read(input: TopologyInput, address: Address, functionName: string, args: readonly unknown[] = []): Promise<unknown> { return input.client.readContract({ address, abi: ABI, functionName, args }); }
+export async function verifyTopology(input: TopologyInput): Promise<TopologyReport> {
+  const failures: string[] = []; const checked: string[] = []; const check = (name: string, condition: boolean) => { checked.push(name); if (!condition) failures.push(name); };
+  try { assertValidVaultPolicy(input.policy); } catch (error) { failures.push("policy: " + (error instanceof Error ? error.message : "invalid")); return { ok: false, failures, checked }; }
+  check("chain id", input.chainId === input.policy.chainId); check("safe address", same(input.safe, input.policy.safe)); check("delay address", same(input.delay, input.policy.delay));
+  const code = async (label: string, address: Address, expected: Hex) => { try { const actual = await input.client.getBytecode({ address }); check(label + " bytecode", !!actual && actual !== "0x"); check(label + " code hash", !!actual && keccak256(actual).toLowerCase() === expected.toLowerCase()); } catch { check(label + " bytecode", false); check(label + " code hash", false); } };
+  await code("guard", input.guard, input.expectedGuardCodeHash); await code("delay", input.delay, input.expectedDelayCodeHash);
+  const safe = async (name: string, args: readonly unknown[] = []) => { try { return await read(input, input.safe, name, args); } catch { failures.push(name + " read"); return undefined; } };
+  const guard = async (name: string, args: readonly unknown[] = []) => { try { return await read(input, input.guard, name, args); } catch { failures.push(name + " read"); return undefined; } };
+  const delayed = async (name: string, args: readonly unknown[] = []) => { try { return await read(input, input.delay, name, args); } catch { failures.push("Delay " + name + " read"); return undefined; } };
+  const owners = tuple(await safe("getOwners")); check("owners", !!owners && owners.length === 3 && owners.every((x, i) => same(x, [input.policy.passkey, input.policy.burner, input.policy.recovery][i])));
+  check("threshold", (await safe("getThreshold")) === 1n); check("fallback handler", same(await safe("getFallbackHandler"), ZERO)); check("transaction guard", same(await safe("getGuard"), input.guard)); check("module guard", same(await safe("getModuleGuard"), input.guard)); check("only Delay module", (await safe("isModuleEnabled", [input.delay])) === true);
+  const modules = tuple(await safe("getModules")); check("only Safe module", !!modules && modules.length === 1 && same(modules[0], input.delay));
+  const config = tuple(await guard("config")); check("guard config", !!config && same(config[0], input.safe) && same(config[1], input.policy.passkey) && same(config[2], input.policy.burner) && same(config[3], input.policy.recovery) && same(config[4], input.delay) && config[5] === 86400n && config[6] === input.policy.periodAnchor);
+  for (const asset of input.policy.assets) { const configured = tuple(await guard("assetPolicy", [asset.token])); check("asset policy " + asset.token, !!configured && configured[0] === asset.basePerTransaction && configured[1] === asset.stepUpPerTransaction && configured[2] === asset.baseDailyLimit && configured[3] === asset.instantDailyLimit); const state = tuple(await guard("spendState", [asset.token])); check("counter " + asset.token, !!state && state.length === 3 && (state[1] as bigint) <= asset.baseDailyLimit && (state[2] as bigint) <= asset.instantDailyLimit); for (const recipient of asset.recipients) check("recipient " + recipient, (await guard("allowedRecipient", [asset.token, recipient])) === true); }
+  check("Delay owner", same(await delayed("owner"), input.safe)); check("Delay avatar", same(await delayed("avatar"), input.safe)); check("Delay target", same(await delayed("target"), input.safe)); check("Delay cooldown", (await delayed("txCooldown")) === BigInt(input.policy.cooldownSeconds)); check("Delay expiration", (await delayed("txExpiration")) === BigInt(input.policy.expirationSeconds)); check("Delay upstream Safe", (await delayed("isModuleEnabled", [input.safe])) === true);
+  return { ok: failures.length === 0, failures, checked };
+}
