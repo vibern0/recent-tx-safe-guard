@@ -1,26 +1,45 @@
 {
   "name": "hardhat-project",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "test:unit": "hardhat test test/unit",
+    "test:integration": "hardhat test test/integration",
+    "test:invariant": "hardhat test test/invariant",
+    "check": "npm run build && npm test",
+    "coverage": "hardhat coverage",
+    "slither": "slither .",
+    "plan:deployment": "tsx scripts/plan-deployment.ts",
+    "verify:dependencies": "tsx scripts/verify-dependencies.ts",
+    "verify:deployment": "tsx scripts/verify-deployment.ts",
+    "watch:activity": "tsx scripts/watch-activity.ts",
+    "rehearse": "tsx scripts/rehearse.ts"
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ignition": "^0.15.5",
-    "@nomicfoundation/hardhat-ignition-viem": "^0.15.0",
-    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
-    "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
-    "@nomicfoundation/hardhat-verify": "^2.0.0",
-    "@nomicfoundation/hardhat-viem": "^2.0.0",
-    "@nomicfoundation/ignition-core": "^0.15.5",
-    "@types/chai": "^4.2.0",
-    "@types/chai-as-promised": "^7.1.6",
-    "@types/mocha": ">=9.1.0",
-    "chai": "^4.2.0",
-    "hardhat": "^2.22.6",
-    "hardhat-gas-reporter": "^1.0.8",
-    "solidity-coverage": "^0.8.1",
+    "@nomicfoundation/hardhat-ignition": "0.15.5",
+    "@nomicfoundation/hardhat-ignition-viem": "0.15.5",
+    "@nomicfoundation/hardhat-network-helpers": "1.0.12",
+    "@nomicfoundation/hardhat-toolbox-viem": "3.0.0",
+    "@nomicfoundation/hardhat-verify": "2.0.1",
+    "@nomicfoundation/hardhat-viem": "2.0.0",
+    "@nomicfoundation/ignition-core": "0.15.5",
+    "@types/chai": "4.3.16",
+    "@types/chai-as-promised": "7.1.8",
+    "@types/mocha": "10.0.10",
+    "chai": "4.5.0",
+    "hardhat": "2.22.6",
+    "hardhat-gas-reporter": "1.0.10",
+    "solidity-coverage": "0.8.14",
+    "tsx": "4.19.4",
     "ts-node": "10.9.2",
-    "typescript": "5.5.3",
-    "viem": "^2.7.6"
+    "typescript": "5.0.4"
   },
   "dependencies": {
-    "@gnosis.pm/safe-contracts": "1.3.0",
-    "@openzeppelin/contracts": "^5.0.2"
+    "@gnosis-guild/zodiac": "5.0.1",
+    "@openzeppelin/contracts": "5.6.1",
+    "@safe-global/safe-passkey": "0.2.0",
+    "@safe-global/safe-smart-account": "1.5.0",
+    "viem": "2.56.7"
   }
 }
