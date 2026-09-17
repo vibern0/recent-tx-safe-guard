@@ -110,6 +110,7 @@ async function main(): Promise<void> {
         for (const transaction of block.transactions) {
           if (!transaction.to || !same(transaction.to, delay)) continue;
           const receipt = await client.getTransactionReceipt({ hash: transaction.hash });
+          if (latest-receipt.blockNumber+1n<BigInt(confirmations)) continue;
           receipts.push({ transactionHash: transaction.hash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, status: receipt.status, to: transaction.to, input: transaction.input });
         }
       }

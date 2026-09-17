@@ -46,6 +46,7 @@ describe("Delay activity decoding", () => {
 
   it("decodes a confirmed queue item with the recomputed Zodiac hash", async () => {
     const result = await decodeDelayLog(log("TransactionAdded", [4n, item.txHash, context.safe, 0n, "0x", 0]), context, 21n, 100n, binding);
+    if (result.kind !== "delayed-queued") throw new Error("expected delayed queue alert");
     expect(result.kind).to.equal("delayed-queued");
     expect(result.queueNonce).to.equal(4n);
     expect(result.queueFingerprint).to.match(/^0x[0-9a-f]{64}$/);
@@ -85,7 +86,7 @@ describe("Delay activity decoding", () => {
       kind: "delayed-queued", chainId: context.chainId, safe: context.safe, delay: context.delay,
       transactionHash: log("TransactionAdded", [4n, item.txHash, context.safe, 0n, "0x", 0]).transactionHash,
       blockNumber: 20n, logIndex: 0, queueNonce: 4n, queueFingerprint: item.txHash, createdAt: 100n,
-      expiresAt: 170n,
+      expiresAt: 170n, to: item.to, value: item.value, data: item.data, operation: item.operation,
     } as const, context, 200n, {
       ...binding,
       readNonce: async block => block < 40n ? 4n : 5n,
@@ -96,11 +97,30 @@ describe("Delay activity decoding", () => {
     expect(executed).to.deep.include({ kind: "delayed-executed", queueNonce: 4n, blockNumber: 40n });
   });
 
+  it("does not derive execution or expiry from receipts below the configured confirmation depth", async () => {
+    const confirmedContext = { ...context, confirmations: 2 } as const;
+    const queued = {
+      kind: "delayed-queued" as const, chainId: confirmedContext.chainId, safe: confirmedContext.safe, delay: confirmedContext.delay,
+      transactionHash: item.txHash, blockNumber: 20n, logIndex: 0, queueNonce: 4n, queueFingerprint: item.txHash,
+      createdAt: 100n, expiresAt: 170n, to: item.to, value: item.value, data: item.data, operation: item.operation,
+    } as const;
+    const lifecycle = {
+      ...binding,
+      readNonce: async (block: bigint) => block < 40n ? 4n : 5n,
+      readLifecycleReceipts: async () => [{ transactionHash: item.txHash, blockNumber: 40n, blockHash: item.txHash, status: "success" as const, to: context.delay, input: "0x" as const }],
+      readCanonicalBlock: async (block: bigint) => ({ blockNumber: block, blockHash: item.txHash, timestamp: 171n }),
+      decodeLifecycleCall: () => ({ functionName: "executeNextTx" as const, args: [item.to, item.value, item.data, item.operation] }),
+    };
+    await expect(deriveDelayLifecycle(queued, confirmedContext, 40n, lifecycle)).to.eventually.equal(undefined);
+    await expect(deriveDelayLifecycle(queued, confirmedContext, 40n, { ...lifecycle, decodeLifecycleCall: () => ({ functionName: "skipExpired" as const, args: [] }) })).to.eventually.equal(undefined);
+  });
+
   it("derives expiry only from an exact successful skipExpired transition after canonical expiry", async () => {
     const expired = await deriveDelayLifecycle({
       kind: "delayed-queued", chainId: context.chainId, safe: context.safe, delay: context.delay,
       transactionHash: "0x0000000000000000000000000000000000000000000000000000000000000020", blockNumber: 20n, logIndex: 0,
       queueNonce: 4n, queueFingerprint: item.txHash, createdAt: 100n, expiresAt: 170n,
+      to: item.to, value: item.value, data: item.data, operation: item.operation,
     } as const, context, 200n, {
       ...binding,
       readNonce: async block => block < 50n ? 4n : 5n,
@@ -114,7 +134,7 @@ describe("Delay activity decoding", () => {
   it("suppresses execution and expiry derivation after cancellation or a reorged receipt", async () => {
     const queued = { kind: "delayed-queued" as const, chainId: context.chainId, safe: context.safe, delay: context.delay,
       transactionHash: "0x0000000000000000000000000000000000000000000000000000000000000020" as `0x${string}`, blockNumber: 20n, logIndex: 0,
-      queueNonce: 4n, queueFingerprint: item.txHash, createdAt: 100n, expiresAt: 170n } as const;
+      queueNonce: 4n, queueFingerprint: item.txHash, createdAt: 100n, expiresAt: 170n, to: item.to, value: item.value, data: item.data, operation: item.operation } as const;
     const base = { ...binding, readNonce: async () => 5n, readCanonicalBlock: async (block: bigint) => ({ blockNumber: block, blockHash: "0x0000000000000000000000000000000000000000000000000000000000000061" as `0x${string}`, timestamp: 200n }) };
     await expect(deriveDelayLifecycle(queued, context, 200n, { ...base, readLifecycleReceipts: async () => [{ transactionHash: "0x0000000000000000000000000000000000000000000000000000000000000060", blockNumber: 60n, blockHash: "0x0000000000000000000000000000000000000000000000000000000000000061", status: "success", to: context.delay, input: "0x" }], decodeLifecycleCall: () => ({ functionName: "setTxNonce", args: [5n] }) })).to.eventually.equal(undefined);
     await expect(deriveDelayLifecycle(queued, context, 200n, { ...base, readNonce: async () => 4n, readLifecycleReceipts: async () => [{ transactionHash: "0x0000000000000000000000000000000000000000000000000000000000000070", blockNumber: 70n, blockHash: "0x0000000000000000000000000000000000000000000000000000000000000072", status: "success", to: context.delay, input: "0x" }], decodeLifecycleCall: () => ({ functionName: "skipExpired", args: [] }), readCanonicalBlock: async () => ({ blockNumber: 70n, blockHash: "0x0000000000000000000000000000000000000000000000000000000000000071", timestamp: 200n }) })).to.eventually.equal(undefined);

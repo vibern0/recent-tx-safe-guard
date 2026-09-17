@@ -29,6 +29,10 @@ const delayedQueued: ActivityAlert = {
   queueNonce: 1n,
   queueFingerprint: alert.transactionHash,
   createdAt: 10n,
+  to: alert.safe,
+  value: 0n,
+  data: "0x",
+  operation: 0,
 };
 
 const delayedCancelled: ActivityAlert = {
@@ -102,5 +106,21 @@ describe("non-authorizing notifiers", () => {
     expect(() => publicAlert({ ...alert, transactionHash: 1 } as never)).to.throw(/type/i);
     expect(() => publicAlert({ ...alert, blockNumber: 10 } as never)).to.throw(/type/i);
     expect(() => publicAlert({ ...alert, logIndex: 0n } as never)).to.throw(/type/i);
+  });
+
+  for (const field of ["to", "value", "data", "operation", "queueFingerprint"] as const) {
+    it(`rejects omission of delayed lifecycle field ${field}`, () => {
+      for (const value of [delayedQueued, delayedExecuted, delayedExpired]) {
+        const omitted = { ...value } as Record<string, unknown>;
+        delete omitted[field];
+        expect(() => publicAlert(omitted as never)).to.throw(new RegExp(`required.*${field}`));
+      }
+    });
+  }
+
+  it("rejects delayed lifecycle tuple and fingerprint type mismatches", () => {
+    for (const [field, value] of [["to", 1], ["value", "0"], ["data", 1], ["operation", 0n], ["queueFingerprint", 1]] as const) {
+      expect(() => publicAlert({ ...delayedQueued, [field]: value } as never)).to.throw(/type/i);
+    }
   });
 });

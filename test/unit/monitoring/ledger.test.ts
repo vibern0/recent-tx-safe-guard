@@ -14,6 +14,13 @@ const alert: ActivityAlert = {
   transactionHash: "0x0000000000000000000000000000000000000000000000000000000000000001",
   blockNumber: 5n,
   logIndex: 0,
+  queueNonce: 1n,
+  queueFingerprint: "0x0000000000000000000000000000000000000000000000000000000000000001",
+  createdAt: 5n,
+  to: getAddress("0x0000000000000000000000000000000000000003"),
+  value: 0n,
+  data: "0x",
+  operation: 0,
 };
 const key = (blockHash: string): ActivityLogKey => ({ chainId: 31337, blockHash: blockHash as `0x${string}`, transactionHash: alert.transactionHash, logIndex: 0 });
 
