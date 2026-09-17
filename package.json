@@ -4,9 +4,9 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "test:unit": "if [ -d test/unit ]; then hardhat test test/unit; else echo 'test/unit not present; skipped until a later task adds it'; fi",
-    "test:integration": "if [ -d test/integration ]; then hardhat test test/integration; else echo 'test/integration not present; skipped until a later task adds it'; fi",
-    "test:invariant": "if [ -d test/invariant ]; then hardhat test test/invariant; else echo 'test/invariant not present; skipped until a later task adds it'; fi",
+    "test:unit": "files=$(find test/unit -type f -name '*.ts' -print 2>/dev/null; find test/unit -type f -name '*.js' -print 2>/dev/null); if [ -n \"$files\" ]; then hardhat test $files; else echo 'matching test/unit files not present; skipped until a later task adds them'; fi",
+    "test:integration": "files=$(find test/integration -type f -name '*.ts' -print 2>/dev/null; find test/integration -type f -name '*.js' -print 2>/dev/null); if [ -n \"$files\" ]; then hardhat test $files; else echo 'matching test/integration files not present; skipped until a later task adds them'; fi",
+    "test:invariant": "files=$(find test/invariant -type f -name '*.ts' -print 2>/dev/null; find test/invariant -type f -name '*.js' -print 2>/dev/null); if [ -n \"$files\" ]; then hardhat test $files; else echo 'matching test/invariant files not present; skipped until a later task adds them'; fi",
     "check": "npm run build && npm test",
     "coverage": "SOLIDITY_COVERAGE=true hardhat coverage",
     "slither": "slither .",

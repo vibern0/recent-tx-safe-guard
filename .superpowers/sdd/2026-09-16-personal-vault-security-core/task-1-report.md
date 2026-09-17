@@ -9,6 +9,20 @@
 
 The review identified that advertised later-task lanes and script entrypoints failed while their inputs were not yet present, and that coverage did not enable Solidity instrumentation. The package scripts now explicitly skip absent future directories/files, execute the real command when those inputs exist, propagate command failures, and run coverage with `SOLIDITY_COVERAGE=true`.
 
+A second review found that a present `test/unit` directory is not itself a valid Mocha target. The test lanes now collect matching `.ts`/`.js` files and pass those file paths to Hardhat; an empty match skips explicitly, while any matching test failure propagates.
+
+Verification of the second fix on 2026-09-17:
+
+```text
+npm run test:unit             # passed; 7 tests
+npm run test:integration      # passed; explicit skip (no matching files)
+npm run test:invariant        # passed; explicit skip (no matching files)
+npm run build                 # passed; Nothing to compile
+npm test                      # passed; 7 tests
+npm run coverage              # passed; Solidity coverage enabled, 7 tests
+git diff --check              # passed
+```
+
 Follow-up verification on 2026-09-17:
 
 ```text
