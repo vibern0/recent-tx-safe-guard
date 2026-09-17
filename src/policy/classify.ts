@@ -18,7 +18,7 @@ const DELAYED_SAFE_SELECTORS = new Set([
   "setGuard(address)",
   "setModuleGuard(address)",
   "enableModule(address)",
-  "disableModule(address)",
+  "disableModule(address,address)",
   "addOwnerWithThreshold(address,uint256)",
   "removeOwner(address,address,address)",
   "swapOwner(address,address,address)",
@@ -86,6 +86,7 @@ function decodeTransfer(action: ClassifiableAction, asset: AssetPolicy): bigint 
 }
 
 function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction): boolean {
+  if (action.value !== 0n) return false;
   if (same(action.to, policy.delay)) {
     if (action.data.length < 10 || !DELAY_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
     if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("executeNextTx(address,uint256,bytes,uint8)").slice(2)) {
@@ -103,7 +104,7 @@ function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction
     return exactCall(RECOVERY_ABI, action.data, "queueRepair");
   }
   if (!same(action.to, policy.safe) || action.data.length < 10 || !DELAYED_SAFE_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
-  const functionName = ["setGuard", "setModuleGuard", "enableModule", "disableModule", "addOwnerWithThreshold", "removeOwner", "swapOwner", "changeThreshold", "setFallbackHandler", "setNonce"].find((name) => toFunctionSelector(`${name}(${name === "setGuard" || name === "setModuleGuard" || name === "enableModule" || name === "setFallbackHandler" ? "address" : name === "disableModule" || name === "removeOwner" || name === "swapOwner" ? "address,address,address" : name === "addOwnerWithThreshold" ? "address,uint256" : "uint256"})`).slice(2) === action.data.slice(2, 10).toLowerCase());
+  const functionName = ["setGuard", "setModuleGuard", "enableModule", "disableModule", "addOwnerWithThreshold", "removeOwner", "swapOwner", "changeThreshold", "setFallbackHandler", "setNonce"].find((name) => toFunctionSelector(`${name}(${name === "setGuard" || name === "setModuleGuard" || name === "enableModule" || name === "setFallbackHandler" ? "address" : name === "disableModule" ? "address,address" : name === "removeOwner" || name === "swapOwner" ? "address,address,address" : name === "addOwnerWithThreshold" ? "address,uint256" : "uint256"})`).slice(2) === action.data.slice(2, 10).toLowerCase());
   return functionName !== undefined && exactCall(SAFE_DELAYED_ABI, action.data, functionName);
 }
 

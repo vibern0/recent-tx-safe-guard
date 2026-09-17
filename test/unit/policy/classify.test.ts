@@ -106,10 +106,18 @@ describe("classifyAction", () => {
   it("delays recognized transfer, Safe configuration, Delay, and recovery actions", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { burnerApproved: true }), state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] }) }, state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function disableModule(address,address)"]), functionName: "disableModule", args: [ZERO, DELAY] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("delayed");
+  });
+
+  it("blocks delayed control actions carrying ETH", () => {
+    const setGuard = encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] });
+    expect(classifyAction(policy, { ...transfer(SAFE, 1n), data: setGuard }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(DELAY, 1n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(RECOVERY, 1n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("blocked");
   });
 
   it("blocks truncated, extra, malformed, and invalid-argument delayed calldata", () => {

@@ -67,3 +67,17 @@ npm run build                                                                   
 npm run coverage                                                                           # passed; 9 passing
 git diff --check                                                                          # passed
 ```
+
+## Final selector/value fix
+
+The remaining review findings were addressed. `disableModule` now uses the exact Safe ABI signature `disableModule(address,address)` in both selector enumeration and ABI dispatch. All delayed Safe, Delay, and recovery control actions now require `action.value === 0n`; nonzero ETH is blocked before delayed classification.
+
+Final verification:
+
+```text
+npx hardhat test test/unit/policy/classify.test.ts --grep "classifyAction|delayed|control"  # passed; 10 passing
+npm test                                                                              # passed; 10 passing
+npm run build                                                                         # passed; Nothing to compile
+npm run coverage                                                                      # passed; 10 passing
+git diff --check                                                                      # passed
+```
