@@ -34,8 +34,8 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, recoverySignature], { account: deployer.account });
 
     const passkeySignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    await safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, passkeySignature], { account: deployer.account });
-    expect(await safe.read.nonce()).to.equal(nonce + 2n);
+    await expect(safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, passkeySignature], { account: deployer.account })).to.be.rejected;
+    expect(await safe.read.nonce()).to.equal(nonce + 1n);
 
     const revertData = encodeFunctionData({ abi: [{ name: "revertCall", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] }], functionName: "revertCall" });
     await expect(safe.write.execTransaction([passkey.address, 0n, revertData, 0, 0n, 0n, 0n, ZERO, ZERO, passkeySignature], { account: deployer.account })).to.be.rejected;
@@ -68,6 +68,13 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
       return `${ownerSignature}${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${typeHash.slice(2)}` as Hex;
     };
 
+    await deployer.sendTransaction({ to: safe.address, value: 1n });
+    const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ], outputs: [] }], functionName: "setAssetPolicy", args: [ZERO, 1n, 1n, 100n, 1_000n, [recipient.account.address]] });
+    const policyNonce = await safe.read.nonce();
+    const policySignature = await recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: guard.address, value: 0n, data: policyData, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: policyNonce } });
+    await safe.write.execTransaction([guard.address, 0n, policyData, 0, 0n, 0n, 0n, ZERO, ZERO, policySignature], { account: deployer.account });
     const setGuardData = encodeFunctionData({ abi: [{ name: "setGuard", type: "function", stateMutability: "nonpayable", inputs: [{ name: "guard", type: "address" }], outputs: [] }], functionName: "setGuard", args: [guard.address] });
     const setupNonce = await safe.read.nonce();
     const setupSignature = await recovery.signTypedData({
@@ -77,8 +84,8 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, setupSignature], { account: deployer.account });
 
     const nonce = await safe.read.nonce();
-    const validBurner = await signSafeHash(nonce);
-    await safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, envelope(validBurner)], { account: deployer.account });
+    const validBurner = await burner.signTypedData({ domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: recipient.account.address, value: 1n, data: "0x", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    await safe.write.execTransaction([recipient.account.address, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, envelope(validBurner)], { account: deployer.account });
     expect(await safe.read.nonce()).to.equal(nonce + 1n);
 
     const nextNonce = nonce + 1n;

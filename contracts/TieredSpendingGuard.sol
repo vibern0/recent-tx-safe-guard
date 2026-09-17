@@ -43,8 +43,15 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     mapping(address => AssetPolicy) public assetPolicy;
     mapping(address => SpendState) public spendState;
     mapping(address => mapping(address => bool)) public allowedRecipient;
+    mapping(address => address[]) private policyRecipients;
     mapping(bytes32 => bool) public burnerAuthorizationUsed;
     bool private checking;
+    address private pendingToken;
+    address private pendingRecipient;
+    uint256 private pendingAmount;
+    uint256 private pendingSafeBalance;
+    uint256 private pendingRecipientBalance;
+    bool private pendingTokenProof;
 
     error OnlySafe();
     error ReentrantCheck();
@@ -97,9 +104,15 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             stepUpPerTransaction > instantDailyLimit || recipients.length == 0
         ) revert InvalidAssetPolicy();
         assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        address[] storage previousRecipients = policyRecipients[token];
+        for (uint256 i; i < previousRecipients.length; ++i) {
+            allowedRecipient[token][previousRecipients[i]] = false;
+        }
+        delete policyRecipients[token];
         for (uint256 i; i < recipients.length; ++i) {
             if (recipients[i] == address(0)) revert InvalidAssetPolicy();
             allowedRecipient[token][recipients[i]] = true;
+            policyRecipients[token].push(recipients[i]);
         }
     }
 
@@ -171,16 +184,21 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             burnerAuthorizationUsed[authorization] = true;
         }
 
-        // Preserve Safe's zero-value owner-management calls; every value-bearing
-        // transfer and every non-empty call is subject to the fail-closed policy.
-        if (value != 0 || data.length != 0) {
-            _authorizeTransfer(to, value, data, operation, signatures.length > ownerEnd);
-        }
+        _authorizeTransfer(to, value, data, operation, signatures.length > ownerEnd);
     }
 
     function checkAfterExecution(bytes32, bool success) external override onlySafe {
         if (!checking) revert NoPendingCheck();
         if (!success) revert ExecutionFailed();
+        if (pendingTokenProof) {
+            uint256 safeBalance = _readBalance(pendingToken, config.safe);
+            uint256 recipientBalance = _readBalance(pendingToken, pendingRecipient);
+            if (
+                safeBalance + pendingAmount != pendingSafeBalance ||
+                recipientBalance != pendingRecipientBalance + pendingAmount
+            ) revert ExecutionFailed();
+        }
+        _clearPendingTransfer();
         checking = false;
     }
 
@@ -250,7 +268,30 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         }
         state.instantSpent += amount;
         spendState[token] = state;
+        if (token != address(0)) {
+            pendingToken = token;
+            pendingRecipient = recipient;
+            pendingAmount = amount;
+            pendingSafeBalance = _readBalance(token, config.safe);
+            pendingRecipientBalance = _readBalance(token, recipient);
+            pendingTokenProof = true;
+        }
         emit TransferAuthorized(tier, token, recipient, amount, state.baseSpent, state.instantSpent, window);
+    }
+
+    function _readBalance(address token, address account) internal view returns (uint256 balance) {
+        (bool success, bytes memory returndata) = token.staticcall(abi.encodeWithSelector(0x70a08231, account));
+        if (!success || returndata.length != 32) revert UnsupportedTransfer();
+        balance = abi.decode(returndata, (uint256));
+    }
+
+    function _clearPendingTransfer() internal {
+        pendingToken = address(0);
+        pendingRecipient = address(0);
+        pendingAmount = 0;
+        pendingSafeBalance = 0;
+        pendingRecipientBalance = 0;
+        pendingTokenProof = false;
     }
 
     function _currentWindow() internal view returns (uint256) {
