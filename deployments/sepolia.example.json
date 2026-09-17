@@ -39,6 +39,14 @@
       }
     ]
   },
+  "expectedCounters": [
+    {
+      "token": "0x0000000000000000000000000000000000000008",
+      "window": "0",
+      "baseSpent": "0",
+      "instantSpent": "0"
+    }
+  ],
   "expectedQueueFingerprints": [],
   "setupCalls": [
     {
@@ -49,7 +57,7 @@
     }
   ],
   "policyHash": "0x89ebbf7149255bcff1d0e8adcf307859679983dde0a131c34d269ef700fe6e52",
-  "setupTransactionHashes": [],
+  "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "verificationReportHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "redaction": "No secrets, signatures, seed phrases, passkey material, Burner PINs, provider tokens, or private RPC credentials"
 }

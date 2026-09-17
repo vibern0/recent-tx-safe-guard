@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { readFileSync } from "node:fs";
 import { buildDeploymentPlan } from "../../../scripts/plan-deployment";
 import { verifyDeployment } from "../../../scripts/verify-deployment";
 
@@ -44,6 +45,15 @@ const observed = {
 };
 
 describe("Sepolia deployment runbook scripts", () => {
+  it("keeps the redacted deployment manifest aligned with config evidence placeholders", () => {
+    const publicConfig = JSON.parse(readFileSync("config/sepolia.example.json", "utf8")) as Record<string, unknown>;
+    const manifest = JSON.parse(readFileSync("deployments/sepolia.example.json", "utf8")) as Record<string, unknown>;
+    expect(manifest.setupTransactionHashes).to.deep.equal(publicConfig.setupTransactionHashes);
+    expect(manifest.expectedQueueFingerprints).to.deep.equal(publicConfig.expectedQueueFingerprints);
+    expect(manifest.expectedCounters).to.deep.equal(publicConfig.expectedCounters);
+    expect(manifest.policyHash).to.equal(buildDeploymentPlan(publicConfig).policyHash);
+  });
+
   it("builds byte-stable unsigned plans without signatures or broadcast instructions", () => {
     const first = buildDeploymentPlan(config);
     const second = buildDeploymentPlan({ ...config });
