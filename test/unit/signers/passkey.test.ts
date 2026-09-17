@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import { hashTypedData, keccak256, toHex, type Address, type Hex } from "viem";
-import { createPasskeySigner, signPasskeyRequest } from "../../../src/signers/passkey";
+import * as passkeyModule from "../../../src/signers/passkey";
+import { createPasskeySigner } from "../../../src/signers/passkey";
+import { createTestPasskeySigner } from "../../helpers/passkey";
 import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
 
 const PASSKEY = "0x00000000000000000000000000000000000000a1" as Address;
@@ -35,11 +37,14 @@ function verifierProvider(result = "0x1626ba7e", onCall?: (params: unknown[]) =>
 }
 
 const testPasskeySigner = (provider = verifierProvider(), sign: (request: SafeSignerRequest) => Promise<Hex> = async () => "0x12") => ({
-  address: PASSKEY,
-  sign: (request: SafeSignerRequest) => signPasskeyRequest({ address: PASSKEY, verifierAddress: PASSKEY, chainId: 31337, provider, sign }, request),
+  ...createTestPasskeySigner({ address: PASSKEY, verifierAddress: PASSKEY, chainId: 31337, provider, sign }),
 });
 
 describe("passkey SafeSigner", () => {
+  it("exports only the evidence-bound production passkey signer factory", () => {
+    expect(Object.keys(passkeyModule)).to.deep.equal(["createPasskeySigner"]);
+  });
+
   it("returns one canonical Safe contract-signature slot", async () => {
     const raw = "0x1234" as Hex;
     const signer = testPasskeySigner(verifierProvider(), async () => raw);

@@ -9,7 +9,7 @@ export type PasskeySignerOptions = Readonly<{
   deployments: VerifiedDeployments;
 }>;
 
-export type PasskeySignatureOptions = Readonly<{
+type PasskeySignatureOptions = Readonly<{
   address: Address;
   verifierAddress: Address;
   chainId: number;
@@ -24,7 +24,7 @@ async function assertProviderChain(provider: Eip1193Provider, chainId: number): 
   if (typeof value !== "string" || !/^0x[0-9a-f]+$/i.test(value) || Number(BigInt(value)) !== chainId) throw new Error("provider chain changed");
 }
 
-export async function signPasskeyRequest(options: PasskeySignatureOptions, input: SafeSignerRequest): Promise<Hex> {
+async function signPasskeyRequest(options: PasskeySignatureOptions, input: SafeSignerRequest): Promise<Hex> {
   const request = snapshotSafeSignerRequest(input);
   if (options.chainId !== request.chainId) throw new Error("deployment chain does not match request chain");
   await assertProviderChain(options.provider, request.chainId);

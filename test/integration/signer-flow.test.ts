@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, hashTypedData, toFunctionSelector, type Address, type Hex } from "viem";
 import { createBurnerSigner, createRecoverySigner } from "../../src/signers/eip1193";
-import { signPasskeyRequest } from "../../src/signers/passkey";
+import { createTestPasskeySigner } from "../helpers/passkey";
 import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -41,7 +41,7 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const provider = (wallet: typeof recoveryWallet) => walletProvider(wallet as never, publicClient);
     const recovery = createRecoverySigner({ provider: provider(recoveryWallet), account: recoveryWallet.account.address });
-    const passkeySigner = Object.freeze({ address: passkey.address, sign: (request: SafeSignerRequest) => signPasskeyRequest({ address: passkey.address, verifierAddress: passkey.address, chainId: 31337, provider: provider(deployer), sign: async () => "0x" }, request) });
+    const passkeySigner = createTestPasskeySigner({ address: passkey.address, verifierAddress: passkey.address, chainId: 31337, provider: provider(deployer), sign: async () => "0x" });
     const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
       const nonce = providedNonce ?? await safe.read.nonce();
