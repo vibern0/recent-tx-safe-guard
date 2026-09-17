@@ -496,15 +496,15 @@ Run `npm run security:check`, the complete integration suite, rehearsal, and `gi
 
 **Interfaces:** Produces an unsigned reproducible deployment plan, verified public manifest, and testnet evidence bundle with no secrets.
 
-- [ ] **Step 1: Write explicit stop conditions**
+- [x] **Step 1: Write explicit stop conditions**
 
 Stop on any owner, threshold, fallback, guard slot, Safe module, Delay upstream module, bytecode hash, signer identity, X/Y counter, period anchor, cooldown, expiration, queue fingerprint, or notification mismatch.
 
-- [ ] **Step 2: Define the public manifest**
+- [x] **Step 2: Define the public manifest**
 
 Include chain, Safe, guard, Delay, dependency hashes, policy hash, setup transaction hashes, and verification report hash. Exclude seeds, passkey material, PINs, provider tokens, and private RPC credentials.
 
-- [ ] **Step 3: Generate and human-review the unsigned plan**
+- [x] **Step 3: Generate and human-review the unsigned plan**
 
 Run the planner for Sepolia and compare every decoded setup call with the call graph before signing.
 
@@ -512,7 +512,7 @@ Run the planner for Sepolia and compare every decoded setup call with the call g
 
 Exercise base, step-up, queue, tier-2/tier-3 alerts, cancellation, expiry, delayed execution, freeze, lost-factor recovery, signer rotation, and teardown using deliberately low-value test assets.
 
-- [ ] **Step 5: Hold the architecture gate and commit**
+- [x] **Step 5: Hold the architecture gate and commit**
 
 Fail the gate if any security property depends only on UI classification, monitoring, relayer honesty, or operator discipline. Commit the runbook and redacted examples as `docs: add single-safe testnet runbook`.
 

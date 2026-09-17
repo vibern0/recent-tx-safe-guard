@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "network": "sepolia",
+  "chainId": 11155111,
+  "safe": "0x0000000000000000000000000000000000000001",
+  "guard": "0x0000000000000000000000000000000000000002",
+  "delay": "0x0000000000000000000000000000000000000003",
+  "passkey": "0x0000000000000000000000000000000000000004",
+  "burner": "0x0000000000000000000000000000000000000005",
+  "recovery": "0x0000000000000000000000000000000000000006",
+  "safeSingleton": {
+    "address": "0x0000000000000000000000000000000000000007",
+    "runtimeCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000007"
+  },
+  "delayDependency": {
+    "address": "0x0000000000000000000000000000000000000003",
+    "runtimeCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000003"
+  },
+  "guardRuntimeCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000002",
+  "policy": {
+    "periodSeconds": 86400,
+    "periodAnchor": "0",
+    "cooldownSeconds": 86400,
+    "expirationSeconds": 172800,
+    "assets": [
+      {
+        "token": "0x0000000000000000000000000000000000000008",
+        "basePerTransaction": "10",
+        "stepUpPerTransaction": "100",
+        "baseDailyLimit": "100",
+        "instantDailyLimit": "1000",
+        "recipients": ["0x0000000000000000000000000000000000000009"]
+      }
+    ]
+  },
+  "expectedQueueFingerprints": [],
+  "setupCalls": [
+    {
+      "description": "Replace with decoded atomic Safe setup calls after independently reviewed deployment",
+      "to": "0x0000000000000000000000000000000000000001",
+      "value": "0",
+      "data": "0x"
+    }
+  ]
+}
