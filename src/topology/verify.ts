@@ -1,7 +1,7 @@
 import { keccak256, parseAbi, type Address, type Hex } from "viem";
 import { assertValidVaultPolicy, type VaultPolicy } from "../config/policy";
 import { policyHash } from "./build";
-import type { VerifiedDeployments } from "../config/deployments";
+import { isOfficialVerifiedDeployments, type VerifiedDeployments } from "../config/deployments";
 
 export type TopologyReadClient = { getBytecode(args: { address: Address }): Promise<Hex | undefined>; readContract(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown> };
 export type TopologyInput = Readonly<{ chainId: number; policy: VaultPolicy; safe: Address; guard: Address; delay: Address; expectedSafeProxyCodeHash: Hex; deployments: VerifiedDeployments; client: TopologyReadClient }>;
@@ -18,6 +18,9 @@ const tuple = (value: unknown): readonly unknown[] | undefined => Array.isArray(
 
 export async function verifyTopology(input: TopologyInput): Promise<TopologyReport> {
   const failures: string[] = []; const checked: string[] = [];
+  if (!isOfficialVerifiedDeployments(input.deployments)) {
+    return { ok: false, failures: ["deployments: official resolver evidence required"], checked };
+  }
   const check = (name: string, condition: boolean) => { checked.push(name); if (!condition) failures.push(name); };
   try { assertValidVaultPolicy(input.policy); } catch (error) { failures.push("policy: " + (error instanceof Error ? error.message : "invalid")); return { ok: false, failures, checked }; }
   check("chain id", input.chainId === input.policy.chainId && input.deployments.chainId === input.chainId); check("safe address", same(input.safe, input.policy.safe)); check("Delay address", same(input.delay, input.policy.delay) && same(input.delay, input.deployments.dependencies.delay.address)); check("guard address", same(input.guard, input.deployments.dependencies.guard.address));

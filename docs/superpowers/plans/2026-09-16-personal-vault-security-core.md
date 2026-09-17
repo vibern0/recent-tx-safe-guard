@@ -360,7 +360,7 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 - Create: `scripts/verify-deployment.ts`
 - Create: `docs/security/call-graph.md`
 
-**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; a test-only draft helper covers deterministic calldata. `verifyTopology(input): Promise<TopologyReport>` consumes official resolver output and re-reads every invariant.
+**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; deterministic draft calldata is isolated to `test/fixtures/topology-draft.ts` and requires exact verified evidence. `verifyTopology(input): Promise<TopologyReport>` requires official resolver-branded output before any topology report or RPC read, then re-reads every invariant.
 
 - [x] **Step 1: Write deterministic plan snapshots**
 

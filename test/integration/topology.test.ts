@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { keccak256, type Address } from "viem";
-import { buildVaultPlan, buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../../src/topology/build";
+import { buildVaultPlan } from "../../src/topology/build";
+import { buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../fixtures/topology-draft";
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
 const ev = (address: Address, version: string): any => ({ address, version, runtimeCodeHash: keccak256("0x6001"), source: "official-test-evidence", evidence: "verified" });

@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { keccak256, type Address } from "viem";
-import { buildVaultPlan, buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../../../src/topology/build";
+import { buildVaultPlan } from "../../../src/topology/build";
+import { buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../../fixtures/topology-draft";
 import { type VaultPolicy } from "../../../src/config/policy";
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
