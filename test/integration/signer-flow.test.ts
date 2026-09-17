@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { encodeFunctionData, hashTypedData, toFunctionSelector, type Address, type Hex } from "viem";
+import { encodeFunctionData, hashTypedData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
 import { createBurnerSigner, createRecoverySigner } from "../../src/signers/eip1193";
 import { createPasskeySigner } from "../../src/signers/passkey";
 import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
@@ -34,13 +34,16 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    // Test-only ERC-1271 mock; this is not a WebAuthn implementation or deployment evidence.
+    const passkeyCode = await publicClient.getBytecode({ address: passkey.address });
+    if (!passkeyCode) throw new Error("mock passkey runtime missing");
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burnerWallet.account.address, recoveryWallet.account.address, delay.address, 86400n, 0n]]);
     await safe.write.setup([[passkey.address, burnerWallet.account.address, recoveryWallet.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())), 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const provider = (wallet: typeof recoveryWallet) => walletProvider(wallet as never, publicClient);
     const recovery = createRecoverySigner({ provider: provider(recoveryWallet), account: recoveryWallet.account.address });
-    const passkeySigner = createPasskeySigner({ address: passkey.address, verifier: passkey.address, provider: provider(deployer), sign: async () => "0x" });
+    const passkeySigner = createPasskeySigner({ address: passkey.address, verifier: { name: "Mock ERC-1271 verifier", version: "test-only", address: passkey.address, runtimeCodeHash: keccak256(passkeyCode), evidence: "verified", source: "test-only mock; not WebAuthn" }, provider: provider(deployer), sign: async () => "0x" });
     const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
       const nonce = providedNonce ?? await safe.read.nonce();
@@ -88,11 +91,11 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     expect(await delay.read.txNonce()).to.equal(2n);
     await expect(delay.write.executeNextTx([recipient.account.address, 170n, "0x", 0])).to.be.rejectedWith("empty");
 
-    const repairData = encodeFunctionData({ abi: guardPolicyAbi, functionName: "setAssetPolicy", args: [ZERO, 40n, 90n, 40n, 140n, [recipient.account.address]] });
+    const repairData = encodeFunctionData({ abi: guardPolicyAbi, functionName: "setAssetPolicy", args: [passkey.address, 40n, 90n, 40n, 140n, [recipient.account.address, burnerWallet.account.address]] });
     const repairRequest = await buildRequest(guard.address, 0n, repairData);
-    await expect(execute(guard.address, 0n, repairData, await passkeySigner.sign(repairRequest))).to.be.rejected;
-    await execute(guard.address, 0n, repairData, await recovery.sign(repairRequest));
-    expect((await guard.read.assetPolicy([ZERO]))[3]).to.equal(140n);
+    await expect(execute(guard.address, 0n, repairData, await recovery.sign(repairRequest))).to.be.rejected;
+    expect((await guard.read.assetPolicy([passkey.address]))[3]).to.equal(0n);
+    expect(await guard.read.allowedRecipient([passkey.address, burnerWallet.account.address])).to.equal(false);
 
     const recoveryTransfer = await buildRequest(recipient.account.address, 1n, "0x");
     await expect(execute(recipient.account.address, 1n, "0x", await recovery.sign(recoveryTransfer))).to.be.rejected;

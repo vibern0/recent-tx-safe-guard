@@ -426,7 +426,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     function _isRecoveryAction(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
         if (value != 0 || operation != Enum.Operation.Call) return false;
         if (to == address(this) && data.length == 4 && bytes4(data[:4]) == FREEZE_SELECTOR) return true;
-        if (to == address(this) && _isExactSetAssetPolicy(data)) return true;
         if (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR) return true;
         return _isQueueProposal(to, value, data, operation) && _queueContainsRepair(data);
     }
