@@ -9,7 +9,16 @@ import type {
   VerifiedDeployments,
   SupportedChainId,
 } from "../../../src/config/deployments";
-import { registerVerifiedDeploymentsFixture } from "../../../src/config/deployments";
+
+const TEST_FIXTURE_BRAND = Symbol.for("recent-tx-safe-guard.test.verified-deployments");
+
+export function brandVerifiedDeploymentsFixture(value: VerifiedDeployments): VerifiedDeployments {
+  if (!Object.isFrozen(value) || !Object.isFrozen(value.dependencies)) throw new Error("fixture deployments must be frozen");
+  const branded = Object.create(Object.getPrototypeOf(value)) as VerifiedDeployments;
+  Object.defineProperties(branded, Object.getOwnPropertyDescriptors(value));
+  Object.defineProperty(branded, TEST_FIXTURE_BRAND, { value: true });
+  return Object.freeze(branded);
+}
 
 const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
   safeSingleton: ["1.5.0"], safeProxyFactory: ["1.5.0"], passkeySignerFactory: ["0.2.0"],
@@ -53,5 +62,5 @@ export async function resolveDeploymentFixture(
     if (runtimeCodeHash.toLowerCase() !== record.runtimeCodeHash.toLowerCase()) failClosed(`${dependency} runtime code hash mismatch`);
     dependencies[dependency] = { ...record, address, runtimeCodeHash };
   }
-  return registerVerifiedDeploymentsFixture(Object.freeze({ chainId, dependencies: Object.freeze(dependencies) }));
+  return brandVerifiedDeploymentsFixture(Object.freeze({ chainId, dependencies: Object.freeze(dependencies) }));
 }

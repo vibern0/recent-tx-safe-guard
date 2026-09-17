@@ -30,6 +30,7 @@ export function createPasskeySigner(options: PasskeySignerOptions): SafeSigner {
     address: options.address,
     sign: async (input) => {
       const request = snapshotSafeSignerRequest(input);
+      if (options.deployments.chainId !== request.chainId) throw new Error("deployment chain does not match request chain");
       await assertProviderChain(options.provider, request.chainId);
       const rawSignature = await options.sign(request);
       if (!/^0x(?:[0-9a-f]{2})*$/i.test(rawSignature)) throw new Error("invalid passkey signature encoding");

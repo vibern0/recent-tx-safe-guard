@@ -1,14 +1,15 @@
 import { expect } from "chai";
 import { hashTypedData, keccak256, toHex, type Address, type Hex } from "viem";
 import { createPasskeySigner } from "../../../src/signers/passkey";
-import { registerVerifiedDeploymentsFixture, type VerifiedDeployments } from "../../../src/config/deployments";
+import type { VerifiedDeployments } from "../../../src/config/deployments";
+import { brandVerifiedDeploymentsFixture } from "../config/deployments.fixture";
 import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
 
 const PASSKEY = "0x00000000000000000000000000000000000000a1" as Address;
 const SAFE = "0x00000000000000000000000000000000000000b2" as Address;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const VERIFIED_PASSKEY = { name: "Safe passkey verifier", version: "0.2.0", address: PASSKEY, runtimeCodeHash: keccak256("0x1234"), evidence: "verified" as const, source: "official-test-evidence" };
-const VERIFIED_DEPLOYMENTS = registerVerifiedDeploymentsFixture(Object.freeze({
+const VERIFIED_DEPLOYMENTS = brandVerifiedDeploymentsFixture(Object.freeze({
   chainId: 31337,
   dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze(VERIFIED_PASSKEY) }),
 })) as VerifiedDeployments;
@@ -65,6 +66,14 @@ describe("passkey SafeSigner", () => {
     expect(() => createPasskeySigner({ address: PASSKEY, deployments: { ...VERIFIED_DEPLOYMENTS, dependencies: { ...VERIFIED_DEPLOYMENTS.dependencies, passkeySignerVerifier: { ...VERIFIED_PASSKEY, address: SAFE } } } as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
   });
 
+  it("does not make fabricated verified evidence into a usable passkey signer", () => {
+    const fabricated = Object.freeze({
+      chainId: VERIFIED_DEPLOYMENTS.chainId,
+      dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ ...VERIFIED_PASSKEY }) }),
+    });
+    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricated as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
+  });
+
   it("rejects non-canonical SafeTx typed data before contacting the verifier", async () => {
     let calls = 0;
     const provider: Eip1193Provider = { request: async () => { calls++; return "0x1626ba7e"; } };
@@ -111,6 +120,18 @@ describe("passkey SafeSigner", () => {
     let signed = false;
     const signer = createPasskeySigner({ address: PASSKEY, deployments: VERIFIED_DEPLOYMENTS, provider: verifierProvider("0x1626ba7e", undefined, "0x1"), sign: async () => { signed = true; return "0x12"; } });
     await expect(signer.sign(request())).to.be.rejectedWith("provider chain");
+    expect(signed).to.equal(false);
+  });
+
+  it("rejects a deployment evidence chain that differs from the request before signing", async () => {
+    let signed = false;
+    const signer = createPasskeySigner({
+      address: PASSKEY,
+      deployments: brandVerifiedDeploymentsFixture(Object.freeze({ ...VERIFIED_DEPLOYMENTS, chainId: 1 })) as never,
+      provider: verifierProvider(),
+      sign: async () => { signed = true; return "0x12"; },
+    });
+    await expect(signer.sign(request())).to.be.rejectedWith("deployment chain");
     expect(signed).to.equal(false);
   });
 });
