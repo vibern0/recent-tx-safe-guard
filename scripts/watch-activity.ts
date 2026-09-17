@@ -1,5 +1,5 @@
 import { createPublicClient, decodeEventLog, decodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
-import { decodeDelayLog, delayEventAbi, verifyDelayBinding, type DelayMonitoringContext, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
+import { decodeDelayLog, delayEventAbi, deriveDelayLifecycle, verifyDelayBinding, type DelayMonitoringContext, type DelayedQueuedAlert, type MonitorLog, type QueueBinding } from "../src/monitoring/delay-events";
 import { decodeGuardLog, verifyGuardBinding, type MonitoringIdentity, type SafeTransaction } from "../src/monitoring/guard-events";
 import { ActivityLedger, FileActivityStore, type ActivityLogKey } from "../src/monitoring/ledger";
 import { createStdoutNotifier } from "../src/monitoring/notifier";
@@ -13,7 +13,11 @@ const safeAbi = parseAbi([
   "function getTxHash(uint256) view returns (bytes32)",
   "function getTxCreatedAt(uint256) view returns (uint256)",
   "function txNonce() view returns (uint256)",
+  "function executeNextTx(address,uint256,bytes,uint8)",
+  "function skipExpired()",
+  "function setTxNonce(uint256)",
 ]);
+const lifecycleAbi = parseAbi(["function executeNextTx(address,uint256,bytes,uint8)","function skipExpired()","function setTxNonce(uint256)"]);
 type RawLog = { address: Address; blockNumber: bigint; blockHash: Hex; transactionHash: Hex; logIndex: number; topics: readonly Hex[]; data: Hex; removed?: boolean };
 
 async function main(): Promise<void> {
@@ -95,6 +99,38 @@ async function main(): Promise<void> {
         await verifyDelayBinding(alert, queueBinding, delayContext);
         ledger.accept(key, alert);
       } catch (error) { console.error(`ignored malformed or unverified log ${log.transactionHash}:${log.logIndex}`, error); }
+    }
+    const queued = ledger.records().filter((record): record is DelayedQueuedAlert => record.kind === "delayed-queued" && record.queueNonce !== undefined && record.queueFingerprint !== undefined && record.createdAt !== undefined);
+    const lifecycleFrom = queued.reduce((minimum, record) => record.blockNumber < minimum ? record.blockNumber + 1n : minimum, fromBlock);
+    async function readLifecycleReceipts(from: bigint, to: bigint) {
+      const receipts: { transactionHash: Hex; blockNumber: bigint; blockHash: Hex; status: "success"|"reverted"; to: Address; input: Hex }[] = [];
+      for (let number=from; number<=to; number++) {
+        const block = await client.getBlock({ blockNumber: number, includeTransactions: true });
+        if (!block.hash || !block.transactions.length || typeof block.transactions[0] === "string") continue;
+        for (const transaction of block.transactions) {
+          if (!transaction.to || !same(transaction.to, delay)) continue;
+          const receipt = await client.getTransactionReceipt({ hash: transaction.hash });
+          receipts.push({ transactionHash: transaction.hash, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, status: receipt.status, to: transaction.to, input: transaction.input });
+        }
+      }
+      return receipts;
+    }
+    const lifecycleReceipts = lifecycleFrom <= latest ? await readLifecycleReceipts(lifecycleFrom, latest) : [];
+    for (const record of queued) {
+      try {
+        if (record.to === undefined || record.value === undefined || record.data === undefined || record.operation === undefined) throw new Error("queued call tuple evidence unavailable");
+        const lifecycle = await deriveDelayLifecycle(record, delayContext, latest, {
+          readNonce: async blockNumber => client.readContract({ address: delay, abi: safeAbi, functionName: "txNonce", blockNumber }),
+          readQueue: async (queueNonce, blockNumber) => {
+            const [txHash, createdAt] = await Promise.all([client.readContract({ address: delay, abi: safeAbi, functionName: "getTxHash", args: [queueNonce], blockNumber }), client.readContract({ address: delay, abi: safeAbi, functionName: "getTxCreatedAt", args: [queueNonce], blockNumber })]);
+            return { txHash, createdAt, to: record.to!, value: record.value!, data: record.data!, operation: record.operation! };
+          },
+          readLifecycleReceipts: async () => lifecycleReceipts,
+          readCanonicalBlock: async blockNumber => { const block = await client.getBlock({ blockNumber }); if (!block.hash) throw new Error("missing canonical lifecycle block hash"); return { blockNumber, blockHash: block.hash, timestamp: block.timestamp }; },
+          decodeLifecycleCall: input => { const decoded = decodeFunctionData({ abi: lifecycleAbi, data: input }); return { functionName: decoded.functionName as "executeNextTx"|"skipExpired"|"setTxNonce", args: decoded.args as readonly unknown[] }; },
+        });
+        if (lifecycle) { const block = await client.getBlock({ blockNumber: lifecycle.blockNumber }); if (!block.hash) throw new Error("missing derived lifecycle block hash"); ledger.accept({ chainId: rpcChain, blockHash: block.hash, transactionHash: lifecycle.transactionHash, logIndex: lifecycle.logIndex }, lifecycle); }
+      } catch (error) { console.error(`ignored unavailable or unverified derived lifecycle for queue ${record.queueNonce}`, error); }
     }
     const notifier = createStdoutNotifier();
     for (const pending of ledger.pending()) {

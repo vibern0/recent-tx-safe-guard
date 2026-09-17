@@ -42,7 +42,22 @@ const delayedCancelled: ActivityAlert = {
   cancelledThrough: 1n,
 };
 
-const alerts: readonly ActivityAlert[] = [alert, delayedQueued, delayedCancelled];
+const delayedExecuted: ActivityAlert = {
+  ...delayedQueued,
+  kind: "delayed-executed",
+  transactionHash: getAddress("0x0000000000000000000000000000000000000006") as `0x${string}`,
+  blockNumber: 20n,
+};
+
+const delayedExpired: ActivityAlert = {
+  ...delayedQueued,
+  kind: "delayed-expired",
+  transactionHash: getAddress("0x0000000000000000000000000000000000000007") as `0x${string}`,
+  blockNumber: 30n,
+  expiresAt: 25n,
+};
+
+const alerts: readonly ActivityAlert[] = [alert, delayedQueued, delayedCancelled, delayedExecuted, delayedExpired];
 
 describe("non-authorizing notifiers", () => {
   it("exposes only notification and does not retain a signing or execution capability", async () => {
