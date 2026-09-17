@@ -30,3 +30,26 @@ It failed before running tests because the existing shell `if` wrapper appends `
 
 - The classifier is advisory only; onchain enforcement remains a later guard task.
 - The existing `test:unit` script should be repaired in a separate scoped task if argument forwarding is required.
+
+## Follow-up review fix
+
+The review findings were addressed without expanding beyond Task 2:
+
+- Delay and recovery targets now require explicit allowlisted selectors; arbitrary calldata is blocked.
+- Unsupported operation values are rejected; only `call` and `0` are accepted.
+- Corrupt spend state with `baseSpent > instantSpent` is rejected.
+- Unit, integration, and invariant test lanes now forward npm arguments safely and skip cleanly when their directories have no tests.
+- Regression coverage now asserts arbitrary Delay/recovery rejection and the state/operation invariants.
+
+Follow-up verification:
+
+```text
+npx hardhat test test/unit/policy/classify.test.ts --grep "classifyAction|inconsistent"  # passed; 8 passing
+npm run test:unit -- --grep "classifyAction"                                     # passed; 8 passing
+npm test                                                                       # passed; 8 passing
+npm run build                                                                  # passed; Nothing to compile
+npm run coverage                                                               # passed; 8 passing
+npm run test:integration                                                       # passed; clean skip (directory absent)
+npm run test:invariant                                                         # passed; clean skip (directory absent)
+git diff --check                                                               # passed
+```

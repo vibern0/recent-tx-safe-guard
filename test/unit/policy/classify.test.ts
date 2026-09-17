@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { encodeFunctionData, type Address } from "viem";
+import { encodeFunctionData, toFunctionSelector, type Address } from "viem";
 import {
   assertValidVaultPolicy,
   type AssetPolicy,
@@ -100,13 +100,20 @@ describe("classifyAction", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 1n, { data: "0x12345678" }), state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, tokenTransfer(1n, { data: "0xa9059cbb00" }), state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, transfer(RECIPIENT, 1n, { signer: BURNER }), state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, transfer(RECIPIENT, 1n, { operation: 2 as never }), state, 1n)).to.equal("blocked");
   });
 
   it("delays recognized transfer, Safe configuration, Delay, and recovery actions", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { burnerApproved: true }), state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: "0xe19a9dd9" }, state, 1n)).to.equal("delayed");
-    expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("delayed");
-    expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: "0x12345678" }, state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("delayed");
+  });
+
+  it("blocks inconsistent spend counters", () => {
+    expect(classifyAction(policy, transfer(RECIPIENT, 1n), { ...state, baseSpent: 2n, instantSpent: 1n }, 1n)).to.equal("blocked");
   });
 
   it("rejects invalid policy invariants", () => {

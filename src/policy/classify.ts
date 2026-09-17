@@ -26,6 +26,17 @@ const DELAYED_SAFE_SELECTORS = new Set([
   "setFallbackHandler(address)",
   "setNonce(uint256)",
 ].map((signature) => toFunctionSelector(signature).slice(2)));
+const DELAY_SELECTORS = new Set([
+  "executeNextTx(address,uint256,bytes,uint8)",
+  "skipExpired()",
+  "invalidate(bytes32)",
+  "setTxNonce(uint256)",
+].map((signature) => toFunctionSelector(signature).slice(2)));
+const RECOVERY_SELECTORS = new Set([
+  "cancel(bytes32)",
+  "freeze()",
+  "queueRepair(bytes)",
+].map((signature) => toFunctionSelector(signature).slice(2)));
 
 function same(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }
 
@@ -44,14 +55,15 @@ function decodeTransfer(action: ClassifiableAction, asset: AssetPolicy): bigint 
 }
 
 function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction): boolean {
-  if (same(action.to, policy.delay) || same(action.to, policy.recovery)) return true;
+  if (same(action.to, policy.delay)) return action.data.length >= 10 && DELAY_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
+  if (same(action.to, policy.recovery)) return action.data.length >= 10 && RECOVERY_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
   if (!same(action.to, policy.safe) || action.data.length < 10) return false;
   return DELAYED_SAFE_SELECTORS.has(action.data.slice(2, 10).toLowerCase());
 }
 
 export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, state: AssetSpendState, now: bigint, burnerApproved = action.burnerApproved ?? false): Lane {
   assertValidVaultPolicy(policy);
-  if (action.operation === "delegatecall" || action.operation === 1 || !isAddress(action.to) || !isAddress(action.signer) || !same(action.signer, policy.passkey)) return "blocked";
+  if ((action.operation !== "call" && action.operation !== 0) || !isAddress(action.to) || !isAddress(action.signer) || !same(action.signer, policy.passkey)) return "blocked";
   if (recognizedDelayedAction(policy, action)) return "delayed";
   const asset = policy.assets.find((candidate) => same(candidate.token, action.to) || (same(candidate.token, ZERO) && action.data === "0x"));
   if (!asset) return "blocked";
@@ -62,7 +74,7 @@ export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, 
   if (state.window < policy.periodAnchor || state.window % BigInt(policy.periodSeconds) !== 0n || state.window > window) return "blocked";
   const baseSpent = state.window === window ? state.baseSpent : 0n;
   const instantSpent = state.window === window ? state.instantSpent : 0n;
-  if (baseSpent < 0n || instantSpent < 0n || baseSpent > asset.baseDailyLimit || instantSpent > asset.instantDailyLimit) return "blocked";
+  if (baseSpent < 0n || instantSpent < 0n || baseSpent > instantSpent || baseSpent > asset.baseDailyLimit || instantSpent > asset.instantDailyLimit) return "blocked";
   if (amount <= asset.basePerTransaction && amount <= asset.baseDailyLimit - baseSpent && amount <= asset.instantDailyLimit - instantSpent) return "base";
   if (burnerApproved && amount <= asset.stepUpPerTransaction && amount <= asset.instantDailyLimit - instantSpent) return "step-up";
   return "blocked";
