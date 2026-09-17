@@ -44,9 +44,38 @@ describe("monitoring ledger", () => {
       const store = new FileActivityStore(join(dir, "ledger.json"));
       const ledger = new ActivityLedger(store);
       ledger.accept(key("0x0000000000000000000000000000000000000000000000000000000000000005"), alert);
-      const restarted = new ActivityLedger(new FileActivityStore(join(dir, "ledger.json")));
+      store.close?.();
+      const restartedStore = new FileActivityStore(join(dir, "ledger.json"));
+      const restarted = new ActivityLedger(restartedStore);
       expect(restarted.records()).to.have.length(1);
       expect(restarted.cursor()?.blockHash).to.equal("0x0000000000000000000000000000000000000000000000000000000000000005");
+      expect(restarted.pending()).to.have.length(1);
+      restarted.markDelivered(key("0x0000000000000000000000000000000000000000000000000000000000000005"));
+      restartedStore.close?.();
+      const deliveredStore = new FileActivityStore(join(dir, "ledger.json"));
+      expect(new ActivityLedger(deliveredStore).pending()).to.have.length(0);
+      deliveredStore.close?.();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("persists pending before delivery and retries it after a failed notification", () => {
+    const store = new InMemoryActivityStore();
+    const ledger = new ActivityLedger(store);
+    const k = key("0x0000000000000000000000000000000000000000000000000000000000000005");
+    expect(ledger.accept(k, alert)).to.equal(true);
+    expect(ledger.pending()).to.have.length(1);
+    expect(ledger.accept(k, alert)).to.equal(false);
+    ledger.markDelivered(k);
+    expect(ledger.pending()).to.have.length(0);
+  });
+
+  it("fails closed when a second file ledger writer is opened", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vault-monitor-lock-"));
+    try {
+      const path = join(dir, "ledger.json");
+      const first = new FileActivityStore(path);
+      expect(() => new FileActivityStore(path)).to.throw(/lock|writer/i);
+      first.close();
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

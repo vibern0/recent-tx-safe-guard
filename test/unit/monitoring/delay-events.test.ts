@@ -65,4 +65,17 @@ describe("Delay activity decoding", () => {
     await expect(verifyDelayBinding(result, binding, context)).to.be.fulfilled;
     await expect(verifyDelayBinding(result, { readQueue: async () => ({ ...item, value: 1n }), readNonce: binding.readNonce }, context)).to.be.rejectedWith(/binding/i);
   });
+
+  it("uses the queue tuple and nonce as they existed at the event block", async () => {
+    const readBlocks: bigint[] = [];
+    const eventBinding = { readQueue: async (_nonce: bigint, blockNumber?: bigint) => { readBlocks.push(blockNumber!); return item; }, readNonce: async (blockNumber?: bigint) => { readBlocks.push(blockNumber!); return 5n; } };
+    await decodeDelayLog(log("TransactionAdded", [4n, item.txHash, context.safe, 0n, "0x", 0]), context, 100n, 100n, eventBinding as never);
+    expect(readBlocks).to.deep.equal([20n]);
+  });
+
+  it("does not accept an event ABI that is not emitted by the pinned Delay fixture", async () => {
+    const item2 = parseAbiItem("event TransactionExecuted(uint256 indexed queueNonce,bytes32 indexed txHash,address to,uint256 value,bytes data,uint8 operation)");
+    const encoded = encodeEventTopics({ abi: [item2], eventName: "TransactionExecuted", args: [4n, item.txHash, context.safe, 0n, "0x", 0] as never });
+    await expect(decodeDelayLog({ ...log("TxNonceSet", [5n]), topics: encoded, data: "0x" } as never, context, 21n, 100n, binding)).to.be.rejectedWith(/malformed|unsupported/i);
+  });
 });

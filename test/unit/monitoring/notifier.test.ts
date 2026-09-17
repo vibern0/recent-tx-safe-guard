@@ -42,5 +42,7 @@ describe("non-authorizing notifiers", () => {
   it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {
     expect(() => publicAlert({ ...alert, privateKey: "secret" } as never)).to.throw(/unknown|sensitive/i);
     expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
+    expect(() => publicAlert({ ...alert, amount: "25" } as never)).to.throw(/type|required/i);
+    expect(() => publicAlert({ ...alert, recipient: undefined } as never)).to.throw(/required/i);
   });
 });
