@@ -12,7 +12,7 @@ import type {
 
 const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
   safeSingleton: ["1.5.0"], safeProxyFactory: ["1.5.0"], passkeySignerFactory: ["0.2.0"],
-  passkeySignerVerifier: ["0.2.0"], multiSend: ["1.5.0"], delay: ["1.1.1"],
+  passkeySignerVerifier: ["0.2.0"], multiSend: ["1.5.0"], guard: ["task7-reviewed"], delay: ["1.1.1"],
 };
 const VULNERABLE_DELAY_RELEASES = new Set(["1.1.0"]);
 const DEPENDENCIES = Object.keys(EXPECTED_RELEASES) as DependencyName[];

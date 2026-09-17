@@ -1,5 +1,6 @@
 import { encodeFunctionData, encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
 import { assertValidVaultPolicy, type VaultPolicy } from "../config/policy";
+import { isOfficialVerifiedDeployments, type VerifiedDeployments } from "../config/deployments";
 
 export type UnsignedSetupCall = Readonly<{ to: Address; value: bigint; data: Hex; operation: 0 | 1 }>;
 export type VerifiedCodeEvidence = Readonly<{ address: Address; version: string; runtimeCodeHash: Hex; source: string; evidence: "verified" }>;
@@ -9,14 +10,13 @@ export type TopologyDeploymentEvidence = Readonly<{
   guard: VerifiedCodeEvidence;
   delay: VerifiedCodeEvidence;
 }>;
-export type AtomicSetupEncoder = (calls: readonly UnsignedSetupCall[]) => Hex;
-export type VaultPlanInput = Readonly<{ policy: VaultPolicy; safeProxy: Address; safeProxySaltNonce: bigint; deployments: TopologyDeploymentEvidence; atomicSetupEncoder?: AtomicSetupEncoder }>;
-export type VaultDeploymentPlan = Readonly<{
+export type VaultPlanInput = Readonly<{ policy: VaultPolicy; safeProxy: Address; safeProxySaltNonce: bigint; deployments: VerifiedDeployments }>;
+export type VaultPlanDraft = Readonly<{
   unsigned: true; chainId: number; deployments: TopologyDeploymentEvidence & Readonly<{ safeProxy: Address }>;
   safeInitializer: Hex; safeProxyDeployment: UnsignedSetupCall;
   safe: { owners: readonly Address[]; threshold: 1; fallbackHandler: Address; guards: { transaction: Address; module: Address }; modules: readonly Address[] };
   delay: { owner: Address; avatar: Address; target: Address; upstreamModules: readonly Address[]; cooldownSeconds: number; expirationSeconds: number };
-  policyHash: Hex; setup: readonly UnsignedSetupCall[]; atomicSetup: Hex; extraAccounts: readonly Address[];
+  policyHash: Hex; setup: readonly UnsignedSetupCall[]; extraAccounts: readonly Address[];
 }>;
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -34,27 +34,39 @@ export function policyHash(policy: VaultPolicy): Hex {
   return keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32[]" }], [BigInt(policy.chainId), policy.safe, policy.passkey, policy.burner, policy.recovery, policy.delay, BigInt(policy.periodSeconds), policy.periodAnchor, BigInt(policy.cooldownSeconds), BigInt(policy.expirationSeconds), assets]));
 }
 
-function requireEvidence(name: string, item: VerifiedCodeEvidence): void {
-  if (item.evidence !== "verified" || !item.address || item.address.toLowerCase() === ZERO || !item.runtimeCodeHash || !item.source) throw new Error(`fail closed: ${name} lacks verified deployment evidence`);
+function requireEvidence(name: string, item: { address?: Address; runtimeCodeHash?: Hex; version?: string; source?: string; evidence?: string }): void {
+  if (item.evidence !== undefined && item.evidence !== "verified") throw new Error(`fail closed: ${name} lacks verified deployment evidence`);
+  if (!item.address || item.address.toLowerCase() === ZERO || !item.runtimeCodeHash || !item.version || !item.source) throw new Error(`fail closed: ${name} lacks verified deployment evidence`);
 }
 
-/** Builds calldata only. It never signs, broadcasts, or accepts caller-supplied code hashes. */
-export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
-  assertValidVaultPolicy(input.policy);
-  for (const [name, item] of Object.entries(input.deployments)) requireEvidence(name, item);
-  if (input.deployments.safeSingleton.supportsModuleGuards !== true) throw new Error("fail closed: Safe singleton lacks module guards");
-  if (input.policy.safe.toLowerCase() !== input.safeProxy.toLowerCase()) throw new Error("Safe proxy does not match policy");
-  if (input.safeProxySaltNonce < 0n) throw new Error("salt nonce must not be negative");
-  const owners = [input.policy.passkey, input.policy.burner, input.policy.recovery] as const;
+function buildDraft(policy: VaultPolicy, safeProxy: Address, safeProxySaltNonce: bigint, deployments: TopologyDeploymentEvidence): VaultPlanDraft {
+  assertValidVaultPolicy(policy);
+  for (const [name, item] of Object.entries(deployments)) requireEvidence(name, item);
+  if (deployments.safeSingleton.supportsModuleGuards !== true) throw new Error("fail closed: Safe singleton lacks module guards");
+  if (policy.delay.toLowerCase() !== deployments.delay.address.toLowerCase()) throw new Error("policy Delay address does not match verified deployment Delay address");
+  if (policy.safe.toLowerCase() !== safeProxy.toLowerCase()) throw new Error("Safe proxy does not match policy");
+  if (safeProxySaltNonce < 0n) throw new Error("salt nonce must not be negative");
+  const owners = [policy.passkey, policy.burner, policy.recovery] as const;
   const safeInitializer = encodeFunctionData({ abi: SAFE_ABI, functionName: "setup", args: [owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO] });
-  const safeProxyDeployment: UnsignedSetupCall = { to: input.deployments.safeProxyFactory.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce] }) };
+  const safeProxyDeployment: UnsignedSetupCall = { to: deployments.safeProxyFactory.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [deployments.safeSingleton.address, safeInitializer, safeProxySaltNonce] }) };
   const setup: UnsignedSetupCall[] = [];
-  for (const asset of input.policy.assets) setup.push({ to: input.deployments.guard.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: GUARD_ABI, functionName: "setAssetPolicy", args: [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]] }) });
-  setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setGuard", args: [input.deployments.guard.address] }) });
-  setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setModuleGuard", args: [input.deployments.guard.address] }) });
-  setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "enableModule", args: [input.deployments.delay.address] }) });
-  if (!input.atomicSetupEncoder) throw new Error("fail closed: no reviewed atomic setup encoder; refusing a partially protected Safe");
-  const atomicSetup = input.atomicSetupEncoder(setup);
-  if (!atomicSetup || atomicSetup === "0x") throw new Error("fail closed: atomic setup encoder returned empty calldata");
-  return { unsigned: true, chainId: input.policy.chainId, deployments: { ...input.deployments, safeProxy: input.safeProxy }, safeInitializer, safeProxyDeployment, safe: { owners, threshold: 1, fallbackHandler: ZERO, guards: { transaction: input.deployments.guard.address, module: input.deployments.guard.address }, modules: [input.deployments.delay.address] }, delay: { owner: input.safeProxy, avatar: input.safeProxy, target: input.safeProxy, upstreamModules: [input.safeProxy], cooldownSeconds: input.policy.cooldownSeconds, expirationSeconds: input.policy.expirationSeconds }, policyHash: policyHash(input.policy), setup, atomicSetup, extraAccounts: [] };
+  for (const asset of policy.assets) setup.push({ to: deployments.guard.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: GUARD_ABI, functionName: "setAssetPolicy", args: [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]] }) });
+  setup.push({ to: safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setGuard", args: [deployments.guard.address] }) });
+  setup.push({ to: safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setModuleGuard", args: [deployments.guard.address] }) });
+  setup.push({ to: safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "enableModule", args: [deployments.delay.address] }) });
+  return { unsigned: true, chainId: policy.chainId, deployments: { ...deployments, safeProxy }, safeInitializer, safeProxyDeployment, safe: { owners, threshold: 1, fallbackHandler: ZERO, guards: { transaction: deployments.guard.address, module: deployments.guard.address }, modules: [deployments.delay.address] }, delay: { owner: safeProxy, avatar: safeProxy, target: safeProxy, upstreamModules: [safeProxy], cooldownSeconds: policy.cooldownSeconds, expirationSeconds: policy.expirationSeconds }, policyHash: policyHash(policy), setup, extraAccounts: [] };
+}
+
+/** Test-only draft surface. Production callers must use buildVaultPlan. */
+export function buildVaultPlanDraft(input: Readonly<{ policy: VaultPolicy; safeProxy: Address; safeProxySaltNonce: bigint; deployments: TopologyDeploymentEvidence }>): VaultPlanDraft {
+  return buildDraft(input.policy, input.safeProxy, input.safeProxySaltNonce, input.deployments);
+}
+
+/** Production planning is intentionally unavailable until a reviewed concrete atomic setup path exists. */
+export function buildVaultPlan(input: VaultPlanInput): never {
+  assertValidVaultPolicy(input.policy);
+  if (!isOfficialVerifiedDeployments(input.deployments)) throw new Error("fail closed: deployments must come from the official resolver");
+  const delay = input.deployments.dependencies.delay;
+  if (input.policy.delay.toLowerCase() !== delay.address.toLowerCase()) throw new Error("fail closed: policy Delay address does not match verified deployment Delay address");
+  throw new Error("fail closed: no reviewed concrete atomic setup path; no reproducible production plan is emitted");
 }

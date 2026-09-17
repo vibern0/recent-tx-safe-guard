@@ -360,7 +360,7 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 - Create: `scripts/verify-deployment.ts`
 - Create: `docs/security/call-graph.md`
 
-**Interfaces:** `buildVaultPlan(input): VaultDeploymentPlan` produces one Safe, one guard, one Delay, and an unsigned atomic setup; `verifyTopology(input): Promise<TopologyReport>` re-reads every invariant.
+**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; a test-only draft helper covers deterministic calldata. `verifyTopology(input): Promise<TopologyReport>` consumes official resolver output and re-reads every invariant.
 
 - [x] **Step 1: Write deterministic plan snapshots**
 

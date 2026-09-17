@@ -6,14 +6,14 @@ This document records the complete Task 7 topology and execution paths. The repo
 
 One asset-holding Safe has exactly three owners: configured passkey, Burner, and recovery, with threshold 1 and no fallback handler. The same TieredSpendingGuard occupies both Safe transaction-guard and module-guard slots. Zodiac Delay is the only Safe module. Delay has the Safe as owner, avatar, and target, and the Safe is its only upstream module. No second Safe, signer account, module, or custody account is created.
 
-buildVaultPlan emits the Safe `setup` initializer, the Safe Proxy Factory `createProxyWithNonce` call, and exact post-deployment setup calls. It never signs, broadcasts, or invents registry addresses. Production planning requires official verified evidence for the singleton, proxy factory, guard, and Delay plus a reviewed atomic setup encoder; absent evidence or an absent encoder is a hard failure. The current registry intentionally lacks guard evidence, so no production plan can be emitted. `verifyTopology` re-reads proxy bytecode/singleton/version, Safe graph, guard policy/configuration/counters/asset enumeration/recipients, and Delay settings; missing reads and mismatches are failures.
+`buildVaultPlan` never signs, broadcasts, invents registry addresses, accepts caller-supplied evidence, or emits a production plan until a reviewed concrete atomic setup path exists. The current official registry lacks evidence for the Safe passkey factory, passkey verifier, TieredSpendingGuard, and Zodiac Delay, so planning fails closed; deterministic calldata exists only in a test draft helper. `verifyTopology` consumes official resolver output and re-reads proxy bytecode/singleton/version, Safe graph, guard policy/configuration/counters/asset enumeration/recipients, and Delay settings; missing reads and mismatches are failures.
 
 ## Task 7 setup sequence
 
-1. Resolve official verified deployments and compare every runtime hash from RPC.
-2. Deploy guard and Delay instances for the deterministic Safe proxy, then call the official Proxy Factory with `setup([passkey, Burner, recovery], 1, 0, 0x, 0, 0, 0, 0)`.
-3. In one reviewed atomic Safe-originated sequence, configure every asset, install the same guard in both guard slots, and enable Delay as the only module. Delay owner/avatar/target are the Safe and the Safe is its only upstream module.
-4. Re-run `verifyTopology`; do not fund until it passes.
+1. Resolve official verified deployments and compare every runtime hash from RPC; absent evidence is a hard stop.
+2. After a reviewed concrete atomic path exists, deploy guard and Delay instances for the deterministic Safe proxy, then call the official Proxy Factory with `setup([passkey, Burner, recovery], 1, 0, 0x, 0, 0, 0, 0)`.
+3. In that reviewed atomic Safe-originated sequence, configure every asset, install the same guard in both guard slots, and enable Delay as the only module. Delay owner/avatar/target are the Safe and the Safe is its only upstream module.
+4. Re-run `verifyTopology`; do not fund until it passes. Until step 2 is reviewed, no reproducible production plan is emitted.
 
 No production helper contract is added to manufacture Safe-originated calls. Until an audited/native atomic path or separately reviewed encoder is supplied, planning and verification fail closed rather than emit a partially protected setup.
 

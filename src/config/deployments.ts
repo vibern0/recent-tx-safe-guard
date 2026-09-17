@@ -9,6 +9,7 @@ export type DependencyName =
   | "passkeySignerFactory"
   | "passkeySignerVerifier"
   | "multiSend"
+  | "guard"
   | "delay";
 
 export type DeploymentRecord = {
@@ -37,6 +38,12 @@ export type VerifiedDeployments = {
   chainId: number;
   dependencies: Record<DependencyName, VerifiedDependency>;
 };
+
+const officialResolverResults = new WeakSet<object>();
+
+export function isOfficialVerifiedDeployments(value: unknown): value is VerifiedDeployments {
+  return typeof value === "object" && value !== null && officialResolverResults.has(value);
+}
 
 const SAFE_DEPLOYMENTS = "https://github.com/safe-global/safe-deployments";
 const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
@@ -81,6 +88,12 @@ const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentRegistry = {
       runtimeCodeHash: "0xca1147a12963172a93910c5cb2bfa5ad0e941c7f03fc7eb017dd06a8ea4e5604" as Hex,
       source: SAFE_DEPLOYMENTS,
     },
+    guard: {
+      name: "Tiered spending guard",
+      version: "task7-reviewed",
+      evidence: "absent",
+      source: "repository-reviewed-artifact",
+    },
     delay: {
       name: "Zodiac Delay",
       version: "1.1.1",
@@ -108,6 +121,7 @@ const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
   passkeySignerFactory: ["0.2.0"],
   passkeySignerVerifier: ["0.2.0"],
   multiSend: ["1.5.0"],
+  guard: ["task7-reviewed"],
   delay: ["1.1.1"],
 };
 
@@ -182,10 +196,13 @@ async function resolveDeploymentRegistry(
     if (runtimeCodeHash.toLowerCase() !== expectedRuntimeCodeHash.toLowerCase()) {
       failClosed(`${dependency} runtime code hash mismatch`);
     }
-    dependencies[dependency] = { ...record, address, runtimeCodeHash };
+    dependencies[dependency] = Object.freeze({ ...record, address, runtimeCodeHash, evidence: "verified" });
   }
 
-  return { chainId, dependencies };
+  Object.freeze(dependencies);
+  const result = Object.freeze({ chainId, dependencies }) satisfies VerifiedDeployments;
+  officialResolverResults.add(result);
+  return result;
 }
 
 export async function resolveVerifiedDeployments(

@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { keccak256, type Address, type Hex } from "viem";
-import { buildVaultPlan, type TopologyDeploymentEvidence } from "../../src/topology/build";
+import { keccak256, type Address } from "viem";
+import { buildVaultPlan, buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../../src/topology/build";
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
 const ev = (address: Address, version: string): any => ({ address, version, runtimeCodeHash: keccak256("0x6001"), source: "official-test-evidence", evidence: "verified" });
@@ -9,10 +9,10 @@ const deployments: TopologyDeploymentEvidence = { safeSingleton: { ...ev(a(30), 
 
 describe("one-Safe setup integration gate", () => {
   it("fails closed instead of producing a partially protected deployment when no atomic production path is reviewed", () => {
-    expect(() => buildVaultPlan({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments })).to.throw("atomic setup encoder");
+    expect(() => buildVaultPlan({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments } as never)).to.throw("official resolver");
   });
-  it("accepts only an explicitly supplied test encoder and emits no signatures", () => {
-    const plan = buildVaultPlan({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments, atomicSetupEncoder: (calls): Hex => (`0x${calls.length.toString(16)}`) as Hex });
+  it("keeps the deterministic draft encoder test-only and unsigned", () => {
+    const plan = buildVaultPlanDraft({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments });
     expect(plan.safeProxyDeployment.value).to.equal(0n); expect(plan.setup.every((call) => call.value === 0n && call.operation === 0)).to.equal(true); expect(plan.extraAccounts).to.deep.equal([]); expect(JSON.stringify(plan, (_, value) => typeof value === "bigint" ? value.toString() : value)).not.to.contain("signature");
   });
 });

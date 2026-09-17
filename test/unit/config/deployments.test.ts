@@ -54,12 +54,19 @@ const fixtureRegistry = (): DeploymentRegistry => ({
       runtimeCodeHash: CODE_HASH,
       source: "https://github.com/safe-global/safe-modules",
     },
-    multiSend: {
+  multiSend: {
       name: "Safe MultiSend",
       version: "1.5.0",
       address: addresses.multiSend,
       runtimeCodeHash: CODE_HASH,
       source: "https://github.com/safe-global/safe-deployments",
+  },
+    guard: {
+      name: "Tiered spending guard",
+      version: "task7-reviewed",
+      address: "0x0000000000000000000000000000000000000007" as Address,
+      runtimeCodeHash: CODE_HASH,
+      source: "repository-reviewed-artifact",
     },
     delay: {
       name: "Zodiac Delay",
@@ -125,7 +132,7 @@ describe("resolveVerifiedDeployments", () => {
   it("returns every verified dependency only after all reads pass", async () => {
     const result = await resolveDeploymentFixture(clientFor(), CHAIN_ID, fixtureRegistry());
     expect(result.chainId).to.equal(CHAIN_ID);
-    expect(Object.keys(result.dependencies)).to.have.length(6);
+    expect(Object.keys(result.dependencies)).to.have.length(7);
     expect(result.dependencies.delay.version).to.equal("1.1.1");
     expect(result.dependencies.safeSingleton.runtimeCodeHash).to.equal(CODE_HASH);
   });
@@ -143,7 +150,7 @@ describe("resolveVerifiedDeployments", () => {
     await expect(resolveDeploymentFixture(client, CHAIN_ID, registry)).to.be.rejectedWith(
       "invalid address",
     );
-    expect(reads).to.equal(5);
+    expect(reads).to.equal(6);
 
     const zeroRegistry = fixtureRegistry();
     zeroRegistry[CHAIN_ID]!.delay.address = "0x0000000000000000000000000000000000000000" as Address;
