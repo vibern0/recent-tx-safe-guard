@@ -1,11 +1,16 @@
 import { execFileSync } from "node:child_process";
 
-const chainId = Number(process.env.REHEARSAL_CHAIN_ID ?? 31337);
-if (chainId === 1) throw new Error("fail closed: rehearsal refuses Ethereum mainnet (chain 1)");
-if (chainId !== 31337) throw new Error("fail closed: rehearsal only supports the local time-controlled test network");
-for (const name of ["PRIVATE_KEY", "MNEMONIC", "SEPOLIA_RPC_URL", "VAULT_RPC_URL", "BROADCAST"]) {
-  if (process.env[name]) throw new Error(`fail closed: rehearsal refuses secret or broadcast environment ${name}`);
-}
+const forbidden = /(?:PRIVATE|SECRET|MNEMONIC|SEED|WALLET|PROVIDER|RPC|BROADCAST|DEPLOY|SIGNING|RELAYER|FORK)/i;
+const present = Object.keys(process.env).filter((name) => forbidden.test(name));
+if (present.length) throw new Error(`fail closed: rehearsal refuses credential/provider/broadcast environment variables: ${present.join(", ")}`);
 
-execFileSync("npx", ["hardhat", "test", "test/integration/adversarial.test.ts", "test/integration/recovery.test.ts"], { stdio: "inherit", env: { ...process.env, REHEARSAL_LOCAL: "1" } });
-console.log(JSON.stringify({ network: "hardhat-local", chainId, signed: false, broadcast: false, timeControlled: true, evidence: "testnet prototype only" }));
+// The test itself reads hardhat's actual network identity and controlled-clock APIs.
+// No caller-supplied chain id is trusted, and no environment is forwarded.
+const safeEnv: NodeJS.ProcessEnv = {
+  PATH: process.env.PATH,
+  NODE_PATH: process.env.NODE_PATH,
+  FORCE_COLOR: process.env.FORCE_COLOR,
+  REHEARSAL_LOCAL: "1",
+};
+execFileSync("npx", ["hardhat", "test", "test/integration/rehearsal.test.ts"], { stdio: "inherit", env: safeEnv });
+console.log(JSON.stringify({ network: "hardhat-local", chainId: 31337, signed: false, broadcast: false, timeControlled: true, evidence: "testnet prototype only" }));

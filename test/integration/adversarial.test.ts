@@ -94,4 +94,18 @@ describe("Task 10 adversarial threat-model matrix", () => {
     const modules = await f.safe.read.getModulesPaginated(["0x0000000000000000000000000000000000000001", 10n]);
     expect(modules[0]).to.deep.equal([]);
   });
+
+  it("rejects removing either guard and rejects replacing only one guard slot", async () => {
+    const f = await fixture();
+    const setGuard = (name: "setGuard" | "setModuleGuard", guard: Address) => encodeFunctionData({ abi: fn(name, [{ name: "guard", type: "address" }]), functionName: name, args: [guard] });
+    const replacement = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.recovery.account.address, ZERO, 86400n, 0n]]);
+    for (const [target, data] of ([[f.safe.address, setGuard("setGuard", ZERO)], [f.safe.address, setGuard("setModuleGuard", ZERO)], [f.safe.address, setGuard("setGuard", replacement.address)], [f.safe.address, setGuard("setModuleGuard", replacement.address)]] as const)) {
+      await expect(f.exec(target, data, await f.sign(target, data))).to.be.rejected;
+      const client = await hre.viem.getPublicClient();
+      const guardSlot = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
+      const moduleGuardSlot = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
+      expect((await client.getStorageAt({ address: f.safe.address, slot: guardSlot })!).toLowerCase().endsWith(f.guard.address.slice(2).toLowerCase())).to.equal(true);
+      expect((await client.getStorageAt({ address: f.safe.address, slot: moduleGuardSlot })!).toLowerCase().endsWith(f.guard.address.slice(2).toLowerCase())).to.equal(true);
+    }
+  });
 });

@@ -1,0 +1,14 @@
+{
+  "findings": [
+    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L524-L527",
+    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L381-L401",
+    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L53-L76",
+    "unused-return|checkTransaction|contracts/TieredSpendingGuard.sol#L223-L277",
+    "unused-return|decodeBurnerExtension|contracts/TieredSpendingGuard.sol#L218-L221",
+    "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L213-L216",
+    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L326-L375",
+    "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L524-L527",
+    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L381-L401",
+    "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L190"
+  ]
+}

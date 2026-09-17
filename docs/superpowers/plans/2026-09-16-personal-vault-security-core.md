@@ -465,19 +465,19 @@ Run monitoring tests including suppressed, duplicate, malformed, and reorged eve
 
 - [x] **Step 1: Add one test per bypass class**
 
-Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, only-one-guard installation, direct Delay injection, immediate weakening, retained unsafe owners, guard removal, cancelled/expired execution, and notification-service authority.
+Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, explicit removal or one-slot mutation of either guard, direct Delay injection, immediate weakening, retained unsafe owners, cancelled/expired execution, and notification-service authority.
 
 - [x] **Step 2: Add recovery and denial-of-service tests**
 
-Test lost passkey, lost Burner, recovery cancellation, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
+Test lost passkey, lost Burner, recovery cancellation of a valid delayed ERC-20 transfer with pre/post cooldown and unchanged balances, requeue and actual execution, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
 
 - [x] **Step 3: Add static and invariant gates**
 
-Run coverage, Slither, and stateful invariants. Require review of every external/public function, storage write, call, signature parse, and authorization branch. Imported Safe/Zodiac analysis is not presented as their audit.
+Run coverage, Slither, and stateful invariants. Require executable ABI/state-surface checks for every repository security contract plus review of every external/public function, storage write, call, signature parse, and authorization branch. Slither uses a committed reviewed baseline and fails on new findings or tool errors; imported Safe/Zodiac analysis is not presented as their audit.
 
 - [x] **Step 4: Implement the rehearsal**
 
-On a time-controlled fork: deploy one Safe, verify topology, spend repeatedly through X, step up through Y, observe the tier-2 alert, reject Y+1 direct, queue Y+1, observe alert, cancel, prove non-execution, queue again, advance Z, execute, freeze, and rehearse delayed recovery. Refuse chain ID 1.
+On the actual local Hardhat time-controlled network: verify the reported chain identity, deploy one Safe, spend repeatedly through X, step up through Y, reject Y+1 direct, queue Y+1, prove queue/cancellation evidence, cancel, prove non-execution and unchanged balances, queue again, advance Z, execute, expire another item, freeze, and rehearse delayed recovery repair. Refuse chain ID 1 and reject credential/provider/broadcast environments without forwarding them.
 
 - [x] **Step 5: Verify and commit**
 

@@ -29,10 +29,11 @@ describe("Task 10 recovery and denial-of-service proof", () => {
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
-    ]), functionName: "setAssetPolicy", args: [token.address, 100n, 200n, 100n, 200n, [recipient.account.address]] }));
+    ]), functionName: "setAssetPolicy", args: [token.address, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const passkeySig = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    return { deployer, burner, recovery, recipient, replacement, safe, passkey, delay, guard, token, sign, exec, passkeySig };
+    const envelope = (signature: Hex) => `${passkeySig}${signature.slice(2)}${toHex((signature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
+    return { deployer, burner, recovery, recipient, replacement, safe, passkey, delay, guard, token, sign, exec, passkeySig, envelope };
   }
 
   it("lets recovery freeze immediately but cannot move assets or unfreeze", async () => {
@@ -64,10 +65,21 @@ describe("Task 10 recovery and denial-of-service proof", () => {
   });
 
   it("does not consume queue collateral after cancellation and observes the mandatory delay before execution", async () => {
-    const f = await fixture(); const queue = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 1n, "0x", 0] });
+    const f = await fixture();
+    const transfer = encodeFunctionData({ abi: fn("transfer", [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }]), functionName: "transfer", args: [f.recipient.account.address, 150n] });
+    const queue = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.token.address, 0n, transfer, 0] });
+    const tokenBefore = await f.token.read.balanceOf([f.safe.address]); const recipientBefore = await f.token.read.balanceOf([f.recipient.account.address]);
     const burner = await f.burner.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queue, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await f.safe.read.nonce() } });
-    const envelope = `${f.passkeySig}${burner.slice(2)}${toHex((burner.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
-    await expect(f.exec(f.delay.address, queue, envelope)).to.be.rejected;
-    const before = await f.delay.read.txNonce(); await time.increase(11); expect(await f.delay.read.txNonce()).to.equal(before);
+    await f.exec(f.delay.address, queue, f.envelope(burner));
+    const cancel = encodeFunctionData({ abi: fn("setTxNonce", [{ name: "nonce", type: "uint256" }]), functionName: "setTxNonce", args: [1n] });
+    await f.exec(f.delay.address, cancel, await f.sign(f.delay.address, cancel, f.recovery));
+    await time.increase(11);
+    await expect(f.delay.write.executeNextTx([f.token.address, 0n, transfer, 0], { account: f.deployer.account })).to.be.rejected;
+    expect(await f.token.read.balanceOf([f.safe.address])).to.equal(tokenBefore); expect(await f.token.read.balanceOf([f.recipient.account.address])).to.equal(recipientBefore);
+    const burner2 = await f.burner.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queue, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await f.safe.read.nonce() } });
+    await f.exec(f.delay.address, queue, f.envelope(burner2));
+    await time.increase(11);
+    await f.delay.write.executeNextTx([f.token.address, 0n, transfer, 0], { account: f.deployer.account });
+    expect(await f.token.read.balanceOf([f.safe.address])).to.equal(tokenBefore - 150n); expect(await f.token.read.balanceOf([f.recipient.account.address])).to.equal(recipientBefore + 150n);
   });
 });
