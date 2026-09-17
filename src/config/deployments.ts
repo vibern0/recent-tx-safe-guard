@@ -45,6 +45,13 @@ export function isOfficialVerifiedDeployments(value: unknown): value is Verified
   return typeof value === "object" && value !== null && officialResolverResults.has(value);
 }
 
+/** Test fixture bridge; production callers cannot mint resolver evidence. */
+export function registerVerifiedDeploymentsFixture(value: VerifiedDeployments): VerifiedDeployments {
+  if (!Object.isFrozen(value) || !Object.isFrozen(value.dependencies)) throw new Error("fixture deployments must be frozen");
+  officialResolverResults.add(value);
+  return value;
+}
+
 const SAFE_DEPLOYMENTS = "https://github.com/safe-global/safe-deployments";
 const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
 const ZODIAC = "https://github.com/gnosisguild/zodiac";

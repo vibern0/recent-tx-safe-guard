@@ -164,7 +164,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     function repairPolicy(address token, uint256 basePerTx, uint256 stepUpPerTx, uint256 baseDaily, uint256 instantDaily, address[] calldata recipients) external onlySafe {
-        if (token == address(0) || recipients.length == 0) revert InvalidRepair();
+        if (recipients.length == 0) revert InvalidRepair();
         for (uint256 i; i < recipients.length; ++i) {
             if (recipients[i] == address(0)) revert InvalidRepair();
             for (uint256 j; j < i; ++j) if (recipients[i] == recipients[j]) revert InvalidRepair();

@@ -3,6 +3,7 @@ import hre from "hardhat";
 import { encodeFunctionData, hashTypedData, keccak256, toFunctionSelector, type Address, type Hex } from "viem";
 import { createBurnerSigner, createRecoverySigner } from "../../src/signers/eip1193";
 import { createPasskeySigner } from "../../src/signers/passkey";
+import { registerVerifiedDeploymentsFixture } from "../../src/config/deployments";
 import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -43,7 +44,8 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const provider = (wallet: typeof recoveryWallet) => walletProvider(wallet as never, publicClient);
     const recovery = createRecoverySigner({ provider: provider(recoveryWallet), account: recoveryWallet.account.address });
-    const passkeySigner = createPasskeySigner({ address: passkey.address, verifier: { name: "Mock ERC-1271 verifier", version: "test-only", address: passkey.address, runtimeCodeHash: keccak256(passkeyCode), evidence: "verified", source: "test-only mock; not WebAuthn" }, provider: provider(deployer), sign: async () => "0x" });
+    const deployments = registerVerifiedDeploymentsFixture(Object.freeze({ chainId: 31337, dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ name: "Mock ERC-1271 verifier", version: "test-only", address: passkey.address, runtimeCodeHash: keccak256(passkeyCode), evidence: "verified" as const, source: "test-only mock; not WebAuthn" }) }) })) as never;
+    const passkeySigner = createPasskeySigner({ address: passkey.address, deployments, provider: provider(deployer), sign: async () => "0x" });
     const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
       const nonce = providedNonce ?? await safe.read.nonce();

@@ -9,6 +9,7 @@ import type {
   VerifiedDeployments,
   SupportedChainId,
 } from "../../../src/config/deployments";
+import { registerVerifiedDeploymentsFixture } from "../../../src/config/deployments";
 
 const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
   safeSingleton: ["1.5.0"], safeProxyFactory: ["1.5.0"], passkeySignerFactory: ["0.2.0"],
@@ -52,5 +53,5 @@ export async function resolveDeploymentFixture(
     if (runtimeCodeHash.toLowerCase() !== record.runtimeCodeHash.toLowerCase()) failClosed(`${dependency} runtime code hash mismatch`);
     dependencies[dependency] = { ...record, address, runtimeCodeHash };
   }
-  return { chainId, dependencies };
+  return registerVerifiedDeploymentsFixture(Object.freeze({ chainId, dependencies: Object.freeze(dependencies) }));
 }

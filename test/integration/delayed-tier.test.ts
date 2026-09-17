@@ -18,6 +18,10 @@ const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }
 const replaceGuardsAbi = fn("replaceGuards", [{ name: "expectedGuard", type: "address" }, { name: "replacement", type: "address" }]);
 const setCooldownAbi = fn("setTxCooldown", [{ name: "cooldown", type: "uint256" }]);
 const setExpirationAbi = fn("setTxExpiration", [{ name: "expiration", type: "uint256" }]);
+const repairPolicyAbi = fn("repairPolicy", [
+  { name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" },
+  { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" },
+]);
 
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
@@ -151,6 +155,33 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair2, 1], { account: f.deployer.account });
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement2.account.address.toLowerCase());
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement2.account.address.toLowerCase());
+  });
+
+  it("lets recovery queue and execute tightening policy repair, but not weakening repair", async () => {
+    const f = await fixture();
+    const queueRepair = async (base: bigint, stepUp: bigint, daily: bigint, instant: bigint) => {
+      const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, base, stepUp, daily, instant, [f.recipient.account.address]] });
+      const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repair, 0] });
+      const nonce = await f.safe.read.nonce();
+      const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+      await f.execute(f.delay.address, queued, signature);
+      return repair;
+    };
+
+    const tightening = await queueRepair(40n, 90n, 40n, 90n);
+    expect(await f.delay.read.queueNonce()).to.equal(1n);
+    await expect(f.delay.write.executeNextTx([f.guard.address, 0n, tightening, 0], { account: f.deployer.account })).to.be.rejected;
+    await time.increase(10);
+    await f.delay.write.executeNextTx([f.guard.address, 0n, tightening, 0], { account: f.deployer.account });
+    expect((await f.guard.read.assetPolicy([ZERO]))[0]).to.equal(40n);
+    expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(90n);
+
+    const weakening = await queueRepair(50n, 100n, 50n, 100n);
+    expect(await f.delay.read.queueNonce()).to.equal(2n);
+    await time.increase(10);
+    await expect(f.delay.write.executeNextTx([f.guard.address, 0n, weakening, 0], { account: f.deployer.account })).to.be.rejected;
+    expect((await f.guard.read.assetPolicy([ZERO]))[0]).to.equal(40n);
+    expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(90n);
   });
 
   it("rejects a contract that imitates the guard interfaces during replacement", async () => {
