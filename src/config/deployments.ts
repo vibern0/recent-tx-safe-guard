@@ -40,10 +40,17 @@ export type VerifiedDeployments = {
 };
 
 const officialResolverResults = new WeakSet<object>();
-const testFixtureBrand = Symbol.for("recent-tx-safe-guard.test.verified-deployments");
 
 export function isOfficialVerifiedDeployments(value: unknown): value is VerifiedDeployments {
-  return typeof value === "object" && value !== null && (officialResolverResults.has(value) || (value as Record<symbol, unknown>)[testFixtureBrand] === true);
+  return typeof value === "object" && value !== null && officialResolverResults.has(value);
+}
+
+/** Test-only fixture strategy; production callers cannot mint resolver evidence. */
+export function registerVerifiedDeploymentsFixture(value: VerifiedDeployments): VerifiedDeployments {
+  if (process.env.NODE_ENV !== "test") throw new Error("fixture resolver is test-only");
+  if (!Object.isFrozen(value) || !Object.isFrozen(value.dependencies)) throw new Error("fixture deployments must be frozen");
+  officialResolverResults.add(value);
+  return value;
 }
 
 const SAFE_DEPLOYMENTS = "https://github.com/safe-global/safe-deployments";

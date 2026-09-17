@@ -74,6 +74,15 @@ describe("passkey SafeSigner", () => {
     expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricated as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
   });
 
+  it("does not accept a process-global fixture brand as official resolver evidence", () => {
+    const fabricated = Object.freeze({
+      chainId: VERIFIED_DEPLOYMENTS.chainId,
+      dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ ...VERIFIED_PASSKEY }) }),
+      [Symbol.for("recent-tx-safe-guard.test.verified-deployments")]: true,
+    });
+    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricated as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
+  });
+
   it("rejects non-canonical SafeTx typed data before contacting the verifier", async () => {
     let calls = 0;
     const provider: Eip1193Provider = { request: async () => { calls++; return "0x1626ba7e"; } };

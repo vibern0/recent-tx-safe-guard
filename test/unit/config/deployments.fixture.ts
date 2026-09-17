@@ -9,15 +9,11 @@ import type {
   VerifiedDeployments,
   SupportedChainId,
 } from "../../../src/config/deployments";
-
-const TEST_FIXTURE_BRAND = Symbol.for("recent-tx-safe-guard.test.verified-deployments");
+import { registerVerifiedDeploymentsFixture } from "../../../src/config/deployments";
 
 export function brandVerifiedDeploymentsFixture(value: VerifiedDeployments): VerifiedDeployments {
-  if (!Object.isFrozen(value) || !Object.isFrozen(value.dependencies)) throw new Error("fixture deployments must be frozen");
-  const branded = Object.create(Object.getPrototypeOf(value)) as VerifiedDeployments;
-  Object.defineProperties(branded, Object.getOwnPropertyDescriptors(value));
-  Object.defineProperty(branded, TEST_FIXTURE_BRAND, { value: true });
-  return Object.freeze(branded);
+  process.env.NODE_ENV = "test";
+  return registerVerifiedDeploymentsFixture(value);
 }
 
 const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
