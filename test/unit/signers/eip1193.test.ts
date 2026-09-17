@@ -38,7 +38,7 @@ describe("EIP-1193 SafeSigner", () => {
     const extension = await signer.sign(request);
     expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
     expect(extension.slice(2, 132)).to.have.length(130);
-    await expect(signer.sign({ ...request, typedData: { ...request.typedData, message: { ...request.typedData.message, nonce: 1n } } })).to.be.rejected;
+    await expect(signer.sign(request)).to.be.rejectedWith("duplicate");
   });
 
   it("rejects wrong account, provider changes, user rejection, and extension ambiguity", async () => {

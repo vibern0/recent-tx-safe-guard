@@ -75,5 +75,6 @@ describe("TieredSpendingGuard exact signatures", () => {
     const extension = `0x${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${typeHash.slice(2)}` as Hex;
     expect(await guard.read.decodeBurnerExtension([`${safeSignature}${extension.slice(2)}` as Hex])).to.equal(burnerSignature);
     await expect(guard.read.decodeBurnerExtension([safeSignature])).to.be.rejectedWith("Missing");
+    await expect(guard.read.decodeBurnerExtension([`${safeSignature}${extension.slice(2)}${extension.slice(2)}` as Hex])).to.be.rejected;
   });
 });

@@ -20,6 +20,13 @@ function asChainId(value: unknown): number {
   return chainId;
 }
 
+function normalizeSafeEcdsaSignature(signature: Hex): Hex {
+  const recovery = Number.parseInt(signature.slice(-2), 16);
+  if (recovery === 0 || recovery === 1) return `${signature.slice(0, -2)}${(recovery + 27).toString(16)}` as Hex;
+  if (recovery !== 27 && recovery !== 28) throw new Error("invalid ECDSA recovery id");
+  return signature;
+}
+
 async function providerState(provider: Eip1193Provider, expected: SafeSignerRequest, account: Address): Promise<void> {
   const chainId = asChainId(await provider.request({ method: "eth_chainId" }));
   if (chainId !== expected.chainId) throw new Error("provider chain changed");
@@ -48,6 +55,7 @@ export function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
         throw new Error(`typed-data signature failed: ${message}`);
       }
       if (!/^0x[0-9a-f]{130}$/i.test(signature)) throw new Error("invalid ECDSA signature");
+      signature = normalizeSafeEcdsaSignature(signature);
       await providerState(options.provider, request, options.account);
       const recovered = await recoverTypedDataAddress({ ...request.typedData, signature } as never);
       if (recovered.toLowerCase() !== options.account.toLowerCase()) throw new Error("wrong recovered account");
