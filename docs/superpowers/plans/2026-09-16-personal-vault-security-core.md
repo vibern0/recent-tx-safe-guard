@@ -463,23 +463,23 @@ Run monitoring tests including suppressed, duplicate, malformed, and reorged eve
 
 **Interfaces:** Produces `npm run security:check` as the reproducible local security gate.
 
-- [ ] **Step 1: Add one test per bypass class**
+- [x] **Step 1: Add one test per bypass class**
 
 Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, only-one-guard installation, direct Delay injection, immediate weakening, retained unsafe owners, guard removal, cancelled/expired execution, and notification-service authority.
 
-- [ ] **Step 2: Add recovery and denial-of-service tests**
+- [x] **Step 2: Add recovery and denial-of-service tests**
 
 Test lost passkey, lost Burner, recovery cancellation, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
 
-- [ ] **Step 3: Add static and invariant gates**
+- [x] **Step 3: Add static and invariant gates**
 
 Run coverage, Slither, and stateful invariants. Require review of every external/public function, storage write, call, signature parse, and authorization branch. Imported Safe/Zodiac analysis is not presented as their audit.
 
-- [ ] **Step 4: Implement the rehearsal**
+- [x] **Step 4: Implement the rehearsal**
 
 On a time-controlled fork: deploy one Safe, verify topology, spend repeatedly through X, step up through Y, observe the tier-2 alert, reject Y+1 direct, queue Y+1, observe alert, cancel, prove non-execution, queue again, advance Z, execute, freeze, and rehearse delayed recovery. Refuse chain ID 1.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run `npm run security:check`, the complete integration suite, rehearsal, and `git diff --check`. Commit as `test: prove single-safe tiered threat model`.
 
