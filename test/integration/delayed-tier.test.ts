@@ -15,6 +15,7 @@ const queueAbi = fn("execTransactionFromModule", [{ name: "to", type: "address" 
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
+const replaceGuardsAbi = fn("replaceGuards", [{ name: "expectedGuard", type: "address" }, { name: "replacement", type: "address" }]);
 const setCooldownAbi = fn("setTxCooldown", [{ name: "cooldown", type: "uint256" }]);
 const setExpirationAbi = fn("setTxExpiration", [{ name: "expiration", type: "uint256" }]);
 
@@ -150,6 +151,32 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair2, 1], { account: f.deployer.account });
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement2.account.address.toLowerCase());
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement2.account.address.toLowerCase());
+  });
+
+  it("rejects a contract that imitates the guard interfaces during replacement", async () => {
+    const f = await fixture();
+    const fake = await hre.viem.deployContract("FakeReplacementGuard", [f.safe.address, f.passkey.address, f.burner.account.address, f.recovery.account.address, f.delay.address]);
+    const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, fake.address] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+    const nonce = await f.safe.read.nonce();
+    const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    await f.execute(f.delay.address, queued, signature);
+    await time.increase(10);
+    await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
+  });
+
+  it("rejects an EOA replacement for the passkey role while retaining delayed signer rotation", async () => {
+    const f = await fixture();
+    const passkeyIndex = f.owners.indexOf(f.passkey.address);
+    const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, f.replacement.account.address, previous, 1n] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+    const nonce = await f.safe.read.nonce();
+    const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    await f.execute(f.delay.address, queued, signature);
+    await time.increase(10);
+    await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
+    expect((await f.guard.read.config())[1].toLowerCase()).to.equal(f.passkey.address.toLowerCase());
   });
 
   it("permits only monotonic Delay tightening on the immediate owner path", async () => {

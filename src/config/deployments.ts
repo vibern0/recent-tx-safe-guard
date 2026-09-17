@@ -129,7 +129,7 @@ const requireAddress = (dependency: DependencyName, record: DeploymentRecord): A
   return validatedAddress;
 };
 
-async function resolveWithRegistry(
+async function resolveDeploymentRegistry(
   client: ReadOnlyDeploymentClient,
   chainId: number,
   registry: DeploymentRegistry | Readonly<DeploymentRegistry>,
@@ -192,14 +192,5 @@ export async function resolveVerifiedDeployments(
   client: ReadOnlyDeploymentClient,
   chainId: number,
 ): Promise<VerifiedDeployments> {
-  return resolveWithRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY);
-}
-
-/** @internal Test-only fixture injection; production callers must use the two-argument resolver. */
-export async function resolveVerifiedDeploymentsForTest(
-  client: ReadOnlyDeploymentClient,
-  chainId: number,
-  fixtureRegistry: DeploymentRegistry,
-): Promise<VerifiedDeployments> {
-  return resolveWithRegistry(client, chainId, fixtureRegistry);
+  return resolveDeploymentRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY);
 }
