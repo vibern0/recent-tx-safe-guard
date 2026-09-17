@@ -57,6 +57,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     mapping(address => SpendState) public spendState;
     mapping(address => mapping(address => bool)) public allowedRecipient;
     mapping(address => address[]) private policyRecipients;
+    address[] private configuredTokens;
+    mapping(address => bool) private configuredToken;
     mapping(bytes32 => bool) public burnerAuthorizationUsed;
     bool private checking;
     address private pendingToken;
@@ -130,6 +132,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             }
         }
         assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        if (!configuredToken[token]) { configuredToken[token] = true; configuredTokens.push(token); }
         address[] storage previousRecipients = policyRecipients[token];
         for (uint256 i; i < previousRecipients.length; ++i) {
             allowedRecipient[token][previousRecipients[i]] = false;
@@ -178,6 +181,18 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(ITransactionGuard).interfaceId || interfaceId == type(IModuleGuard).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function getPolicyRecipients(address token) external view returns (address[] memory) { return policyRecipients[token]; }
+    function getConfiguredTokens() external view returns (address[] memory) { return configuredTokens; }
+    function policyHash() external view returns (bytes32) {
+        bytes32[] memory assets = new bytes32[](configuredTokens.length);
+        for (uint256 i; i < configuredTokens.length; ++i) {
+            address token = configuredTokens[i];
+            AssetPolicy memory p = assetPolicy[token];
+            assets[i] = keccak256(abi.encode(token, p.basePerTransaction, p.stepUpPerTransaction, p.baseDailyLimit, p.instantDailyLimit, policyRecipients[token]));
+        }
+        return keccak256(abi.encode(block.chainid, config.safe, config.passkey, config.burner, config.recovery, config.delay, config.periodSeconds, config.periodAnchor, IDelayPolicy(config.delay).txCooldown(), IDelayPolicy(config.delay).txExpiration(), assets));
     }
 
     function computeSafeTransactionHash(
@@ -471,6 +486,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     function _setAssetPolicy(address token, uint256 basePerTransaction, uint256 stepUpPerTransaction, uint256 baseDailyLimit, uint256 instantDailyLimit, address[] calldata recipients) internal {
         if (basePerTransaction == 0 || stepUpPerTransaction == 0 || baseDailyLimit == 0 || instantDailyLimit <= baseDailyLimit || basePerTransaction > baseDailyLimit || stepUpPerTransaction > instantDailyLimit) revert InvalidAssetPolicy();
         assetPolicy[token] = AssetPolicy(basePerTransaction, stepUpPerTransaction, baseDailyLimit, instantDailyLimit);
+        if (!configuredToken[token]) { configuredToken[token] = true; configuredTokens.push(token); }
         address[] storage previousRecipients = policyRecipients[token];
         for (uint256 i; i < previousRecipients.length; ++i) allowedRecipient[token][previousRecipients[i]] = false;
         delete policyRecipients[token];

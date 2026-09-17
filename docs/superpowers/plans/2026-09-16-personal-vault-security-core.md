@@ -368,7 +368,7 @@ Assert one Safe address, owners `[passkey, burner, recovery]`, threshold 1, zero
 
 - [x] **Step 2: Implement atomic planning**
 
-Generate unsigned calldata that configures policy, Delay, owners, both guards, and the module graph without a partially protected final state. Never broadcast from the planner.
+Generate the Safe initializer, proxy-factory deployment call, and unsigned calls for policy, both guards, and the module graph. Require a reviewed atomic encoder; if none exists, fail closed rather than emit a partially protected final state. Never broadcast from the planner.
 
 - [x] **Step 3: Implement fail-closed verification**
 
@@ -380,7 +380,7 @@ Document base, step-up, queue, Delay execution, cancellation, freeze, recovery, 
 
 - [x] **Step 5: Verify and commit**
 
-Run deterministic planning twice for byte-identical output, deploy on a local fork, verify the topology, mutate each invariant individually, and require failure. Commit as `feat: build and verify one-safe vault topology`.
+Run deterministic planning twice for byte-identical output, assert fail-closed behavior where the local harness cannot prove the production atomic path, verify the topology fixture, mutate each invariant individually, and require failure. Commit the corrected implementation with a conventional message.
 
 ---
 
