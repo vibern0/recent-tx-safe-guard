@@ -26,3 +26,5 @@ Safe v1.5 module guards are a hard requirement for later integration. The old `@
 ## Evidence limits
 
 Task 1 establishes reproducible package resolution and preserves the historical code. It does not verify deployed addresses, chain-specific runtime bytecode, Safe/passkey/Zodiac audit scope, or a production deployment. Those are explicit later-task gates. Missing RPC data, unknown releases, mismatched hashes, or absent audit evidence must fail closed.
+
+Task 6 integration compiles the pinned Zodiac Delay v1.1.1 source at commit `30f3aafa9b3be3425bcac390fe6ab6bd9afb5f16` as `contracts/test/ZodiacDelayV1_1_1.sol`. Its test-only Zodiac core compatibility surface exists solely because the installed zodiac-core package uses newer transient-storage syntax than the repository's pinned Solidity compiler; it is not a deployment dependency or a substitute for deployed bytecode verification.

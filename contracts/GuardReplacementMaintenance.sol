@@ -4,6 +4,15 @@ pragma solidity ^0.8.24;
 import {ITransactionGuard} from "@safe-global/safe-smart-account/contracts/base/GuardManager.sol";
 import {IModuleGuard} from "@safe-global/safe-smart-account/contracts/base/ModuleManager.sol";
 
+interface ISafeOwnerMaintenance {
+    function removeOwner(address prevOwner, address owner, uint256 threshold) external;
+    function addOwnerWithThreshold(address owner, uint256 threshold) external;
+}
+
+interface IGuardSignerRepair {
+    function repairSigner(uint8 role, address expectedOld, address replacement) external;
+}
+
 /// @notice The only delegatecall target permitted for dual-guard maintenance.
 /// @dev This contract has one operation by design. It is executed by the Safe
 ///      through the verified Delay module; both setter calls are self-calls of
@@ -47,8 +56,26 @@ contract GuardReplacementMaintenance {
 
         (bool first,) = address(this).call(abi.encodeWithSignature("setGuard(address)", replacement));
         (bool second,) = address(this).call(abi.encodeWithSignature("setModuleGuard(address)", replacement));
-        if (!first || !second) revert SetterFailed();
+        (bool configured,) = replacement.call(abi.encodeWithSignature("setMaintenance(address)", address(this)));
+        if (!first || !second || !configured) revert SetterFailed();
         assembly { sstore(LOCK_SLOT, 0) }
+    }
+
+    function replaceSigner(
+        address guard,
+        uint8 role,
+        address expectedOld,
+        address replacement,
+        address previousOwner,
+        uint256 threshold
+    ) external {
+        if (msg.sender != delay) revert OnlyDelay();
+        if (address(this) != safe) revert WrongExecutionContext();
+        if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || previousOwner == address(0) || replacement == expectedOld) revert InvalidReplacement();
+        (bool repaired,) = guard.call(abi.encodeWithSelector(IGuardSignerRepair.repairSigner.selector, role, expectedOld, replacement));
+        (bool removed,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.removeOwner.selector, previousOwner, expectedOld, threshold));
+        (bool added,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.addOwnerWithThreshold.selector, replacement, threshold));
+        if (!repaired || !removed || !added) revert SetterFailed();
     }
 
     function _supports(address candidate, bytes4 interfaceId) private view returns (bool supported) {

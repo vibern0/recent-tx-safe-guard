@@ -8,11 +8,16 @@ library SafeSignatureDecoder {
     error TrailingSafeSignatureData();
     error NonCanonicalOwnerWord();
 
-    function decode(bytes calldata signatures) internal pure returns (address signer, uint256 ownerEnd) {
+    function decode(bytes calldata signatures, bytes32 safeTxHash) internal pure returns (address signer, uint256 ownerEnd) {
         if (signatures.length < 65) revert MalformedSafeSignature();
 
         uint8 v = uint8(signatures[64]);
         if (v == 1) revert ApprovedHashSignature();
+        if (v == 27 || v == 28) {
+            signer = ecrecover(safeTxHash, v, bytes32(signatures[0:32]), bytes32(signatures[32:64]));
+            if (signer == address(0)) revert MalformedSafeSignature();
+            return (signer, 65);
+        }
         if (v != 0) revert UnsupportedSignatureType();
 
         bytes32 ownerWord = bytes32(signatures[0:32]);

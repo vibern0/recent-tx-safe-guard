@@ -12,18 +12,18 @@ Only native transfers and selected ERC-20 `transfer` calls are admitted. The gua
 
 `Safe.execTransaction` → transaction guard → `Delay.execTransactionFromModule(to,value,data,operation)` with the exact single queued tuple → Delay queue.
 
-After cooldown and before expiration, an unprivileged relayer calls `Delay.executeNextTx(to,value,data,operation)` → Safe `execTransactionFromModule` → module guard `checkModuleTransaction` → exact native/ERC-20 transfer → `checkAfterModuleExecution`. The module guard admits only the configured Delay address and supported `CALL` transfer tuples; Delay owns cooldown, ordering, expiration, and cancellation semantics.
+After cooldown and before expiration, an unprivileged relayer calls pinned Zodiac Delay v1.1.1 `executeNextTx(to,value,data,operation)` → Safe `execTransactionFromModule` → module guard `checkModuleTransaction` → exact native/ERC-20 transfer → `checkAfterModuleExecution`. The module guard admits only the configured Delay address and supported `CALL` transfer tuples; Delay owns cooldown, FIFO ordering, expiration, `skipExpired`, and nonce cancellation semantics.
 
 ## Cancellation and emergency freeze
 
-The recovery owner may submit only the configured Delay `setTxNonce(uint256)` cancellation or the guard `freeze()` call. The guard recognizes the exact recovery signature and rejects Burner extensions on these emergency paths. Queue builders expose the next nonce so callers can enumerate all ordered queue items invalidated by cancellation before signing.
+The recovery owner may submit only the configured Delay `setTxNonce(uint256)` cancellation or the guard `freeze()` call. The configured passkey plus Burner may authorize the same emergency actions. Queue builders expose the next nonce so callers can enumerate all ordered queue items invalidated by cancellation before signing.
 
 Immediate `setAssetPolicy` is accepted only for an unset token or a numeric decrease/equal value with a recipient subset. Policy increases and recipient additions are rejected on the owner path. `repairSigner(uint8,address)` and `repairPolicy(address,uint256,uint256,uint256,uint256,address[])` are admitted only as exact `CALL` executions from the configured Delay; role values, signer distinctness, policy invariants, and exact ABI encoding are checked onchain. Recovery may queue only these exact repair calls, with no arbitrary `bytes` repair surface.
 
 ## Atomic dual-guard replacement
 
-`Delay` → Safe module execution with `DELEGATECALL` → `GuardReplacementMaintenance.replaceGuards(expectedGuard,replacement)`.
+`Delay` → Safe module execution with `DELEGATECALL` → `GuardReplacementMaintenance.replaceGuards(expectedGuard,replacement)` or `replaceSigner(guard,role,expectedOld,replacement,previousOwner,threshold)`.
 
 The module guard permits this one target, selector, and operation only when the caller module is the configured Delay. In Safe storage, the maintenance code verifies both current guard slots, verifies both interfaces on the replacement, sets a reentrancy lock, and performs exactly two Safe self-calls: `setGuard` and `setModuleGuard`. Any failure reverts the complete operation. No arbitrary target list, calldata batch, or general delegatecall is exposed.
 
-All other module addresses, targets, selectors, and operations are denied by the module guard.
+Signer repair atomically updates guard configuration and rotates the corresponding Safe owner; replacement guards receive the same maintenance authorization before the old guard can be removed. All other module addresses, targets, selectors, and operations are denied by the module guard.

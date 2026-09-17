@@ -1,11 +1,13 @@
 import { expect } from "chai";
-import { decodeFunctionData, encodeFunctionData, getAddress, parseAbi, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, encodePacked, getAddress, keccak256, parseAbi, type Address, type Hex } from "viem";
 import {
   buildCancellationTransaction,
   buildExecutionTransaction,
   buildQueueTransaction,
   queueFingerprint,
   readQueueItem,
+  queueMonitoringFingerprint,
+  buildQueueItemReads,
   type DelayQueueItem,
 } from "../../../src/queue/delay";
 
@@ -31,7 +33,8 @@ describe("Delay transaction builders", () => {
     const decoded = decodeFunctionData({ abi: parseAbi(["function execTransactionFromModule(address,uint256,bytes,uint8)"]), data: tx.data });
     expect(decoded.functionName).to.equal("execTransactionFromModule");
     expect(decoded.args).to.deep.equal([item.to, item.value, item.data, item.operation]);
-    expect(queueFingerprint(item)).to.equal(queueFingerprint({ ...item, data: item.data.toLowerCase() as Hex }));
+    expect(queueFingerprint(item)).to.equal(keccakPacked(item));
+    expect(queueFingerprint(item)).not.to.equal(queueMonitoringFingerprint(item));
   });
 
   it("builds cancellation, execution, and read calls without widening the tuple", () => {
@@ -40,5 +43,18 @@ describe("Delay transaction builders", () => {
     const call = readQueueItem(DELAY, 7n);
     expect(call.to).to.equal(DELAY);
     expect(call.data.length).to.equal(2 + 8 + 64);
+    expect(buildQueueItemReads(DELAY, 7n)).to.have.length(2);
+  });
+
+  it("keeps Zodiac duplicates executable while monitoring binds their queue nonces", () => {
+    const duplicate = { ...item, queueNonce: item.queueNonce + 1n };
+    expect(queueFingerprint(duplicate)).to.equal(queueFingerprint(item));
+    expect(queueMonitoringFingerprint(duplicate)).not.to.equal(queueMonitoringFingerprint(item));
+    expect(queueFingerprint({ ...item, value: 43n })).not.to.equal(queueFingerprint(item));
+    expect(queueFingerprint({ ...item, data: `${item.data}00` as Hex })).not.to.equal(queueFingerprint(item));
   });
 });
+
+function keccakPacked(item: DelayQueueItem): Hex {
+  return keccak256(encodePacked(["address", "uint256", "bytes", "uint8"], [item.to, item.value, item.data, item.operation]));
+}

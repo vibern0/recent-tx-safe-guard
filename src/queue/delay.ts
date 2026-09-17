@@ -1,5 +1,6 @@
 import {
   encodeAbiParameters,
+  encodePacked,
   encodeFunctionData,
   keccak256,
   parseAbi,
@@ -28,9 +29,17 @@ export type DelayQueueItem = Readonly<{
 export type QueueTransaction = Readonly<{ to: Address; value: bigint; data: Hex; operation: 0 | 1 }>;
 
 export function queueFingerprint(item: DelayQueueItem): Hex {
+  return keccak256(encodePacked(
+    ["address", "uint256", "bytes", "uint8"],
+    [item.to, item.value, item.data, item.operation],
+  ));
+}
+
+/** Monitoring identity; this is deliberately distinct from Zodiac's execution hash. */
+export function queueMonitoringFingerprint(item: DelayQueueItem): Hex {
   return keccak256(encodeAbiParameters(
-    [{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "bytes32" }, { type: "uint8" }, { type: "uint256" }],
-    [1n, item.safe, item.delay, item.to, item.value, keccak256(item.data), item.operation, item.queueNonce],
+    [{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "bytes32" }],
+    [1n, item.safe, item.delay, item.queueNonce, queueFingerprint(item)],
   ));
 }
 
@@ -48,4 +57,11 @@ export function buildExecutionTransaction(item: DelayQueueItem): QueueTransactio
 
 export function readQueueItem(delay: Address, queueNonce: bigint): QueueTransaction {
   return { to: delay, value: 0n, operation: 0, data: encodeFunctionData({ abi: DELAY_ABI, functionName: "getTxHash", args: [queueNonce] }) };
+}
+
+export function buildQueueItemReads(delay: Address, queueNonce: bigint): readonly [QueueTransaction, QueueTransaction] {
+  return [
+    readQueueItem(delay, queueNonce),
+    { to: delay, value: 0n, operation: 0, data: encodeFunctionData({ abi: DELAY_ABI, functionName: "getTxCreatedAt", args: [queueNonce] }) },
+  ];
 }

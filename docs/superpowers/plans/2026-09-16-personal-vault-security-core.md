@@ -320,7 +320,7 @@ Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce 
 - Create: `test/integration/delayed-tier.test.ts`
 - Modify: `docs/security/call-graph.md`
 
-**Interfaces:** Produces `queueFingerprint`, `buildQueueTransaction`, `buildCancellationTransaction`, `buildExecutionTransaction`, and `readQueueItem`.
+**Interfaces:** Produces Zodiac-compatible `queueFingerprint`, a separate Safe/Delay/queue-nonce monitoring fingerprint, queue/cancellation/execution builders, and paired hash/creation-time queue-item reads.
 
 - [x] **Step 1: Write delayed-proposal tests**
 

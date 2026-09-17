@@ -10,6 +10,11 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {PolicyDigest} from "./libraries/PolicyDigest.sol";
 import {SafeSignatureDecoder} from "./libraries/SafeSignatureDecoder.sol";
 
+interface IDelayPolicy {
+    function txCooldown() external view returns (uint256);
+    function txExpiration() external view returns (uint256);
+}
+
 contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
 
@@ -42,7 +47,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     bytes4 private constant DELAY_SET_NONCE_SELECTOR = 0x46ba2307; // setTxNonce(uint256)
     bytes4 private constant FREEZE_SELECTOR = bytes4(keccak256("freeze()"));
     bytes4 private constant REPLACE_GUARDS_SELECTOR = 0x7ec60d4f;
-    bytes4 private constant REPAIR_SIGNER_SELECTOR = bytes4(keccak256("repairSigner(uint8,address)"));
+    bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256)"));
+    bytes4 private constant REPAIR_SIGNER_SELECTOR = bytes4(keccak256("repairSigner(uint8,address,address)"));
     bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
     bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
 
@@ -145,8 +151,10 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         frozen = true;
     }
 
-    function repairSigner(uint8 role, address replacement) external onlySafe {
-        if (replacement == address(0) || replacement == config.passkey || replacement == config.burner || replacement == config.recovery || role > 2) revert InvalidRepair();
+    function repairSigner(uint8 role, address expectedOld, address replacement) external onlySafe {
+        if (replacement == address(0) || expectedOld == address(0) || replacement == config.passkey || replacement == config.burner || replacement == config.recovery || role > 2) revert InvalidRepair();
+        address current = role == 0 ? config.passkey : role == 1 ? config.burner : config.recovery;
+        if (current != expectedOld) revert InvalidRepair();
         if (role == 0) config.passkey = replacement;
         else if (role == 1) config.burner = replacement;
         else config.recovery = replacement;
@@ -188,12 +196,12 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     function decodePasskeySignature(bytes calldata signatures) external view returns (address signer, uint256 ownerEnd) {
-        (signer, ownerEnd) = SafeSignatureDecoder.decode(signatures);
+        (signer, ownerEnd) = SafeSignatureDecoder.decode(signatures, bytes32(0));
         SafeSignatureDecoder.requireNoTrailingData(signatures, ownerEnd);
     }
 
     function decodeBurnerExtension(bytes calldata signatures) external view returns (bytes calldata burnerSignature) {
-        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures);
+        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures, bytes32(0));
         return _burnerExtension(signatures, ownerEnd);
     }
 
@@ -218,14 +226,19 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 currentNonce = ISafe(payable(config.safe)).nonce();
         if (currentNonce == 0) revert InvalidPasskeySignature();
         bytes32 txHash = PolicyDigest.safeTransactionHash(config.safe, to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, currentNonce - 1);
-        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures);
-        (address passkeySigner,) = SafeSignatureDecoder.decode(signatures);
+        (, uint256 ownerEnd) = SafeSignatureDecoder.decode(signatures, txHash);
+        (address passkeySigner,) = SafeSignatureDecoder.decode(signatures, txHash);
         bool recoveryAction = _isRecoveryAction(to, value, data, operation);
-        if (passkeySigner != (recoveryAction ? config.recovery : config.passkey)) revert InvalidPasskeySignature();
+        bool emergencyAction = _isEmergencyAction(to, value, data, operation);
+        if (recoveryAction && !emergencyAction) {
+            if (passkeySigner != config.recovery) revert InvalidPasskeySignature();
+        } else if (emergencyAction) {
+            if (passkeySigner != config.passkey && passkeySigner != config.recovery) revert InvalidPasskeySignature();
+        } else if (passkeySigner != config.passkey) revert InvalidPasskeySignature();
         try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, signatures, 1) {} catch { revert InvalidPasskeySignature(); }
 
         if (signatures.length > ownerEnd) {
-            if (recoveryAction) revert InvalidDelayedAction();
+            if (recoveryAction && !emergencyAction) revert InvalidDelayedAction();
             bytes calldata burnerSignature = _burnerExtension(signatures, ownerEnd);
             if (!SignatureChecker.isValidSignatureNow(config.burner, txHash, burnerSignature)) revert InvalidBurnerSignature();
             bytes32 authorization = keccak256(abi.encode(txHash, keccak256(burnerSignature)));
@@ -234,7 +247,10 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         }
 
         if (recoveryAction) {
+            if (emergencyAction && passkeySigner == config.passkey && signatures.length == ownerEnd) revert MissingBurnerExtension();
             _authorizeRecovery(to, value, data, operation);
+        } else if (_isImmediateDelayTightening(to, value, data, operation)) {
+            if (signatures.length > ownerEnd) revert InvalidDelayedAction();
         } else if (_isExactSetAssetPolicy(data) && to == address(this) && value == 0 && operation == Enum.Operation.Call) {
             revert InvalidPasskeySignature();
         } else if (_isQueueProposal(to, value, data, operation)) {
@@ -266,7 +282,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (module != config.delay || module == address(0)) revert InvalidConfig();
         checking = true;
         if (operation == Enum.Operation.DelegateCall) {
-            if (maintenance == address(0) || to != maintenance || data.length != 68 || bytes4(data[:4]) != REPLACE_GUARDS_SELECTOR) revert InvalidDelayedAction();
+            if (!_isMaintenanceAction(to, data)) revert InvalidDelayedAction();
         } else {
             _authorizeDelayedExecution(to, value, data, operation);
         }
@@ -351,7 +367,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         (address target, uint256 value, bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
         if (keccak256(data) != keccak256(abi.encodeWithSelector(DELAY_QUEUE_SELECTOR, target, value, innerData, operation))) revert InvalidDelayedAction();
         if (operation == uint8(Enum.Operation.DelegateCall)) {
-            if (maintenance == address(0) || target != maintenance || innerData.length != 68 || bytes4(innerData) != REPLACE_GUARDS_SELECTOR) revert InvalidDelayedAction();
+            if (!_isMaintenanceAction(target, innerData) || (!burnerApproved && !recoveryApproved)) revert InvalidDelayedAction();
             return;
         }
         if (operation != uint8(Enum.Operation.Call)) revert InvalidDelayedAction();
@@ -369,6 +385,10 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     function _authorizeDelayedExecution(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view {
+        if (operation == Enum.Operation.DelegateCall) {
+            if (!_isMaintenanceAction(to, data)) revert InvalidDelayedAction();
+            return;
+        }
         if (frozen || operation != Enum.Operation.Call) revert InvalidDelayedAction();
         if (to == address(this)) {
             if (!_isExactRepair(data)) revert InvalidRepair();
@@ -395,22 +415,49 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         return _isQueueProposal(to, value, data, operation) && _queueContainsRepair(data);
     }
 
+    function _isEmergencyAction(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
+        if (value != 0 || operation != Enum.Operation.Call) return false;
+        return (to == address(this) && data.length == 4 && bytes4(data[:4]) == FREEZE_SELECTOR) ||
+            (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR);
+    }
+
     function _queueContainsRepair(bytes calldata data) internal view returns (bool) {
-        (, , bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
-        return operation == uint8(Enum.Operation.Call) && _isExactRepair(innerData);
+        (address target, , bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
+        return (operation == uint8(Enum.Operation.Call) && _isExactRepair(innerData)) ||
+            (operation == uint8(Enum.Operation.DelegateCall) && _isMaintenanceAction(target, innerData));
     }
 
     function _isExactRepair(bytes memory data) internal pure returns (bool) {
         if (data.length < 4) return false;
         if (bytes4(data) == REPAIR_SIGNER_SELECTOR) {
-            if (data.length != 68) return false;
-            (uint8 role, address replacement) = abi.decode(_copy(data, 4), (uint8, address));
-            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, replacement));
+            if (data.length != 100) return false;
+            (uint8 role, address expectedOld, address replacement) = abi.decode(_copy(data, 4), (uint8, address, address));
+            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, expectedOld, replacement));
         }
         if (bytes4(data) == REPAIR_POLICY_SELECTOR) {
             if (data.length < 4 + 32 * 6) return false;
             (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(_copy(data, 4), (address, uint256, uint256, uint256, uint256, address[]));
             return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, token, a, b, c, d, recipients));
+        }
+        return false;
+    }
+
+    function _isMaintenanceAction(address target, bytes memory data) internal view returns (bool) {
+        if (maintenance == address(0) || target != maintenance || data.length < 4) return false;
+        bytes4 selector = bytes4(data);
+        if (selector == REPLACE_GUARDS_SELECTOR) return data.length == 68;
+        if (selector == REPLACE_SIGNER_SELECTOR) return data.length == 196;
+        return false;
+    }
+
+    function _isImmediateDelayTightening(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
+        if (to != config.delay || value != 0 || operation != Enum.Operation.Call || data.length != 36) return false;
+        bytes4 selector = bytes4(data[:4]);
+        uint256 next = uint256(bytes32(data[4:36]));
+        if (selector == bytes4(keccak256("setTxCooldown(uint256)"))) return next >= IDelayPolicy(config.delay).txCooldown();
+        if (selector == bytes4(keccak256("setTxExpiration(uint256)"))) {
+            uint256 current = IDelayPolicy(config.delay).txExpiration();
+            return current == 0 || (next != 0 && next <= current);
         }
         return false;
     }
