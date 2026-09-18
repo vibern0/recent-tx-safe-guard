@@ -35,6 +35,12 @@ const testPasskeySigner = (provider = verifierProvider(), sign: (request: SafeSi
   ...createTestPasskeySigner({ address: PASSKEY, verifierAddress: PASSKEY, chainId: 31337, provider, sign }),
 });
 
+const fabricatedDeployments = (branded = false) => Object.freeze({
+  chainId: 31337,
+  dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ address: PASSKEY }) }),
+  ...(branded ? { [Symbol.for("recent-tx-safe-guard.test.verified-deployments")]: true } : {}),
+});
+
 describe("passkey SafeSigner", () => {
   it("exports only the evidence-bound production passkey signer factory", () => {
     expect(Object.keys(passkeyModule)).to.deep.equal(["createPasskeySigner"]);
@@ -65,20 +71,11 @@ describe("passkey SafeSigner", () => {
   });
 
   it("does not make fabricated verified evidence into a usable passkey signer", () => {
-    const fabricated = Object.freeze({
-      chainId: 31337,
-      dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ address: PASSKEY }) }),
-    });
-    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricated as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
+    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricatedDeployments() as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
   });
 
   it("does not accept a process-global fixture brand as official resolver evidence", () => {
-    const fabricated = Object.freeze({
-      chainId: 31337,
-      dependencies: Object.freeze({ passkeySignerVerifier: Object.freeze({ address: PASSKEY }) }),
-      [Symbol.for("recent-tx-safe-guard.test.verified-deployments")]: true,
-    });
-    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricated as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
+    expect(() => createPasskeySigner({ address: PASSKEY, deployments: fabricatedDeployments(true) as never, provider: verifierProvider(), sign: async () => "0x12" })).to.throw("official deployment evidence");
   });
 
   it("rejects non-canonical SafeTx typed data before contacting the verifier", async () => {

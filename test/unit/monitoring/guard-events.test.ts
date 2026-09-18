@@ -6,6 +6,7 @@ import {
   verifyGuardBinding,
   type MonitoringIdentity,
 } from "../../../src/monitoring/guard-events";
+import { monitoringLog } from "../../helpers/monitoring";
 
 const identity: MonitoringIdentity = {
   chainId: 31337,
@@ -22,17 +23,11 @@ function log(name: "TransferAuthorized" | "AuthorizationUsed", args: readonly un
   const encoded = { topics: encodeEventTopics({ abi: [item], eventName: name, args: args as never }), data: encodeAbiParameters([
     { type: "uint8" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" },
   ], args as never) };
-  return {
-    address: identity.guard,
-    chainId: identity.chainId,
-    blockNumber: 10n,
+  return monitoringLog(identity.guard, identity.chainId, encoded.topics as `0x${string}`[], encoded.data, {
     blockHash: keccak256(toHex("block")),
     transactionHash: keccak256(toHex("tx")),
-    logIndex: 0,
-    topics: [...encoded.topics] as `0x${string}`[],
-    data: encoded.data,
     ...overrides,
-  };
+  });
 }
 
 describe("guard activity decoding", () => {

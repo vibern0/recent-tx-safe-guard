@@ -8,6 +8,7 @@ import {
   type DelayMonitoringContext,
 } from "../../../src/monitoring/delay-events";
 import { queueFingerprint } from "../../../src/queue/delay";
+import { monitoringLog } from "../../helpers/monitoring";
 
 const context: DelayMonitoringContext = {
   chainId: 31337,
@@ -27,17 +28,12 @@ function log(eventName: "TransactionAdded" | "TxNonceSet", args: readonly unknow
     ? [{ type: "address" }, { type: "uint256" }, { type: "bytes" }, { type: "uint8" }]
     : [{ type: "uint256" }];
   const encoded = { topics: encodeEventTopics({ abi: [item], eventName, args: args as never }), data: encodeAbiParameters(types, args.slice(indexed) as never) };
-  return {
-    address: context.delay,
-    chainId: context.chainId,
+  return monitoringLog(context.delay, context.chainId, encoded.topics as `0x${string}`[], encoded.data, {
     blockNumber: 20n,
     blockHash: keccak256(toHex("block")),
     transactionHash: keccak256(toHex("tx")),
-    logIndex: 0,
-    topics: [...encoded.topics] as `0x${string}`[],
-    data: encoded.data,
     ...overrides,
-  };
+  });
 }
 
 describe("Delay activity decoding", () => {
