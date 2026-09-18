@@ -64,6 +64,10 @@ const delayedExpired: ActivityAlert = {
 const alerts: readonly ActivityAlert[] = [alert, delayedQueued, delayedCancelled, delayedExecuted, delayedExpired];
 
 describe("non-authorizing notifiers", () => {
+  const expectRequiredFieldError = (field:string, value:ActivityAlert) => {
+    try { publicAlert(value as never); expect.fail("expected publicAlert to reject"); }
+    catch (error) { expect(String(error)).to.contain("required"); expect(String(error)).to.contain(field); }
+  };
   it("exposes only notification and does not retain a signing or execution capability", async () => {
     const calls: unknown[] = [];
     const notifier: Notifier = { notify: async value => { calls.push(value); } };
@@ -84,6 +88,11 @@ describe("non-authorizing notifiers", () => {
     expect(body).to.not.contain("sign");
   });
 
+  it("rejects non-HTTPS webhook endpoints and embedded credentials", () => {
+    expect(() => createWebhookNotifier("http://example.invalid/hook")).to.throw(/HTTPS/);
+    expect(() => createWebhookNotifier("https://user:password@example.invalid/hook")).to.throw(/credentials/);
+  });
+
   it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {
     expect(() => publicAlert({ ...alert, privateKey: "secret" } as never)).to.throw(/unknown|sensitive/i);
     expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
@@ -96,7 +105,7 @@ describe("non-authorizing notifiers", () => {
       for (const value of alerts) {
         const omitted = { ...value } as Record<string, unknown>;
         delete omitted[field];
-        expect(() => publicAlert(omitted as never)).to.throw(new RegExp(`required.*${field}`));
+        expectRequiredFieldError(field, omitted as ActivityAlert);
       }
     });
   }
@@ -113,7 +122,7 @@ describe("non-authorizing notifiers", () => {
       for (const value of [delayedQueued, delayedExecuted, delayedExpired]) {
         const omitted = { ...value } as Record<string, unknown>;
         delete omitted[field];
-        expect(() => publicAlert(omitted as never)).to.throw(new RegExp(`required.*${field}`));
+        expectRequiredFieldError(field, omitted as ActivityAlert);
       }
     });
   }

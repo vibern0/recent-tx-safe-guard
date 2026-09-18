@@ -5,6 +5,11 @@ import hre from "hardhat";
 describe("call-graph security invariant", () => {
   const source = readFileSync("contracts/TieredSpendingGuard.sol", "utf8");
   const graph = readFileSync("docs/security/call-graph.md", "utf8");
+  const mutabilityPatterns: Record<string, RegExp> = {
+    view: /view/i,
+    pure: /pure/i,
+    stateChanging: /state-changing/i,
+  };
 
   it("keeps the static inventory honest about its limitation", () => {
     for (const surface of ["checkTransaction", "checkAfterExecution", "checkModuleTransaction", "checkAfterModuleExecution", "setAssetPolicy", "repairSigner", "repairPolicy", "freeze"]) {
@@ -23,7 +28,9 @@ describe("call-graph security invariant", () => {
       for (const item of artifact.abi.filter((entry): entry is { type: "function"; name: string; stateMutability: string } => entry.type === "function")) {
         const classification = documented.get(`${contractName}.${item.name}`);
         expect(classification, `${contractName}.${item.name} missing from call graph`).to.be.a("string");
-        expect(classification, `${contractName}.${item.name} missing mutability classification`).to.match(item.stateMutability === "nonpayable" || item.stateMutability === "payable" ? /state-changing/i : new RegExp(item.stateMutability, "i"));
+        const pattern = item.stateMutability === "nonpayable" || item.stateMutability === "payable" ? mutabilityPatterns.stateChanging : mutabilityPatterns[item.stateMutability];
+        expect(pattern, `${contractName}.${item.name} has unsupported mutability`).to.be.instanceOf(RegExp);
+        expect(classification, `${contractName}.${item.name} missing mutability classification`).to.match(pattern);
       }
     }
     const guardFunctions = (await hre.artifacts.readArtifact("TieredSpendingGuard")).abi.filter((item) => item.type === "function").map((item) => item.type === "function" ? item.name : "");
