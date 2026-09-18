@@ -1,0 +1,102 @@
+# Security-core call graph
+
+This document records the complete Task 7 topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
+
+## Topology authority
+
+One asset-holding Safe has exactly three owners: configured passkey, Burner, and recovery, with threshold 1 and no fallback handler. The same TieredSpendingGuard occupies both Safe transaction-guard and module-guard slots. Zodiac Delay is the only Safe module. Delay has the Safe as owner, avatar, and target, and the Safe is its only upstream module. No second Safe, signer account, module, or custody account is created.
+
+`buildVaultPlan` never signs, broadcasts, invents registry addresses, accepts caller-supplied evidence, or emits a production plan until a reviewed concrete atomic setup path exists. The current official registry lacks evidence for the Safe passkey factory, passkey verifier, TieredSpendingGuard, and Zodiac Delay, so planning fails closed; deterministic calldata exists only in `test/fixtures/topology-draft.ts` and is not part of production exports. `verifyTopology` first requires the runtime brand returned by the official resolver, then re-reads proxy bytecode/singleton/version, Safe graph, guard policy/configuration/counters/asset enumeration/recipients, and Delay settings; structurally fabricated deployment objects fail before any topology check or RPC read.
+
+## Task 7 setup sequence
+
+1. Resolve official verified deployments and compare every runtime hash from RPC; absent evidence is a hard stop.
+2. After a reviewed concrete atomic path exists, deploy guard and Delay instances for the deterministic Safe proxy, then call the official Proxy Factory with `setup([passkey, Burner, recovery], 1, 0, 0x, 0, 0, 0, 0)`.
+3. In that reviewed atomic Safe-originated sequence, configure every asset, install the same guard in both guard slots, and enable Delay as the only module. Delay owner/avatar/target are the Safe and the Safe is its only upstream module.
+4. Re-run `verifyTopology`; do not fund until it passes. Until step 2 is reviewed, no reproducible production plan is emitted.
+
+No production helper contract is added to manufacture Safe-originated calls. Until an audited/native atomic path or separately reviewed encoder is supplied, planning and verification fail closed rather than emit a partially protected setup.
+
+## Instant owner path
+
+`Safe.execTransaction` → transaction guard `TieredSpendingGuard.checkTransaction` → exact Safe signature and policy check → Safe target call → `checkAfterExecution`.
+
+The offchain signer path is provider-neutral: the passkey adapter accepts only the resolver-branded aggregate returned by the official deployment-verification boundary, selects its exact `passkeySignerVerifier` record, pins provider chain identity before and after signing, and emits the one canonical Safe contract-signature slot only after an `eth_call` to that exact Safe-native passkey/ERC-1271 verifier identity. A caller cannot substitute `evidence: "verified"` or an arbitrary runtime hash because cloned/unbranded aggregates fail at the signer boundary. Burner and recovery adapters use `eth_signTypedData_v4` only after checking the configured chain/account and recover the exact SafeTx locally. Every request must use the canonical SafeTx domain keys, `SAFE_TX_TYPES`, `primaryType`, and message fields before any provider call. The Burner extension is terminal and versioned; recovery output is never sufficient for a transfer because the guard applies its cancellation/freeze/enumerated-repair allowlist.
+
+Only native transfers and selected ERC-20 `transfer` calls are admitted. The guard rejects delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, and non-passkey transfer signatures. Failed execution rolls back the counter update.
+
+## Delayed proposal and execution
+
+`Safe.execTransaction` → transaction guard → `Delay.execTransactionFromModule(to,value,data,operation)` with the exact single queued tuple → Delay queue.
+
+After cooldown and before expiration, an unprivileged relayer calls pinned Zodiac Delay v1.1.1 `executeNextTx(to,value,data,operation)` → Safe `execTransactionFromModule` → module guard `checkModuleTransaction` → exact native/ERC-20 transfer → `checkAfterModuleExecution`. The module guard admits only the configured Delay address and supported `CALL` transfer tuples; Delay owns cooldown, FIFO ordering, expiration, `skipExpired`, and nonce cancellation semantics.
+
+## Cancellation and emergency freeze
+
+The recovery owner may submit only the configured Delay `setTxNonce(uint256)` cancellation or the guard `freeze()` call. The configured passkey plus Burner may authorize the same emergency actions. Queue builders expose the next nonce so callers can enumerate all ordered queue items invalidated by cancellation before signing.
+
+Immediate `setAssetPolicy` is accepted only for an unset token or a numeric decrease/equal value with a recipient subset. Policy increases and recipient additions are rejected on the owner path. `repairSigner(uint8,address,address)` (`0x28033279`) and `repairPolicy(address,uint256,uint256,uint256,uint256,address[])` (`0xc4f605f4`) are admitted only as exact `CALL` executions from the configured Delay; role values, signer distinctness, policy invariants, and exact ABI encoding are checked onchain. Recovery may queue only these exact repair calls, with no arbitrary `bytes` repair surface. Immediate Delay tightening uses `setTxCooldown(uint256)` (`0xebb2b4a2`) and `setTxExpiration(uint256)` (`0x9b56d5be`); `setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])` is `0x7291b570`.
+Immediate `setAssetPolicy` is accepted only for an unset token or a numeric decrease/equal value with a recipient subset. Policy increases and recipient additions are rejected on the owner path. `repairSigner(uint8,address,address)` (`0x28033279`) and `repairPolicy(address,uint256,uint256,uint256,uint256,address[])` (`0xc4f605f4`) are admitted only as exact `CALL` executions from the configured Delay; role values, signer distinctness, policy invariants, and exact ABI encoding are checked onchain. Recovery may queue only these exact repair calls, with no arbitrary `bytes` repair surface. A queued `repairPolicy` change becomes effective only through the verified Delay module after cooldown; recovery can queue only the same enumerated repair surface and cannot execute it immediately. Immediate Delay tightening uses `setTxCooldown(uint256)` (`0xebb2b4a2`) and `setTxExpiration(uint256)` (`0x9b56d5be`); `setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])` is `0x7291b570`.
+
+## Atomic dual-guard replacement
+
+`Delay` → Safe module execution with `DELEGATECALL` → `GuardReplacementMaintenance.replaceGuards(address,address)` (`0x7ec60d4f`) or `replaceSigner(address,uint8,address,address,address,uint256)` (`0x95cf0a80`). `replaceGuards` accepts only deployed code whose runtime hash is the reviewed `TieredSpendingGuard` artifact hash `0x2ce73f0d8f57f18abfb7198fa0b027f1f4d025169518dac8b12c5da172b6f377`; it also checks both guard slots, Safe/Delay identity, 24-hour period, and distinct nonzero role signers before installation.
+
+The module guard permits this one target, selector, and operation only when the caller module is the configured Delay. In Safe storage, the maintenance code verifies both current guard slots, verifies both interfaces on the replacement, sets a reentrancy lock, and performs exactly two Safe self-calls: `setGuard` and `setModuleGuard`. Any failure reverts the complete operation. No arbitrary target list, calldata batch, or general delegatecall is exposed.
+
+Signer repair atomically updates guard configuration and rotates the corresponding Safe owner; replacement guards receive the same maintenance authorization before the old guard can be removed. Both currently installed guard slots and the old guard's Safe, Delay, and role-signer configuration are checked before rotation. Role 0 additionally requires deployed replacement code and an ERC-1271-compatible passkey signer response; roles 1 and 2 retain their Burner/recovery rotation semantics. All other module addresses, targets, selectors, and operations are denied by the module guard.
+
+## Forbidden paths
+
+Direct owner transfers, unlisted modules, a second enabled module, nonzero fallback handler, delegatecalls outside fixed maintenance, batches, approvals, Permit/Permit2, arbitrary messages, unknown calldata, unknown assets/recipients, malformed Delay calls, nonzero Safe gas/refunds, approved-hash authorization, and any missing or inconsistent verification read are rejected. Monitoring and relaying can observe or execute an already-delay-approved item, but neither is an authorizer.
+
+## Repository security-contract ABI inventory
+
+The following is the complete ABI surface of the repository security contracts. Every entry is classified by mutability and authorization role; imported Safe/Zodiac ABIs are out of scope for this inventory.
+
+| Surface | Classification |
+| --- | --- |
+| `TieredSpendingGuard.BURNER_SIGNATURE_TYPE_HASH` | view constant |
+| `TieredSpendingGuard.allowedRecipient` | view state |
+| `TieredSpendingGuard.assetPolicy` | view state |
+| `TieredSpendingGuard.burnerAuthorizationUsed` | view state |
+| `TieredSpendingGuard.checkAfterExecution` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkAfterModuleExecution` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkModuleTransaction` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.checkTransaction` | state-changing, Safe-only callback |
+| `TieredSpendingGuard.computeSafeTransactionHash` | view pure computation |
+| `TieredSpendingGuard.config` | view state |
+| `TieredSpendingGuard.decodeBurnerExtension` | view decoder |
+| `TieredSpendingGuard.decodePasskeySignature` | view decoder |
+| `TieredSpendingGuard.freeze` | state-changing, Safe-only emergency action |
+| `TieredSpendingGuard.frozen` | view state |
+| `TieredSpendingGuard.getConfiguredTokens` | view inventory |
+| `TieredSpendingGuard.getPolicyRecipients` | view inventory |
+| `TieredSpendingGuard.maintenance` | view state |
+| `TieredSpendingGuard.policyHash` | view inventory |
+| `TieredSpendingGuard.repairPolicy` | state-changing, Safe-only delayed repair |
+| `TieredSpendingGuard.repairSigner` | state-changing, Safe-only delayed repair |
+| `TieredSpendingGuard.setAssetPolicy` | state-changing, Safe-only monotonic policy action |
+| `TieredSpendingGuard.setMaintenance` | state-changing, Safe-only one-time setup |
+| `TieredSpendingGuard.spendState` | view state |
+| `TieredSpendingGuard.supportsInterface` | pure interface probe |
+| `GuardReplacementMaintenance.delay` | view immutable configuration |
+| `GuardReplacementMaintenance.replaceGuards` | state-changing, configured Delay-only maintenance |
+| `GuardReplacementMaintenance.replaceSigner` | state-changing, configured Delay-only maintenance |
+| `GuardReplacementMaintenance.safe` | view immutable configuration |
+
+## Monitoring path
+
+Read-only log polling → RPC chain identity/address/topic/confirmation checks → exact pinned `TieredSpendingGuard.TransferAuthorized` decoding → Safe transaction lookup whose outer RPC `to` must equal `MONITOR_SAFE`, exact Safe transaction fields/nonce, and event-block-tagged `spendState` re-read → suppress base-tier events → `step-up-executed` alert. Read-only log polling → exact pinned Delay ABI (`TransactionAdded`, `TxNonceSet`) → event-block-tagged queue tuple/hash/creation-time and nonce reads → `delayed-queued` or `delayed-cancelled` alert. Because the pinned fixture emits no execution/expiry lifecycle events, the watcher derives `delayed-executed` only from a successful canonical receipt to Delay whose receipt depth is at least the configured confirmation count, decoded `executeNextTx` tuple, and pre/post nonce transition exactly match persisted queue evidence; it derives `delayed-expired` only from a successful canonical receipt with the same confirmation depth for `skipExpired`, exact queue hash/creation-time state, post-expiry canonical block timestamp, and a nonce transition covering that item. Failed, unconfirmed, non-canonical, undecodable, ambiguous, or cancellation-covered observations produce no derived alert. Derived records use the receipt transaction hash, canonical receipt block hash, and synthetic log index 0 because no fixture lifecycle log exists. The durable monitoring ledger atomically persists a block cursor, log records, and pending notification outbox before notification; it fsyncs replacements, holds an exclusive writer lock, reconciles canonical block hashes, removes reorged records, and retries undelivered alerts after restart. Delivery is marked only after notifier success.
+
+The notifier boundary accepts only public `ActivityAlert` data and exposes only `notify`. Stdout and webhook implementations cannot sign, send, execute, mutate chain state, or retain passkey, Burner, recovery, RPC-write, or session credentials. Unknown and malformed events fail closed; monitoring never changes guard, Safe, Delay, queue, signer, or policy state.
+
+## Task 10 end-to-end proof matrix
+
+The local security gate is `npm run security:check`. It is a reproducible testnet-prototype gate: compilation, the complete Hardhat suite, the call-graph invariant suite, coverage, Slither, a time-controlled local rehearsal, and whitespace validation must all pass. It does not deploy, sign, broadcast, use a secret, or claim an audit.
+
+The adversarial integration suite proves split X/Y spending and anchored reset; state rollback after failed owner execution; wrong signer combinations; exact-signature mutation and replay; approved-hash authorization; arbitrary messages; fallback installation; approvals and unknown calldata; batches; delegatecalls; extra modules; one-guard-only topology; and direct Delay injection. The recovery suite proves immediate recovery freeze/cancellation only, no recovery asset movement, delayed signer repair, mandatory Delay timing, and cancellation that prevents stale queue collateral from executing. Existing Task 4–9 integration suites provide the detailed Safe/Delay evidence for expiry, ordered cancellation, delayed weakening, and atomic guard repair.
+
+The invariant suite performs an executable ABI inventory for `TieredSpendingGuard` and `GuardReplacementMaintenance`, checks the Safe-only modifier on guard entry points, rejects public spend primitives, and checks explicit fail-closed branches for signatures, queues, calls, and recovery. Its text search is only a static documentation cross-check; it cannot prove complete reachability or inventory imported Safe/Zodiac code, and the test states that limitation. Imported Safe and Zodiac code is not represented as this repository's audit. Slither is filtered to repository security code and excludes legacy/test support; `slither-baseline.json` records the reviewed detector/function findings and this gate fails on any unlisted finding or tool error.
+
+The rehearsal runs only on Hardhat chain 31337 with controlled time. It refuses chain 1, non-local networks, secret-bearing environment variables, and broadcast mode. It exercises the adversarial and recovery flows and emits only unsigned public evidence. All outputs remain security research and a testnet prototype until independent review and professional audit.

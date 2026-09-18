@@ -1,0 +1,9 @@
+{
+  "filter_paths": "legacy|node_modules|contracts/test",
+  "exclude_informational": true,
+  "exclude_low": false,
+  "solc_remaps": [
+    "@safe-global/safe-smart-account=node_modules/@safe-global/safe-smart-account",
+    "@openzeppelin/contracts=node_modules/@openzeppelin/contracts"
+  ]
+}
