@@ -1,5 +1,6 @@
-import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSigner, type SafeSignerRequest } from "../../src/signers/types";
+import { ERC1271_ABI, encodeSafeContractSignature } from "../../src/signers/passkey-helpers";
 
 type PasskeySignatureOptions = Readonly<{
   address: Address;
@@ -8,8 +9,6 @@ type PasskeySignatureOptions = Readonly<{
   provider: Eip1193Provider;
   sign(request: SafeSignerRequest): Promise<Hex>;
 }>;
-
-const ERC1271_ABI = [{ name: "isValidSignature", type: "function", stateMutability: "view", inputs: [{ name: "hash", type: "bytes32" }, { name: "signature", type: "bytes" }], outputs: [{ type: "bytes4" }] }] as const;
 
 async function assertProviderChain(provider: Eip1193Provider, chainId: number): Promise<void> {
   const value = await provider.request({ method: "eth_chainId" });
@@ -29,9 +28,7 @@ export function createTestPasskeySigner(options: PasskeySignatureOptions): SafeS
       const result = await options.provider.request({ method: "eth_call", params: [{ to: options.verifierAddress, data: encodeFunctionData({ abi: ERC1271_ABI, functionName: "isValidSignature", args: [request.safeTxHash, rawSignature] }) }, "latest"] });
       await assertProviderChain(options.provider, request.chainId);
       if (typeof result !== "string" || (result.length !== 10 && result.length !== 66) || !/^0x[0-9a-f]{8}$/i.test(result.slice(0, 10)) || result.slice(0, 10).toLowerCase() !== "0x1626ba7e") throw new Error("invalid ERC-1271 passkey signature");
-      const byteLength = (rawSignature.length - 2) / 2;
-      const paddedLength = Math.ceil(byteLength / 32) * 64;
-      return `0x${options.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(BigInt(byteLength), { size: 32 }).slice(2)}${rawSignature.slice(2).padEnd(paddedLength, "0")}` as Hex;
+      return encodeSafeContractSignature(options.address, rawSignature);
     },
   });
 }

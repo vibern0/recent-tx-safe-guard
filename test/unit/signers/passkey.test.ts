@@ -3,19 +3,14 @@ import { hashTypedData, keccak256, toHex, type Address, type Hex } from "viem";
 import * as passkeyModule from "../../../src/signers/passkey";
 import { createPasskeySigner } from "../../../src/signers/passkey";
 import { createTestPasskeySigner } from "../../helpers/passkey";
-import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
+import { SAFE_TX_TYPES, type Eip1193Provider, type SafeSignerRequest } from "../../../src/signers/types";
 
 const PASSKEY = "0x00000000000000000000000000000000000000a1" as Address;
 const SAFE = "0x00000000000000000000000000000000000000b2" as Address;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const typedData = (chainId: number, safe: Address, nonce = 7n) => ({
   domain: { chainId, verifyingContract: safe },
-  types: { SafeTx: [
-    { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" },
-    { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" },
-    { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" },
-    { name: "nonce", type: "uint256" },
-  ] as const },
+  types: { SafeTx: SAFE_TX_TYPES },
   primaryType: "SafeTx" as const,
   message: { to: SAFE, value: 1n, data: "0x" as Hex, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce },
 });
