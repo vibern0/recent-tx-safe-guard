@@ -126,10 +126,11 @@ const requireAddress = (dependency: DependencyName, record: DeploymentRecord): A
   return validatedDeploymentAddress(dependency, record);
 };
 
-async function resolveDeploymentRegistry(
+export async function resolveDeploymentRegistry(
   client: ReadOnlyDeploymentClient,
   chainId: number,
   registry: DeploymentRegistry | Readonly<DeploymentRegistry>,
+  options: Readonly<{ requireEvidence?: boolean; markOfficial?: boolean }> = {},
 ): Promise<VerifiedDeployments> {
   if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
     failClosed(`unsupported chain ${chainId}`);
@@ -144,7 +145,9 @@ async function resolveDeploymentRegistry(
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];
     if (!record) failClosed(`missing registry entry for ${dependency}`);
-    if (record.evidence === "absent") failClosed(`${dependency} has no official deployment evidence`);
+    if (options.requireEvidence !== false && record.evidence === "absent") {
+      failClosed(`${dependency} has no official deployment evidence`);
+    }
   }
 
   const dependencies = {} as Record<DependencyName, VerifiedDependency>;
@@ -177,7 +180,7 @@ async function resolveDeploymentRegistry(
 
   Object.freeze(dependencies);
   const result = Object.freeze({ chainId, dependencies }) satisfies VerifiedDeployments;
-  officialResolverResults.add(result);
+  if (options.markOfficial !== false) officialResolverResults.add(result);
   return result;
 }
 
@@ -185,5 +188,5 @@ export async function resolveVerifiedDeployments(
   client: ReadOnlyDeploymentClient,
   chainId: number,
 ): Promise<VerifiedDeployments> {
-  return resolveDeploymentRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY);
+  return resolveDeploymentRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY, { markOfficial: true });
 }
