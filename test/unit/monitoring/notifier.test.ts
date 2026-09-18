@@ -91,6 +91,9 @@ describe("non-authorizing notifiers", () => {
   it("rejects non-HTTPS webhook endpoints and embedded credentials", () => {
     expect(() => createWebhookNotifier("http://example.invalid/hook")).to.throw(/HTTPS/);
     expect(() => createWebhookNotifier("https://user:password@example.invalid/hook")).to.throw(/credentials/);
+    for (const endpoint of ["https://127.0.0.1/hook", "https://10.0.0.4/hook", "https://192.168.1.2/hook", "https://[::1]/hook", "https://service.internal/hook"]) {
+      expect(() => createWebhookNotifier(endpoint)).to.throw(/public/);
+    }
   });
 
   it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {

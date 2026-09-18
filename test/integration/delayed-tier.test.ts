@@ -157,7 +157,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement2.account.address.toLowerCase());
   });
 
-  it("lets recovery queue and execute tightening policy repair, but not weakening repair", async () => {
+  it("keeps policy repair delayed, including deliberate weakening", async () => {
     const f = await fixture();
     const queueRepair = async (base: bigint, stepUp: bigint, daily: bigint, instant: bigint) => {
       const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, base, stepUp, daily, instant, [f.recipient.account.address]] });
@@ -179,9 +179,12 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const weakening = await queueRepair(50n, 100n, 50n, 100n);
     expect(await f.delay.read.queueNonce()).to.equal(2n);
     await time.increase(10);
-    await expect(f.delay.write.executeNextTx([f.guard.address, 0n, weakening, 0], { account: f.deployer.account })).to.be.rejected;
-    expect((await f.guard.read.assetPolicy([ZERO]))[0]).to.equal(40n);
-    expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(90n);
+    await f.delay.write.executeNextTx([f.guard.address, 0n, weakening, 0], { account: f.deployer.account });
+    const weakened = await f.guard.read.assetPolicy([ZERO]);
+    expect(weakened[0]).to.equal(50n);
+    expect(weakened[1]).to.equal(100n);
+    expect(weakened[2]).to.equal(50n);
+    expect(weakened[3]).to.equal(100n);
   });
 
   it("rejects a contract that imitates the guard interfaces during replacement", async () => {

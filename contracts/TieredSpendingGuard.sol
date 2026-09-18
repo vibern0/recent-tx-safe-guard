@@ -110,7 +110,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         config = initialConfig;
     }
 
-    /// @dev Configuration is Safe-only; delayed weakening is handled by a later task.
+    /// @dev A configured policy may only be tightened on the immediate Safe path.
     function setAssetPolicy(
         address token,
         uint256 basePerTransaction,
@@ -169,8 +169,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             if (recipients[i] == address(0)) revert InvalidRepair();
             for (uint256 j; j < i; ++j) if (recipients[i] == recipients[j]) revert InvalidRepair();
         }
-        AssetPolicy memory current = assetPolicy[token];
-        if (current.instantDailyLimit != 0 && (basePerTx > current.basePerTransaction || stepUpPerTx > current.stepUpPerTransaction || baseDaily > current.baseDailyLimit || instantDaily > current.instantDailyLimit)) revert InvalidRepair();
         _setAssetPolicy(token, basePerTx, stepUpPerTx, baseDaily, instantDaily, recipients);
     }
 
@@ -268,7 +266,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         } else if (_isImmediateDelayTightening(to, value, data, operation)) {
             if (signatures.length > ownerEnd) revert InvalidDelayedAction();
         } else if (_isExactSetAssetPolicy(data) && to == address(this) && value == 0 && operation == Enum.Operation.Call) {
-            revert InvalidPasskeySignature();
+            if (signatures.length > ownerEnd) revert InvalidDelayedAction();
         } else if (_isQueueProposal(to, value, data, operation)) {
             _authorizeQueueProposal(data, signatures.length > ownerEnd, recoveryAction);
         } else {
@@ -457,6 +455,12 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         return false;
     }
 
+    function _isExactSetAssetPolicy(bytes calldata data) internal pure returns (bool) {
+        if (data.length < 4 + 32 * 6 || bytes4(data[:4]) != SET_ASSET_POLICY_SELECTOR) return false;
+        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[]));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(SET_ASSET_POLICY_SELECTOR, token, a, b, c, d, recipients));
+    }
+
     function _isMaintenanceAction(address target, bytes memory data) internal view returns (bool) {
         if (maintenance == address(0) || target != maintenance || data.length < 4) return false;
         bytes4 selector = bytes4(data);
@@ -498,12 +502,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
     function _authorizeRecovery(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view {
         if (!_isRecoveryAction(to, value, data, operation)) revert InvalidDelayedAction();
-    }
-
-    function _isExactSetAssetPolicy(bytes calldata data) internal pure returns (bool) {
-        if (data.length < 4 + 32 * 6 || bytes4(data[:4]) != SET_ASSET_POLICY_SELECTOR) return false;
-        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(data[4:], (address, uint256, uint256, uint256, uint256, address[]));
-        return keccak256(data) == keccak256(abi.encodeWithSelector(SET_ASSET_POLICY_SELECTOR, token, a, b, c, d, recipients));
     }
 
     function _readBalance(address token, address account) internal view returns (uint256 balance) {

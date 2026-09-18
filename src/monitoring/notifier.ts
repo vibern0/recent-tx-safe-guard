@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { isAddress, type Address, type Hex } from "viem";
 export type ActivityKind="step-up-executed"|"delayed-queued"|"delayed-cancelled"|"delayed-executed"|"delayed-expired";
 type CommonAlert=Readonly<{chainId:number;safe:Address;transactionHash:Hex;blockNumber:bigint;logIndex:number}>;
@@ -16,6 +17,18 @@ const validInteger=(value:unknown,key:string):boolean=>typeof value==="number"&&
 export function publicAlert(alert:ActivityAlert):Record<string,unknown>{if(!alert||typeof alert!=="object")throw new Error("malformed alert");const allowed=fields[alert.kind];if(!allowed)throw new Error("unknown alert kind");for(const key of Object.keys(alert as object))if(!allowed.includes(key))throw new Error(`unknown or sensitive alert field: ${key}`);for(const key of required[alert.kind])if(!(key in alert)||alert[key as keyof ActivityAlert]===undefined)throw new Error(`required alert field missing: ${key}`);for(const key of allowed){if(!(key in alert)||alert[key as keyof ActivityAlert]===undefined)continue;const value=(alert as Record<string,unknown>)[key];if(addressFields.has(key)&&(typeof value!=="string"||!isAddress(value)))throw new Error(`invalid alert field type: ${key}`);if(hexFields.has(key)&&(typeof value!=="string"||!/^0x[0-9a-fA-F]*$/.test(value)||value.length%2!==0))throw new Error(`invalid alert field type: ${key}`);if(bigintFields.has(key)&&(typeof value!=="bigint"||value<0n))throw new Error(`invalid alert field type: ${key}`);if(integerFields.has(key)&&!validInteger(value,key))throw new Error(`invalid alert field type: ${key}`);}const out:Record<string,unknown>={};for(const key of allowed)if(key in alert)out[key]=(alert as Record<string,unknown>)[key];return out;}
 const serialize=(a:ActivityAlert)=>JSON.stringify(publicAlert(a),(_,v)=>typeof v==="bigint"?v.toString():v);
 export function createStdoutNotifier(write:(line:string)=>void=console.log):Notifier{return{notify:async a=>write(serialize(a))};}
-export type WebhookFetch=(url:URL,init?:{method?:string;headers?:Record<string,string>;body?:string})=>Promise<{ok:boolean;status:number}>;
-function webhookEndpoint(value:string):URL{let endpoint:URL;try{endpoint=new URL(value);}catch{throw new Error("webhook URL must be valid HTTPS");}if(endpoint.protocol!=="https:"||endpoint.username||endpoint.password)throw new Error("webhook URL must be HTTPS without credentials");return endpoint;}
-export function createWebhookNotifier(url:string,fetcher:WebhookFetch=async(target,init)=>{const r=await fetch(target,init);return{ok:r.ok,status:r.status};}):Notifier{const endpoint=webhookEndpoint(url);return{notify:async a=>{const r=await fetcher(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:serialize(a)});if(!r.ok)throw new Error(`notification webhook returned HTTP ${r.status}`);}};}
+export type WebhookFetch=(url:URL,init?:{method?:string;headers?:Record<string,string>;body?:string;redirect?:"error"})=>Promise<{ok:boolean;status:number}>;
+function privateIpv4(hostname:string):boolean{
+  const parts=hostname.split(".").map(Number);
+  if(parts.length!==4||parts.some(part=>!Number.isInteger(part)||part<0||part>255))return false;
+  const [a,b]=parts;
+  return a===0||a===10||a===127||a===169&&b===254||a===172&&b>=16&&b<=31||a===192&&b===0||a===192&&b===168||a===198&&b>=18&&b<=19||a>=224;
+}
+function privateHost(hostname:string):boolean{
+  const host=hostname.toLowerCase().replace(/^\[|\]$/g,"");
+  return host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host==="::"||host==="::1"||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe80:")||privateIpv4(host)||host.startsWith("::ffff:")&&privateIpv4(host.slice(7));
+}
+function webhookEndpoint(value:string):URL{let endpoint:URL;try{endpoint=new URL(value);}catch{throw new Error("webhook URL must be valid HTTPS");}if(endpoint.protocol!=="https:"||endpoint.username||endpoint.password||privateHost(endpoint.hostname))throw new Error("webhook URL must be HTTPS, public, and without credentials");return endpoint;}
+async function assertPublicDns(endpoint:URL):Promise<void>{const addresses=await lookup(endpoint.hostname,{all:true,verbatim:true});if(addresses.length===0||addresses.some(({address})=>privateHost(address)))throw new Error("webhook URL must resolve only to public addresses");}
+const defaultWebhookFetch:WebhookFetch=async(target,init)=>{await assertPublicDns(target);const r=await fetch(target,{...init,redirect:"error"});return{ok:r.ok,status:r.status};};
+export function createWebhookNotifier(url:string,fetcher:WebhookFetch=defaultWebhookFetch):Notifier{const endpoint=webhookEndpoint(url);return{notify:async a=>{const r=await fetcher(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:serialize(a),redirect:"error"});if(!r.ok)throw new Error(`notification webhook returned HTTP ${r.status}`);}};}

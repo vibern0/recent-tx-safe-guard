@@ -81,7 +81,6 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
     await expect(execute(guard.address, 0n, addition, await sign(guard.address, 0n, addition))).to.be.rejected;
     const setGuardData = encodeFunctionData({ abi: [{ name: "setGuard", type: "function", stateMutability: "nonpayable", inputs: [{ name: "guard", type: "address" }], outputs: [] }], functionName: "setGuard", args: [guard.address] });
     await execute(safe.address, 0n, setGuardData, await sign(safe.address, 0n, setGuardData));
-
     const transfer = (to: Address, amount: bigint) => encodeFunctionData({ abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }], functionName: "transfer", args: [to, amount] });
     await execute(token.address, 0n, transfer(recipient.account.address, 60n), passkeySignature);
     let state = await guard.read.spendState([token.address]);
@@ -106,6 +105,15 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
 
     await expect(execute(token.address, 0n, transfer(recipient.account.address, 1n), passkeySignature)).to.be.rejected;
     await expect(execute(token.address, 0n, transfer(other.account.address, 1n), passkeySignature)).to.be.rejected;
+    const tighten = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 50n, 200n, 50n, 900n, [recipient.account.address]] });
+    await execute(guard.address, 0n, tighten, passkeySignature);
+    const tightened = await guard.read.assetPolicy([token.address]);
+    expect(tightened[0]).to.equal(50n);
+    expect(tightened[2]).to.equal(50n);
+    expect(tightened[3]).to.equal(900n);
   });
 
   it("rejects forbidden calls and non-CALL operations", async () => {
