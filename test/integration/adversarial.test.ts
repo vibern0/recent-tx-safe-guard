@@ -2,19 +2,15 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { ZERO, burnerEnvelope, fn, passkeySignature, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, signSafeTransaction, transferAbi } from "../helpers/safe";
 
 describe("Task 10 adversarial threat-model matrix", () => {
   async function fixture() {
     const [deployer, burner, recovery, recipient, other] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     const sign = async (to: Address, data: Hex, signer = recovery, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
     const exec = async (to: Address, data: Hex, signature: Hex, value = 0n, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex) => exec(to, data, await sign(to, data));

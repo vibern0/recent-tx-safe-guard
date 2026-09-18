@@ -2,20 +2,16 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { ZERO, safeTxTypes as types } from "../helpers/safe";
+import { deploySafeFixture, ZERO, safeTxTypes as types } from "../helpers/safe";
 
 describe("spending stateful invariants", () => {
   it("keeps counters bounded and monotonic within a window across mixed attempts", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 100_000n]);
     const tokenTwo = await hre.viem.deployContract("ERC20Mock", [safe.address, 100_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     const transfer = (tokenRecipient: Address, amount: bigint) => encodeFunctionData({ abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }], functionName: "transfer", args: [tokenRecipient, amount] });
     const sign = async (to: Address, data: Hex, signer = recovery) => signer.signTypedData({
       domain: { chainId: 31337, verifyingContract: safe.address }, types, primaryType: "SafeTx",

@@ -1,19 +1,15 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { ZERO, burnerEnvelope, passkeySignature, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, passkeySignature, signSafeTransaction, transferAbi } from "../helpers/safe";
 
 
 describe("TieredSpendingGuard spending against Safe 1.5", () => {
   it("rejects an ECDSA passkey owner on the transfer path", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
+    const { safe } = await deploySafeFixture(hre, deployer, [deployer.account.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 1_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [deployer.account.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     const sign = async (to: Address, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data);
     const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
@@ -30,14 +26,10 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
 
   it("accounts base and step-up transfers under shared per-token X/Y limits", async () => {
     const [deployer, burner, recovery, recipient, other] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     const sign = async (to: Address, value: bigint, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data, { value });
     const execute = async (to: Address, value: bigint, data: Hex, signature: Hex) => {
@@ -102,14 +94,10 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
 
   it("rejects forbidden calls and non-CALL operations", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 1_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
     ], outputs: [] }], functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] });
@@ -129,14 +117,10 @@ describe("TieredSpendingGuard spending against Safe 1.5", () => {
 
   it("reverts a false-returning ERC20 transfer and preserves counters and balances", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const token = await hre.viem.deployContract("ERC20FalseReturnMock", [safe.address, 1_000n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     const recoveryTx = async (to: Address, data: Hex) => signSafeTransaction(safe, recovery, to, data);
     const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },

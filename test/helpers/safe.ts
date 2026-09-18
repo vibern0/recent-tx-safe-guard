@@ -13,6 +13,24 @@ export function fn(name: string, inputs: readonly object[], outputs: readonly ob
 export const transferAbi = fn("transfer", [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }]);
 export const queueAbi = fn("execTransactionFromModule", [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" }]);
 
+type SafeFixtureHre = Readonly<{
+  viem: Readonly<{
+    deployContract(name: string, args?: readonly unknown[]): Promise<any>;
+    getContractAt(name: string, address: Address): Promise<any>;
+  }>;
+}>;
+
+type SafeFixtureDeployer = Readonly<{ account: Readonly<{ address: Address }> }>;
+
+export async function deploySafeFixture(hre: SafeFixtureHre, deployer: SafeFixtureDeployer, ownerAddresses: readonly Address[]) {
+  const singleton = await hre.viem.deployContract("Safe");
+  const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
+  const safe = await hre.viem.getContractAt("Safe", proxy.address);
+  const owners = [...ownerAddresses].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
+  return { singleton, proxy, safe, owners };
+}
+
 type SafeNonceReader = Readonly<{
   address: Address;
   read: Readonly<{ nonce: () => Promise<bigint> }>;
