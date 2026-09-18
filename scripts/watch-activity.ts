@@ -52,6 +52,11 @@ async function main(): Promise<void> {
       client.getLogs({ address: delay, fromBlock: start, toBlock: latest }),
     ]);
     const asMonitorLog = (log: RawLog): MonitorLog => ({ ...log, chainId: rpcChain });
+    const readDelayQueueMetadata = async (queueNonce: bigint, blockNumber: bigint) => Promise.all([
+      client.readContract({ address: delay, abi: safeAbi, functionName: "getTxHash", args: [queueNonce], blockNumber }),
+      client.readContract({ address: delay, abi: safeAbi, functionName: "getTxCreatedAt", args: [queueNonce], blockNumber }),
+    ]);
+    const readDelayNonce = (blockNumber: bigint) => client.readContract({ address: delay, abi: safeAbi, functionName: "txNonce", blockNumber });
     const readSafeTransaction = async (hash: Hex): Promise<SafeTransaction> => {
       const tx = await client.getTransaction({ hash });
       if (!tx.to || !same(tx.to, safe)) throw new Error("outer RPC transaction recipient is not MONITOR_SAFE");
@@ -83,12 +88,9 @@ async function main(): Promise<void> {
         const eventBlock = await client.getBlock({ blockNumber: log.blockNumber });
         if (!eventBlock.hash) throw new Error("missing event block hash");
         const queueBinding: QueueBinding = {
-          readNonce: async blockNumber => client.readContract({ address: delay, abi: safeAbi, functionName: "txNonce", blockNumber }),
+          readNonce: readDelayNonce,
           readQueue: async (queueNonce, blockNumber) => {
-            const [txHash, createdAt] = await Promise.all([
-              client.readContract({ address: delay, abi: safeAbi, functionName: "getTxHash", args: [queueNonce], blockNumber }),
-              client.readContract({ address: delay, abi: safeAbi, functionName: "getTxCreatedAt", args: [queueNonce], blockNumber }),
-            ]);
+            const [txHash, createdAt] = await readDelayQueueMetadata(queueNonce, blockNumber);
             const decoded = decodeEventLog({ abi: delayEventAbi, data: log.data, topics: [...log.topics] as [Hex, ...Hex[]] });
             const values = (Array.isArray(decoded.args) ? decoded.args : Object.values(decoded.args)) as readonly unknown[];
             if (decoded.eventName !== "TransactionAdded") throw new Error("queue tuple unavailable for lifecycle event");
@@ -121,9 +123,9 @@ async function main(): Promise<void> {
       try {
         if (record.to === undefined || record.value === undefined || record.data === undefined || record.operation === undefined) throw new Error("queued call tuple evidence unavailable");
         const lifecycle = await deriveDelayLifecycle(record, delayContext, latest, {
-          readNonce: async blockNumber => client.readContract({ address: delay, abi: safeAbi, functionName: "txNonce", blockNumber }),
+          readNonce: readDelayNonce,
           readQueue: async (queueNonce, blockNumber) => {
-            const [txHash, createdAt] = await Promise.all([client.readContract({ address: delay, abi: safeAbi, functionName: "getTxHash", args: [queueNonce], blockNumber }), client.readContract({ address: delay, abi: safeAbi, functionName: "getTxCreatedAt", args: [queueNonce], blockNumber })]);
+            const [txHash, createdAt] = await readDelayQueueMetadata(queueNonce, blockNumber);
             return { txHash, createdAt, to: record.to!, value: record.value!, data: record.data!, operation: record.operation! };
           },
           readLifecycleReceipts: async () => lifecycleReceipts,

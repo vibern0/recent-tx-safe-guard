@@ -38,7 +38,8 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
     const sign = async (to: Address, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data);
     const execute = async (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
-    return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, execute };
+    const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
+    return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, execute, executeNext };
   }
 
   it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
@@ -76,10 +77,10 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await queue(110n);
     const second = await queue(110n);
     expect(await f.delay.read.queueNonce()).to.equal(2n);
-    await expect(f.delay.write.executeNextTx([f.recipient.account.address, 110n, "0x", 0], { account: f.deployer.account })).to.be.rejected;
+    await expect(f.executeNext(f.recipient.account.address, 110n, "0x")).to.be.rejected;
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.recipient.account.address, 110n, "0x", 0], { account: f.deployer.account });
-    await f.delay.write.executeNextTx([f.recipient.account.address, 110n, "0x", 0], { account: f.deployer.account });
+    await f.executeNext(f.recipient.account.address, 110n, "0x");
+    await f.executeNext(f.recipient.account.address, 110n, "0x");
     expect(await (await hre.viem.getPublicClient()).getBalance({ address: f.recipient.account.address })).not.to.equal(0n);
     const third = await queue(110n);
     const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [3n] });
@@ -92,7 +93,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await f.delay.write.skipExpired({ account: f.deployer.account });
     await queue(110n);
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.recipient.account.address, 110n, "0x", 0], { account: f.deployer.account });
+    await f.executeNext(f.recipient.account.address, 110n, "0x");
     void second;
     void third;
   });
@@ -116,7 +117,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account });
+    await f.executeNext(f.maintenance.address, 0n, repair, 1);
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement.account.address.toLowerCase());
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.burner.account.address.toLowerCase());
     expect((await f.guard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
@@ -128,7 +129,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const signature2 = await f.sign(f.delay.address, queued2, f.recovery);
     await f.execute(f.delay.address, queued2, signature2);
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair2, 1], { account: f.deployer.account });
+    await f.executeNext(f.maintenance.address, 0n, repair2, 1);
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement2.account.address.toLowerCase());
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement2.account.address.toLowerCase());
   });
@@ -145,16 +146,16 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
 
     const tightening = await queueRepair(40n, 90n, 40n, 90n);
     expect(await f.delay.read.queueNonce()).to.equal(1n);
-    await expect(f.delay.write.executeNextTx([f.guard.address, 0n, tightening, 0], { account: f.deployer.account })).to.be.rejected;
+    await expect(f.executeNext(f.guard.address, 0n, tightening)).to.be.rejected;
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.guard.address, 0n, tightening, 0], { account: f.deployer.account });
+    await f.executeNext(f.guard.address, 0n, tightening);
     expect((await f.guard.read.assetPolicy([ZERO]))[0]).to.equal(40n);
     expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(90n);
 
     const weakening = await queueRepair(50n, 100n, 50n, 100n);
     expect(await f.delay.read.queueNonce()).to.equal(2n);
     await time.increase(10);
-    await f.delay.write.executeNextTx([f.guard.address, 0n, weakening, 0], { account: f.deployer.account });
+    await f.executeNext(f.guard.address, 0n, weakening);
     const weakened = await f.guard.read.assetPolicy([ZERO]);
     expect(weakened[0]).to.equal(50n);
     expect(weakened[1]).to.equal(100n);
@@ -170,7 +171,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
-    await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
+    await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
   });
 
   it("rejects an EOA replacement for the passkey role while retaining delayed signer rotation", async () => {
@@ -182,7 +183,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
-    await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
+    await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
     expect((await f.guard.read.config())[1].toLowerCase()).to.equal(f.passkey.address.toLowerCase());
   });
 
@@ -207,8 +208,8 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await expect(f.execute(f.delay.address, trailing, await signedQueue(trailing))).to.be.rejected;
     await f.execute(f.delay.address, valid, await signedQueue(valid));
     await time.increase(10);
-    await expect(f.delay.write.executeNextTx([f.recipient.account.address, 111n, "0x", 0], { account: f.deployer.account })).to.be.rejected;
-    await f.delay.write.executeNextTx([f.recipient.account.address, 110n, "0x", 0], { account: f.deployer.account });
+    await expect(f.executeNext(f.recipient.account.address, 111n, "0x")).to.be.rejected;
+    await f.executeNext(f.recipient.account.address, 110n, "0x");
     const delegate = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 0n, "0x", 1] });
     await expect(f.execute(f.delay.address, delegate, await signedQueue(delegate))).to.be.rejected;
     const batch = encodeFunctionData({ abi: fn("multiSend", [{ name: "transactions", type: "bytes" }]), functionName: "multiSend", args: ["0x"] });
