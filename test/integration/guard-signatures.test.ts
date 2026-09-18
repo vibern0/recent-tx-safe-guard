@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
+import { ZERO, safeTxTypes } from "../helpers/safe";
 
-const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
   it("accepts the configured passkey contract signature and rejects failed execution", async () => {

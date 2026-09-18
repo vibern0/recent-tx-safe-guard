@@ -1,15 +1,8 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
+import { ZERO, safeTxTypes } from "../helpers/safe";
 
-const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-const safeTxTypes = {
-  SafeTx: [
-    { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" },
-    { name: "operation", type: "uint8" }, { name: "safeTxGas", type: "uint256" }, { name: "baseGas", type: "uint256" },
-    { name: "gasPrice", type: "uint256" }, { name: "gasToken", type: "address" }, { name: "refundReceiver", type: "address" }, { name: "nonce", type: "uint256" },
-  ],
-} as const;
 
 describe("TieredSpendingGuard spending against Safe 1.5", () => {
   it("rejects an ECDSA passkey owner on the transfer path", async () => {
