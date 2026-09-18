@@ -3,7 +3,7 @@ import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
-import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, safeTxTypes, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, safeTxTypes, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
@@ -18,15 +18,11 @@ const repairPolicyAbi = fn("repairPolicy", [
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
     const [deployer, burner, recovery, recipient, replacement, replacement2] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const ownerTx = async (to: Address, data: Hex, signer = recovery) => {
       const signature = await signSafeTransaction(safe, signer, to, data);
@@ -47,13 +43,9 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
 
   it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
+    const { safe } = await deploySafeFixture(hre, deployer, [deployer.account.address, burner.account.address, recovery.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, burner.account.address, recovery.account.address, delay.address, 86400n, 0n]]);
-    const owners = [deployer.account.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     const sign = async (to: Address, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data);
     const ownerCall = async (to: Address, data: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, await sign(to, data)], { account: deployer.account });
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));

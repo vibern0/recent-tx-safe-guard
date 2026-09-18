@@ -1,19 +1,15 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { ZERO, burnerEnvelope, passkeySignature, safeTxTypes } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, passkeySignature, safeTxTypes } from "../helpers/safe";
 
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
   it("accepts the configured passkey contract signature and rejects failed execution", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     const nonce = await safe.read.nonce();
     const setGuardData = encodeFunctionData({ abi: [{ name: "setGuard", type: "function", stateMutability: "nonpayable", inputs: [{ name: "guard", type: "address" }], outputs: [] }], functionName: "setGuard", args: [guard.address] });
@@ -43,13 +39,9 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
   it("accepts only a real Burner signature over the exact Safe hash and rejects mutations, wrong domains, and replay", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     const safeTxTypes = {
       SafeTx: [
@@ -98,15 +90,11 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
   it("constrains the configured module and rolls back failed module checks", async () => {
     const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
-    const singleton = await hre.viem.deployContract("Safe");
-    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
-    const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
     const module = await hre.viem.deployContract("ModuleCaller");
     const otherModule = await hre.viem.deployContract("ModuleCaller");
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, module.address, 86400n, 0n]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-    await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
     const safeTxTypes = { SafeTx: [
       { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }, { name: "operation", type: "uint8" },
