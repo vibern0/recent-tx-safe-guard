@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { ZERO, fn, queueAbi, safeTxTypes as types } from "../helpers/safe";
+import { encodeFunctionData, type Address, type Hex } from "viem";
+import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
 
@@ -23,11 +23,11 @@ describe("local time-controlled security rehearsal", () => {
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
-    const sign = async (to: Address, value: bigint, data: Hex, signer = recovery) => signer.signTypedData({ domain: { chainId: network, verifyingContract: safe.address }, types, primaryType: "SafeTx", message: { to, value, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await safe.read.nonce() } });
+    const sign = async (to: Address, value: bigint, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data, { chainId: network, value });
     const exec = (to: Address, value: bigint, data: Hex, signature: Hex, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex, signer = recovery) => exec(to, 0n, data, await sign(to, 0n, data, signer));
-    const passkeySignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    const envelope = (signature: Hex) => `${passkeySignature}${signature.slice(2)}${toHex((signature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
+    const passkeySig = passkeySignature(passkey.address);
+    const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
 
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
@@ -36,16 +36,16 @@ describe("local time-controlled security rehearsal", () => {
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 25n, 100n, 50n, 100n, [recipient.account.address]] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
 
-    await exec(recipient.account.address, 25n, "0x", passkeySignature);
-    await exec(recipient.account.address, 25n, "0x", passkeySignature);
+    await exec(recipient.account.address, 25n, "0x", passkeySig);
+    await exec(recipient.account.address, 25n, "0x", passkeySig);
     expect((await guard.read.spendState([ZERO]))[1]).to.equal(50n);
     expect((await guard.read.spendState([ZERO]))[2]).to.equal(50n);
-    await expect(exec(recipient.account.address, 1n, "0x", passkeySignature)).to.be.rejected;
+    await expect(exec(recipient.account.address, 1n, "0x", passkeySig)).to.be.rejected;
 
     const stepSignature = await sign(recipient.account.address, 50n, "0x", burner);
     await exec(recipient.account.address, 50n, "0x", envelope(stepSignature));
     expect((await guard.read.spendState([ZERO]))[2]).to.equal(100n);
-    await expect(exec(recipient.account.address, 101n, "0x", passkeySignature)).to.be.rejected;
+    await expect(exec(recipient.account.address, 101n, "0x", passkeySig)).to.be.rejected;
     await time.increase(86401);
 
     const queue = async (value: bigint, data: Hex = "0x", target: Address = recipient.account.address, operation = 0 as const, signer = burner, includeBurner = true) => {

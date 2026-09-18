@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { ZERO, fn, safeTxTypes, transferAbi } from "../helpers/safe";
+import { ZERO, burnerEnvelope, fn, passkeySignature, signSafeTransaction, transferAbi } from "../helpers/safe";
 
 describe("Task 10 adversarial threat-model matrix", () => {
   async function fixture() {
@@ -15,21 +15,17 @@ describe("Task 10 adversarial threat-model matrix", () => {
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
     const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
-    const sign = async (to: Address, data: Hex, signer = recovery, value = 0n, operation = 0 as const) => signer.signTypedData({
-      domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx",
-      message: { to, value, data, operation, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await safe.read.nonce() },
-    });
+    const sign = async (to: Address, data: Hex, signer = recovery, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
     const exec = async (to: Address, data: Hex, signature: Hex, value = 0n, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex) => exec(to, data, await sign(to, data));
-    const passkeySig = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    const burnerEnvelope = (signature: Hex) => `${passkeySig}${signature.slice(2)}${toHex((signature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
+    const passkeySig = passkeySignature(passkey.address);
     const transfer = (to: Address, amount: bigint) => encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [to, amount] });
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
     ]), functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
-    const step = async (to: Address, data: Hex) => burnerEnvelope(await sign(to, data, burner));
+    const step = async (to: Address, data: Hex) => burnerEnvelope(passkey.address, await sign(to, data, burner));
     return { deployer, burner, recovery, recipient, other, safe, passkey, token, guard, sign, exec, ownerCall, passkeySig, step, transfer };
   }
 
