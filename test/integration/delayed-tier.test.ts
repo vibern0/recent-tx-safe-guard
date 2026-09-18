@@ -40,6 +40,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const passkeySig = passkeySignature(passkey.address);
     const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
+    const sign = async (to: Address, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data);
     const execute = async (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
     return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, execute };
   }
