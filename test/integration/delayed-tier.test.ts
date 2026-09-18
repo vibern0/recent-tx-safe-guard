@@ -3,7 +3,7 @@ import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, safeTxTypes, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
@@ -113,8 +113,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const previous = f.owners[f.owners.indexOf(f.burner.account.address) - 1] as Address;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, previous, 1n] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const nonce = await f.safe.read.nonce();
-    const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account });
@@ -126,8 +125,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const previousAfterFirst = (replacementIndex === 0 ? "0x0000000000000000000000000000000000000001" : ownersAfterFirst[replacementIndex - 1]) as Address;
     const repair2 = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.replacement.account.address, f.replacement2.account.address, previousAfterFirst, 1n] });
     const queued2 = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair2, 1] });
-    const nonce2 = await f.safe.read.nonce();
-    const signature2 = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued2, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: nonce2 } });
+    const signature2 = await f.sign(f.delay.address, queued2, f.recovery);
     await f.execute(f.delay.address, queued2, signature2);
     await time.increase(10);
     await f.delay.write.executeNextTx([f.maintenance.address, 0n, repair2, 1], { account: f.deployer.account });
@@ -140,8 +138,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const queueRepair = async (base: bigint, stepUp: bigint, daily: bigint, instant: bigint) => {
       const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, base, stepUp, daily, instant, [f.recipient.account.address]] });
       const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repair, 0] });
-      const nonce = await f.safe.read.nonce();
-      const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+      const signature = await f.sign(f.delay.address, queued, f.recovery);
       await f.execute(f.delay.address, queued, signature);
       return repair;
     };
@@ -170,8 +167,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const fake = await hre.viem.deployContract("FakeReplacementGuard", [f.safe.address, f.passkey.address, f.burner.account.address, f.recovery.account.address, f.delay.address]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, fake.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const nonce = await f.safe.read.nonce();
-    const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
@@ -183,8 +179,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, f.replacement.account.address, previous, 1n] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const nonce = await f.safe.read.nonce();
-    const signature = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: queued, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    const signature = await f.sign(f.delay.address, queued, f.recovery);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.delay.write.executeNextTx([f.maintenance.address, 0n, repair, 1], { account: f.deployer.account })).to.be.rejected;
@@ -204,8 +199,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const f = await fixture();
     const valid = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 110n, "0x", 0] });
     const signedQueue = async (data: Hex) => {
-      const nonce = await f.safe.read.nonce();
-      const signature = await f.burner.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+      const signature = await f.sign(f.delay.address, data, f.burner);
       return f.envelope(signature);
     };
     await expect(f.execute(f.delay.address, valid.slice(0, -2) as Hex, await signedQueue(valid.slice(0, -2) as Hex))).to.be.rejected;
