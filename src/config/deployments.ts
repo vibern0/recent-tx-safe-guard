@@ -1,4 +1,5 @@
-import { isAddress, keccak256, type Address, type Hex } from "viem";
+import { keccak256, type Address, type Hex } from "viem";
+import { DEPENDENCIES, deploymentAddressError, deploymentReleaseError, validatedDeploymentAddress } from "./deployment-validation";
 
 export const SUPPORTED_CHAIN_IDS = [11155111] as const;
 export type SupportedChainId = (typeof SUPPORTED_CHAIN_IDS)[number];
@@ -115,32 +116,14 @@ const freezeRegistry = (registry: DeploymentRegistry): Readonly<DeploymentRegist
 
 export const OFFICIAL_DEPLOYMENT_REGISTRY = freezeRegistry(OFFICIAL_DEPLOYMENT_REGISTRY_DATA);
 
-const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
-  safeSingleton: ["1.5.0"],
-  safeProxyFactory: ["1.5.0"],
-  passkeySignerFactory: ["0.2.0"],
-  passkeySignerVerifier: ["0.2.0"],
-  multiSend: ["1.5.0"],
-  guard: ["task7-reviewed"],
-  delay: ["1.1.1"],
-};
-
-const VULNERABLE_DELAY_RELEASES = new Set(["1.1.0"]);
-const DEPENDENCIES = Object.keys(EXPECTED_RELEASES) as DependencyName[];
-
 const failClosed = (message: string): never => {
   throw new Error(`deployment verification failed closed: ${message}`);
 };
 
 const requireAddress = (dependency: DependencyName, record: DeploymentRecord): Address => {
-  const address = record.address;
-  if (!address) failClosed(`${dependency} has no official deployment address`);
-  if (!isAddress(address as string)) failClosed(`${dependency} has invalid address`);
-  const validatedAddress = address as Address;
-  if (validatedAddress.toLowerCase() === "0x0000000000000000000000000000000000000000") {
-    failClosed(`${dependency} has zero address`);
-  }
-  return validatedAddress;
+  const error = deploymentAddressError(dependency, record);
+  if (error) failClosed(error);
+  return validatedDeploymentAddress(dependency, record);
 };
 
 async function resolveDeploymentRegistry(
@@ -168,15 +151,8 @@ async function resolveDeploymentRegistry(
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];
     if (!record) failClosed(`missing registry entry for ${dependency}`);
-    if (dependency === "delay" && VULNERABLE_DELAY_RELEASES.has(record.version)) {
-      failClosed(`known-vulnerable Delay release ${record.version}`);
-    }
-    if (!EXPECTED_RELEASES[dependency].includes(record.version)) {
-      failClosed(`unknown release ${record.version} for ${dependency}`);
-    }
-    if (dependency === "safeSingleton" && record.supportsModuleGuards !== true) {
-      failClosed(`Safe release ${record.version} lacks module guards`);
-    }
+    const releaseError = deploymentReleaseError(dependency, record);
+    if (releaseError) failClosed(releaseError);
 
     const address = requireAddress(dependency, record);
     const runtimeCode = await client.getBytecode({ address });

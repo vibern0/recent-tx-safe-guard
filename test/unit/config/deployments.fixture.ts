@@ -1,4 +1,4 @@
-import { isAddress, keccak256, type Address, type Hex } from "viem";
+import { keccak256, type Address, type Hex } from "viem";
 import type {
   ChainDeploymentRegistry,
   DependencyName,
@@ -8,20 +8,13 @@ import type {
   VerifiedDependency,
   VerifiedDeployments,
 } from "../../../src/config/deployments";
-
-const EXPECTED_RELEASES: Record<DependencyName, readonly string[]> = {
-  safeSingleton: ["1.5.0"], safeProxyFactory: ["1.5.0"], passkeySignerFactory: ["0.2.0"],
-  passkeySignerVerifier: ["0.2.0"], multiSend: ["1.5.0"], guard: ["task7-reviewed"], delay: ["1.1.1"],
-};
-const VULNERABLE_DELAY_RELEASES = new Set(["1.1.0"]);
-const DEPENDENCIES = Object.keys(EXPECTED_RELEASES) as DependencyName[];
+import { DEPENDENCIES, deploymentAddressError, deploymentReleaseError, validatedDeploymentAddress } from "../../../src/config/deployment-validation";
 const failClosed = (message: string): never => { throw new Error(`deployment verification failed closed: ${message}`); };
 
 const requireAddress = (dependency: DependencyName, record: DeploymentRecord): Address => {
-  if (!record.address) failClosed(`${dependency} has no official deployment address`);
-  if (!isAddress(record.address)) failClosed(`${dependency} has invalid address`);
-  if (record.address.toLowerCase() === "0x0000000000000000000000000000000000000000") failClosed(`${dependency} has zero address`);
-  return record.address;
+  const error = deploymentAddressError(dependency, record);
+  if (error) failClosed(error);
+  return validatedDeploymentAddress(dependency, record);
 };
 
 /** Test-only fixture resolver. Production code intentionally exposes no registry injection. */
@@ -40,9 +33,8 @@ export async function resolveDeploymentFixture(
   const dependencies = {} as Record<DependencyName, VerifiedDependency>;
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];
-    if (dependency === "delay" && VULNERABLE_DELAY_RELEASES.has(record.version)) failClosed(`known-vulnerable Delay release ${record.version}`);
-    if (!EXPECTED_RELEASES[dependency].includes(record.version)) failClosed(`unknown release ${record.version} for ${dependency}`);
-    if (dependency === "safeSingleton" && record.supportsModuleGuards !== true) failClosed(`Safe release ${record.version} lacks module guards`);
+    const releaseError = deploymentReleaseError(dependency, record);
+    if (releaseError) failClosed(releaseError);
     const address = requireAddress(dependency, record);
     const runtimeCode = await client.getBytecode({ address });
     if (!runtimeCode || runtimeCode === "0x") failClosed(`${dependency} at ${address} has no runtime bytecode`);
