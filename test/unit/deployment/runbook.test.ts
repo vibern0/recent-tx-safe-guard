@@ -113,6 +113,17 @@ describe("Sepolia deployment runbook scripts", () => {
     expect(() => buildDeploymentPlan({ ...config, policy: { ...config.policy, periodSeconds: 60 } })).to.throw("periodSeconds must be 86400");
   });
 
+  it("matches expected counter tokens after canonicalizing address casing", () => {
+    const mixedCaseToken = "0x000000000000000000000000000000000000000A";
+    const mixedCaseConfig = {
+      ...config,
+      policy: { ...config.policy, assets: [{ ...config.policy.assets[0], token: mixedCaseToken }] },
+      expectedCounters: [{ ...config.expectedCounters[0], token: mixedCaseToken.toLowerCase() }],
+    };
+
+    expect(buildDeploymentPlan(mixedCaseConfig).expectedCounters[0].token).to.equal(mixedCaseToken.toLowerCase());
+  });
+
   it("rejects unknown or missing public configuration fields", () => {
     expect(() => buildDeploymentPlan({ ...config, unexpected: true })).to.throw("config.unexpected");
     const incomplete = { ...config } as Record<string, unknown>;

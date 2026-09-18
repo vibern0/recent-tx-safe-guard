@@ -38,6 +38,10 @@ function address(value: unknown, path: string): string {
   return value.toLowerCase();
 }
 
+function addressesEqual(left: unknown, right: unknown, leftPath: string, rightPath: string): boolean {
+  return address(left, leftPath) === address(right, rightPath);
+}
+
 function hash(value: unknown, path: string): string {
   if (typeof value !== "string" || !HASH.test(value)) throw new Error(`${path} must be a 32-byte hex hash`);
   return value.toLowerCase();
@@ -134,7 +138,7 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     const token = address(counter.token, `expectedCounters[${index}].token`);
     if (counterTokens.has(token)) throw new Error("expectedCounters tokens must be unique");
     counterTokens.add(token);
-    const asset = policyAssets.find((candidate) => address(candidate.token, "policy asset token") === token);
+    const asset = policyAssets.find((candidate) => addressesEqual(candidate.token, token, "policy asset token", `expectedCounters[${index}].token`));
     if (!asset) throw new Error("expectedCounters token coverage mismatch");
     const baseSpent = unsignedInteger(counter.baseSpent, `expectedCounters[${index}].baseSpent`);
     const instantSpent = unsignedInteger(counter.instantSpent, `expectedCounters[${index}].instantSpent`);
