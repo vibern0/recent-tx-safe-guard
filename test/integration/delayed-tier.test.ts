@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
-import { ZERO, fn, queueAbi, safeTxTypes, transferAbi } from "../helpers/safe";
+import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, safeTxTypes, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
@@ -29,8 +29,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const ownerTx = async (to: Address, data: Hex, signer = recovery) => {
-      const nonce = await safe.read.nonce();
-      const signature = await signer.signTypedData({ domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+      const signature = await signSafeTransaction(safe, signer, to, data);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     await ownerTx(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
@@ -39,10 +38,10 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerTx(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
-    const passkeySig = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    const envelope = (signature: Hex) => `${passkeySig}${signature.slice(2)}${toHex((signature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
+    const passkeySig = passkeySignature(passkey.address);
+    const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
     const execute = async (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
-    return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, passkeySig, envelope, execute };
+    return { deployer, burner, recovery, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, execute };
   }
 
   it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
@@ -54,10 +53,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, burner.account.address, recovery.account.address, delay.address, 86400n, 0n]]);
     const owners = [deployer.account.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
-    const sign = async (to: Address, data: Hex, signer = recovery) => signer.signTypedData({
-      domain: { chainId: 31337, verifyingContract: safe.address }, types: safeTxTypes, primaryType: "SafeTx",
-      message: { to, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await safe.read.nonce() },
-    });
+    const sign = async (to: Address, data: Hex, signer = recovery) => signSafeTransaction(safe, signer, to, data);
     const ownerCall = async (to: Address, data: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, await sign(to, data)], { account: deployer.account });
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
@@ -80,8 +76,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
     const queue = async (amount: bigint) => {
       const data = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, amount, "0x", 0] });
-      const nonce = await f.safe.read.nonce();
-      const burnerSig = await f.burner.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+      const burnerSig = await f.sign(f.delay.address, data, f.burner);
       await f.execute(f.delay.address, data, f.envelope(burnerSig));
       return data;
     };
@@ -95,8 +90,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(await (await hre.viem.getPublicClient()).getBalance({ address: f.recipient.account.address })).not.to.equal(0n);
     const third = await queue(110n);
     const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [3n] });
-    const cancelNonce = await f.safe.read.nonce();
-    const recoverySig = await f.recovery.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.delay.address, value: 0n, data: cancel, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: cancelNonce } });
+    const recoverySig = await f.sign(f.delay.address, cancel, f.recovery);
     await f.execute(f.delay.address, cancel, recoverySig);
     expect(await f.delay.read.txNonce()).to.equal(3n);
     await queue(110n);
@@ -114,8 +108,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const f = await fixture();
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.execute(f.guard.address, freeze, f.passkeySig)).to.be.rejected;
-    const nonce = await f.safe.read.nonce();
-    const burnerSig = await f.burner.signTypedData({ domain: { chainId: 31337, verifyingContract: f.safe.address }, types: safeTxTypes, primaryType: "SafeTx", message: { to: f.guard.address, value: 0n, data: freeze, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } });
+    const burnerSig = await f.sign(f.guard.address, freeze, f.burner);
     await f.execute(f.guard.address, freeze, f.envelope(burnerSig));
     expect(await f.guard.read.frozen()).to.equal(true);
     const item = { safe: f.safe.address, delay: f.delay.address, to: f.recipient.account.address, value: 0n, data: "0x" as Hex, operation: 0 as const, queueNonce: 0n };

@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { ZERO, safeTxTypes } from "../helpers/safe";
+import { encodeFunctionData, type Address, type Hex } from "viem";
+import { ZERO, burnerEnvelope, passkeySignature, safeTxTypes } from "../helpers/safe";
 
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
@@ -33,12 +33,12 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     });
     await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, recoverySignature], { account: deployer.account });
 
-    const passkeySignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    await expect(safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, passkeySignature], { account: deployer.account })).to.be.rejected;
+    const ownerSignature = passkeySignature(passkey.address);
+    await expect(safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, ownerSignature], { account: deployer.account })).to.be.rejected;
     expect(await safe.read.nonce()).to.equal(nonce + 1n);
 
     const revertData = encodeFunctionData({ abi: [{ name: "revertCall", type: "function", stateMutability: "nonpayable", inputs: [], outputs: [] }], functionName: "revertCall" });
-    await expect(safe.write.execTransaction([passkey.address, 0n, revertData, 0, 0n, 0n, 0n, ZERO, ZERO, passkeySignature], { account: deployer.account })).to.be.rejected;
+    await expect(safe.write.execTransaction([passkey.address, 0n, revertData, 0, 0n, 0n, 0n, ZERO, ZERO, ownerSignature], { account: deployer.account })).to.be.rejected;
   });
 
   it("accepts only a real Burner signature over the exact Safe hash and rejects mutations, wrong domains, and replay", async () => {
@@ -62,11 +62,8 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
       domain: { chainId, verifyingContract: domainSafe }, types: safeTxTypes, primaryType: "SafeTx",
       message: { to: recipient.account.address, value: 0n, data: "0x", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce },
     });
-    const ownerSignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    const envelope = (burnerSignature: Hex) => {
-      const typeHash = "0xb730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9" as Hex;
-      return `${ownerSignature}${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${typeHash.slice(2)}` as Hex;
-    };
+    const ownerSignature = passkeySignature(passkey.address);
+    const envelope = (burnerSignature: Hex) => burnerEnvelope(passkey.address, burnerSignature);
 
     await deployer.sendTransaction({ to: safe.address, value: 1n });
     const policyData = encodeFunctionData({ abi: [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
