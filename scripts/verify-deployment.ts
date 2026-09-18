@@ -1,35 +1,25 @@
 import { readFileSync } from "node:fs";
 import { buildDeploymentPlan, sha256, type PublicDeploymentConfig } from "./plan-deployment";
+import { address as canonicalAddress, exactKeys, hash as canonicalHash, record } from "./deployment-validation";
 
 export type VerificationReport = Readonly<{ ok: boolean; failures: string[]; reportHash: `0x${string}` }>;
 
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const HASH = /^0x[0-9a-fA-F]{64}$/;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
 
-function object(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be an object`);
-  return value as Record<string, unknown>;
-}
-function exact(value: Record<string, unknown>, keys: readonly string[], path: string): void {
-  const allowed = new Set(keys);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`${path}.${key} is unknown`);
-  for (const key of keys) if (!(key in value)) throw new Error(`${path}.${key} is required`);
-}
+const object = record;
+const exact = exactKeys;
 function string(value: unknown, path: string): string {
   if (typeof value !== "string") throw new Error(`${path} must be a string`);
   return value;
 }
 function address(value: unknown, path: string): string {
   const result = string(value, path);
-  if (!ADDRESS.test(result)) throw new Error(`${path} must be a 20-byte hex address`);
-  return result.toLowerCase();
+  return canonicalAddress(result, path);
 }
 function hash(value: unknown, path: string): string {
   const result = string(value, path);
-  if (!HASH.test(result)) throw new Error(`${path} must be a 32-byte hex hash`);
-  return result.toLowerCase();
+  return canonicalHash(result, path);
 }
 function decimal(value: unknown, path: string): string {
   const result = string(value, path);

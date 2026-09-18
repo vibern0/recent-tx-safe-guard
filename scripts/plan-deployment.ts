@@ -1,10 +1,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { address, exactKeys, hash, record } from "./deployment-validation";
 
 export type PublicDeploymentConfig = Readonly<Record<string, unknown>>;
 
-const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const HASH = /^0x[0-9a-fA-F]{64}$/;
 const SECRET_KEY = /(private|secret|seed|mnemonic|password|pin|credential|rpcurl|rpc_url|apikey|api_key)/i;
 
 function canonical(value: unknown): string {
@@ -33,30 +32,10 @@ function assertPublic(value: unknown, path = "config"): asserts value is PublicD
   }
 }
 
-function address(value: unknown, path: string): string {
-  if (typeof value !== "string" || !ADDRESS.test(value)) throw new Error(`${path} must be a 20-byte hex address`);
-  return value.toLowerCase();
-}
-
 function addressesEqual(left: unknown, right: unknown, leftPath: string, rightPath: string): boolean {
   return address(left, leftPath) === address(right, rightPath);
 }
 
-function hash(value: unknown, path: string): string {
-  if (typeof value !== "string" || !HASH.test(value)) throw new Error(`${path} must be a 32-byte hex hash`);
-  return value.toLowerCase();
-}
-
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(value: Record<string, unknown>, expected: readonly string[], path: string, optional: readonly string[] = []): void {
-  const allowed = new Set([...expected, ...optional]);
-  for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`${path}.${key} is unknown`);
-  for (const key of expected) if (!(key in value)) throw new Error(`${path}.${key} is required${key === "expectedQueueFingerprints" || key === "setupTransactionHashes" ? "; evidence arrays must be explicit" : ""}`);
-}
 
 function unsignedInteger(value: unknown, path: string): bigint {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
