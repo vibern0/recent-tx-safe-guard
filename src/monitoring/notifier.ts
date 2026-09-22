@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest, type RequestOptions } from "node:https";
 import { isAddress, type Address, type Hex } from "viem";
 export type ActivityKind="step-up-executed"|"delayed-queued"|"delayed-cancelled"|"delayed-executed"|"delayed-expired";
 type CommonAlert=Readonly<{chainId:number;safe:Address;transactionHash:Hex;blockNumber:bigint;logIndex:number}>;
@@ -29,6 +30,18 @@ function privateHost(hostname:string):boolean{
   return host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host==="::"||host==="::1"||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe80:")||privateIpv4(host)||host.startsWith("::ffff:")&&privateIpv4(host.slice(7));
 }
 function webhookEndpoint(value:string):URL{let endpoint:URL;try{endpoint=new URL(value);}catch{throw new Error("webhook URL must be valid HTTPS");}if(endpoint.protocol!=="https:"||endpoint.username||endpoint.password||privateHost(endpoint.hostname))throw new Error("webhook URL must be HTTPS, public, and without credentials");return endpoint;}
-async function assertPublicDns(endpoint:URL):Promise<void>{const addresses=await lookup(endpoint.hostname,{all:true,verbatim:true});if(addresses.length===0||addresses.some(({address})=>privateHost(address)))throw new Error("webhook URL must resolve only to public addresses");}
-const defaultWebhookFetch:WebhookFetch=async(target,init)=>{await assertPublicDns(target);const r=await fetch(target,{...init,redirect:"error"});return{ok:r.ok,status:r.status};};
+type ResolvedAddress=Readonly<{address:string;family:number}>;
+type WebhookResponse=Readonly<{ok:boolean;status:number}>;
+type WebhookResolver=(hostname:string)=>Promise<readonly ResolvedAddress[]>;
+type WebhookSender=(url:URL,options:Readonly<{lookupAddress:string;family:number;servername:string;method:string;headers:Record<string,string>;body:string}>)=>Promise<WebhookResponse>;
+const resolveWebhookHost:WebhookResolver=hostname=>lookup(hostname,{all:true,verbatim:true});
+const sendWebhookRequest:WebhookSender=(url,options)=>new Promise((resolve,reject)=>{
+  const requestOptions:RequestOptions={protocol:"https:",hostname:url.hostname,port:url.port||443,path:`${url.pathname}${url.search}`,method:options.method,headers:options.headers,servername:options.servername,lookup:(_hostname,_lookupOptions,callback)=>callback(null,options.lookupAddress,options.family)};
+  const request=httpsRequest(requestOptions,response=>{response.resume();const status=response.statusCode??0;resolve({ok:status>=200&&status<300,status});});
+  request.setTimeout(10_000,()=>request.destroy(new Error("webhook request timed out")));
+  request.once("error",reject);
+  request.end(options.body);
+});
+export function createPinnedWebhookFetch(resolve:WebhookResolver=resolveWebhookHost,send:WebhookSender=sendWebhookRequest):WebhookFetch{return async(target,init)=>{const addresses=await resolve(target.hostname);if(addresses.length===0||addresses.some(({address})=>privateHost(address)))throw new Error("webhook URL must resolve only to public addresses");const [{address,family}]=addresses;return send(target,{lookupAddress:address,family,servername:target.hostname,method:init?.method??"GET",headers:init?.headers??{},body:init?.body??""});};}
+const defaultWebhookFetch=createPinnedWebhookFetch();
 export function createWebhookNotifier(url:string,fetcher:WebhookFetch=defaultWebhookFetch):Notifier{const endpoint=webhookEndpoint(url);return{notify:async a=>{const r=await fetcher(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:serialize(a),redirect:"error"});if(!r.ok)throw new Error(`notification webhook returned HTTP ${r.status}`);}};}

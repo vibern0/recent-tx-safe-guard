@@ -96,6 +96,39 @@ describe("non-authorizing notifiers", () => {
     }
   });
 
+  it("pins HTTPS delivery to the public address that passed DNS validation", async () => {
+    const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
+    let requestedAddress = "";
+    const fetcher = createPinnedWebhookFetch(
+      async () => [{ address: "93.184.216.34", family: 4 }],
+      async (_url, options) => {
+        requestedAddress = options.lookupAddress;
+        return { ok: true, status: 204 };
+      },
+    );
+
+    await fetcher(new URL("https://example.invalid/hook"), { method: "POST", body: "{}" });
+
+    expect(requestedAddress).to.equal("93.184.216.34");
+  });
+
+  it("never connects when any DNS answer is private", async () => {
+    const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
+    let connected = false;
+    const fetcher = createPinnedWebhookFetch(
+      async () => [{ address: "93.184.216.34", family: 4 }, { address: "127.0.0.1", family: 4 }],
+      async () => { connected = true; return { ok: true, status: 204 }; },
+    );
+
+    try {
+      await fetcher(new URL("https://example.invalid/hook"), { method: "POST", body: "{}" });
+      expect.fail("expected private DNS result to be rejected");
+    } catch (error) {
+      expect(String(error)).to.contain("public");
+    }
+    expect(connected).to.equal(false);
+  });
+
   it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {
     expect(() => publicAlert({ ...alert, privateKey: "secret" } as never)).to.throw(/unknown|sensitive/i);
     expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
