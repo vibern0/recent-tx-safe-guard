@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest, type RequestOptions } from "node:https";
+import { BlockList, isIP } from "node:net";
 import { isAddress, type Address, type Hex } from "viem";
 export type ActivityKind="step-up-executed"|"delayed-queued"|"delayed-cancelled"|"delayed-executed"|"delayed-expired";
 type CommonAlert=Readonly<{chainId:number;safe:Address;transactionHash:Hex;blockNumber:bigint;logIndex:number}>;
@@ -19,15 +20,14 @@ export function publicAlert(alert:ActivityAlert):Record<string,unknown>{if(!aler
 const serialize=(a:ActivityAlert)=>JSON.stringify(publicAlert(a),(_,v)=>typeof v==="bigint"?v.toString():v);
 export function createStdoutNotifier(write:(line:string)=>void=console.log):Notifier{return{notify:async a=>write(serialize(a))};}
 export type WebhookFetch=(url:URL,init?:{method?:string;headers?:Record<string,string>;body?:string;redirect?:"error"})=>Promise<{ok:boolean;status:number}>;
-function privateIpv4(hostname:string):boolean{
-  const parts=hostname.split(".").map(Number);
-  if(parts.length!==4||parts.some(part=>!Number.isInteger(part)||part<0||part>255))return false;
-  const [a,b]=parts;
-  return a===0||a===10||a===127||a===169&&b===254||a===172&&b>=16&&b<=31||a===192&&b===0||a===192&&b===168||a===198&&b>=18&&b<=19||a>=224;
-}
+const blockedIpv4=new BlockList();
+for(const [address,prefix] of [["0.0.0.0",8],["10.0.0.0",8],["100.64.0.0",10],["127.0.0.0",8],["169.254.0.0",16],["172.16.0.0",12],["192.0.0.0",24],["192.0.2.0",24],["192.88.99.0",24],["192.168.0.0",16],["198.18.0.0",15],["198.51.100.0",24],["203.0.113.0",24],["224.0.0.0",4],["240.0.0.0",4]] as const)blockedIpv4.addSubnet(address,prefix,"ipv4");
+const blockedIpv6=new BlockList();
+for(const [address,prefix] of [["::",128],["::1",128],["::ffff:0:0",96],["64:ff9b::",96],["64:ff9b:1::",48],["100::",64],["2001::",23],["2001:db8::",32],["2002::",16],["fc00::",7],["fe80::",10],["ff00::",8]] as const)blockedIpv6.addSubnet(address,prefix,"ipv6");
+function privateIpv4(hostname:string):boolean{return isIP(hostname)===4&&blockedIpv4.check(hostname,"ipv4");}
 function privateHost(hostname:string):boolean{
   const host=hostname.toLowerCase().replace(/^\[|\]$/g,"");
-  return host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host==="::"||host==="::1"||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe80:")||privateIpv4(host)||host.startsWith("::ffff:")&&privateIpv4(host.slice(7));
+  return host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||privateIpv4(host)||isIP(host)===6&&blockedIpv6.check(host,"ipv6");
 }
 function webhookEndpoint(value:string):URL{let endpoint:URL;try{endpoint=new URL(value);}catch{throw new Error("webhook URL must be valid HTTPS");}if(endpoint.protocol!=="https:"||endpoint.username||endpoint.password||privateHost(endpoint.hostname))throw new Error("webhook URL must be HTTPS, public, and without credentials");return endpoint;}
 type ResolvedAddress=Readonly<{address:string;family:number}>;

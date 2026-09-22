@@ -129,6 +129,23 @@ describe("non-authorizing notifiers", () => {
     expect(connected).to.equal(false);
   });
 
+  it("rejects IPv4-mapped IPv6 DNS answers for loopback", async () => {
+    const { createPinnedWebhookFetch } = await import("../../../src/monitoring/notifier");
+    let connected = false;
+    const fetcher = createPinnedWebhookFetch(
+      async () => [{ address: "::ffff:7f00:1", family: 6 }],
+      async () => { connected = true; return { ok: true, status: 204 }; },
+    );
+
+    try {
+      await fetcher(new URL("https://example.invalid/hook"), { method: "POST", body: "{}" });
+      expect.fail("expected mapped loopback to be rejected");
+    } catch (error) {
+      expect(String(error)).to.contain("public");
+    }
+    expect(connected).to.equal(false);
+  });
+
   it("rejects unknown and sensitive alert fields at the notifier boundary", async () => {
     expect(() => publicAlert({ ...alert, privateKey: "secret" } as never)).to.throw(/unknown|sensitive/i);
     expect(() => publicAlert({ ...alert, delay: alert.guard } as never)).to.throw(/unknown|sensitive/i);
