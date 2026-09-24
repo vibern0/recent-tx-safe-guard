@@ -5,20 +5,28 @@ import {ITransactionGuard} from "@safe-global/safe-smart-account/contracts/base/
 import {IModuleGuard} from "@safe-global/safe-smart-account/contracts/base/ModuleManager.sol";
 
 interface ISafeOwnerMaintenance {
+    /// @notice Removes an owner from the Safe and sets the resulting threshold.
     function removeOwner(address prevOwner, address owner, uint256 threshold) external;
+
+    /// @notice Adds an owner to the Safe and sets the resulting threshold.
     function addOwnerWithThreshold(address owner, uint256 threshold) external;
 }
 
 interface IGuardSignerRepair {
+    /// @notice Returns the guard's configured Safe, signers, Delay, and period data.
     function config() external view returns (address safe, address passkey, address burner, address recovery, address delay, uint64 periodSeconds, uint64 periodAnchor);
+
+    /// @notice Replaces one signer role inside the guard configuration.
     function repairSigner(uint8 role, address expectedOld, address replacement) external;
 }
 
 interface IGuardMaintenance {
+    /// @notice Returns the maintenance helper recorded by the guard.
     function maintenance() external view returns (address);
 }
 
 interface IERC1271Evidence {
+    /// @notice ERC-1271 signature check used as passkey-contract evidence.
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
 }
 
@@ -44,12 +52,18 @@ contract GuardReplacementMaintenance {
     error InvalidReplacement();
     error SetterFailed();
 
+    /// @param expectedSafe Safe that must execute this helper by delegatecall.
+    /// @param verifiedDelay Delay module allowed to trigger the maintenance call.
     constructor(address expectedSafe, address verifiedDelay) {
         require(expectedSafe != address(0) && verifiedDelay != address(0), "zero address");
         safe = expectedSafe;
         delay = verifiedDelay;
     }
 
+    /// @notice Atomically replaces both Safe guard slots with a reviewed guard.
+    /// @dev Must be called by Delay while executing in the Safe's storage context.
+    /// @param expectedGuard Current transaction and module guard address.
+    /// @param replacement New guard whose runtime code hash and interfaces are checked.
     function replaceGuards(address expectedGuard, address replacement) external {
         if (msg.sender != delay) revert OnlyDelay();
         if (address(this) != safe) revert WrongExecutionContext();
@@ -75,6 +89,15 @@ contract GuardReplacementMaintenance {
         assembly { sstore(LOCK_SLOT, 0) }
     }
 
+    /// @notice Atomically updates the guard signer and Safe owner list.
+    /// @dev Used by delayed signer repair so Safe ownership and guard policy do
+    ///      not diverge. Role 0 replacements must provide ERC-1271 evidence.
+    /// @param guard Current guard installed in both Safe guard slots.
+    /// @param role Signer role: 0 passkey, 1 Burner, 2 recovery.
+    /// @param expectedOld Current signer that must be present in guard config.
+    /// @param replacement New signer for both guard config and Safe owners.
+    /// @param previousOwner Previous Safe linked-list owner before expectedOld.
+    /// @param threshold Safe owner threshold to preserve after owner changes.
     function replaceSigner(
         address guard,
         uint8 role,
@@ -100,11 +123,13 @@ contract GuardReplacementMaintenance {
         if (!repaired || !removed || !added) revert SetterFailed();
     }
 
+    /// @dev Checks ERC-165 support on a candidate replacement.
     function _supports(address candidate, bytes4 interfaceId) private view returns (bool supported) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(0x01ffc9a7, interfaceId));
         supported = ok && result.length == 32 && abi.decode(result, (bool));
     }
 
+    /// @dev Requires nonempty code and the reviewed guard runtime code hash.
     function _isApprovedGuardImplementation(address candidate) private view returns (bool approved) {
         uint256 codeSize;
         bytes32 codeHash;
@@ -115,6 +140,7 @@ contract GuardReplacementMaintenance {
         approved = codeSize != 0 && codeHash == APPROVED_GUARD_RUNTIME_CODE_HASH;
     }
 
+    /// @dev Confirms a passkey replacement is a contract exposing ERC-1271.
     function _hasContract1271Evidence(address candidate) private view returns (bool) {
         uint256 codeSize;
         assembly { codeSize := extcodesize(candidate) }
@@ -125,11 +151,16 @@ contract GuardReplacementMaintenance {
         return ok && result.length == 32 && abi.decode(result, (bytes4)) == ERC1271_MAGICVALUE;
     }
 
+    /// @dev Confirms a replacement guard recorded this helper as maintenance.
     function _hasMaintenance(address candidate) private view returns (bool) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardMaintenance.maintenance.selector));
         return ok && result.length == 32 && abi.decode(result, (address)) == address(this);
     }
 
+    /// @dev Checks the candidate guard still targets this Safe, Delay, and signer set.
+    /// @param candidate Guard whose config is being checked.
+    /// @param expectedOld Optional signer expected for the selected role.
+    /// @param role Signer role to compare when expectedOld is provided.
     function _matchesGuardConfiguration(address candidate, address expectedOld, uint8 role) private view returns (bool) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.config.selector));
         if (!ok || result.length != 224) return false;
