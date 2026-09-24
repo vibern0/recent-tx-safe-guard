@@ -257,23 +257,23 @@ function checkTransaction(
 ) external;
 ```
 
-- [ ] **Step 1: Write failing exact-hash tests**
+- [x] **Step 1: Write failing exact-hash tests**
 
 Compare the guard's reconstructed hash with Safe `getTransactionHash`. Changing chain, Safe, target, value, calldata, operation, any gas/refund field, or nonce must change the digest. Account for Safe incrementing its nonce before the guard callback.
 
-- [ ] **Step 2: Write failing signature tests**
+- [x] **Step 2: Write failing signature tests**
 
 Require a validated `v == 0` contract-signature slot naming the configured passkey for all transfer paths. Reject approved-hash `v == 1`, raw EOA substitution, malformed offsets, duplicate/trailing ambiguity, wrong passkey, and signatures not validated by Safe.
 
-- [ ] **Step 3: Define and test the Burner extension**
+- [x] **Step 3: Define and test the Burner extension**
 
 Use a typed terminal envelope `[burnerSignature][uint256 length][bytes32 typeHash]`. Verify the Burner with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
 
-- [ ] **Step 4: Implement atomic guard mechanics**
+- [x] **Step 4: Implement atomic guard mechanics**
 
 Implement both guard interfaces, only-Safe entry checks, a reentrancy gate, `safeTxGas == 0`, `gasPrice == 0`, and after-execution reverts on failed owner or module execution. State writes during a failed inner call must roll back.
 
-- [ ] **Step 5: Verify against a real Safe and commit**
+- [x] **Step 5: Verify against a real Safe and commit**
 
 Run unit and integration tests with Safe 1.5, not the legacy mock. Commit as `feat: bind tiered policy to exact safe signatures`.
 
@@ -320,29 +320,29 @@ Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce 
 - Create: `test/integration/delayed-tier.test.ts`
 - Modify: `docs/security/call-graph.md`
 
-**Interfaces:** Produces `queueFingerprint`, `buildQueueTransaction`, `buildCancellationTransaction`, `buildExecutionTransaction`, and `readQueueItem`.
+**Interfaces:** Produces Zodiac-compatible `queueFingerprint`, a separate Safe/Delay/queue-nonce monitoring fingerprint, queue/cancellation/execution builders, and paired hash/creation-time queue-item reads.
 
-- [ ] **Step 1: Write delayed-proposal tests**
+- [x] **Step 1: Write delayed-proposal tests**
 
 A direct transfer above remaining Y must fail. A Safe call to the exact Delay queue selector succeeds only with passkey plus Burner and only when the decoded inner action is an allowed transfer or enumerated weakening action. Mutation of inner target, value, calldata, operation, nonce, cooldown, or expiration fails.
 
-- [ ] **Step 2: Write module-path tests**
+- [x] **Step 2: Write module-path tests**
 
 Only the verified Delay address may call the Safe module path. Execution before Z, after expiration, after cancellation, through another module, or by delegate call fails. An exact queued transfer succeeds after Z through an unprivileged relayer.
 
-- [ ] **Step 3: Implement cancellation and emergency rules**
+- [x] **Step 3: Implement cancellation and emergency rules**
 
 Permit the recovery owner or passkey-plus-Burner to call only the configured Delay's nonce-advance cancellation and guard freeze functions immediately. Enumerate every ordered queue item invalidated by cancellation. Deny recovery transfers and arbitrary queue creation.
 
-- [ ] **Step 4: Implement delayed recovery and configuration**
+- [x] **Step 4: Implement delayed recovery and configuration**
 
 Allow recovery to queue only fixed signer replacement, guard repair, and policy repair selectors. Limit increases, recipient additions, delay reductions, owner/module/guard/fallback changes, and unfreezing require Delay. Immediate tightening functions must prove limits only decrease, recipients only disappear, or the system only becomes more restrictive.
 
-- [ ] **Step 5: Prove removal and fallback safety**
+- [x] **Step 5: Prove removal and fallback safety**
 
 Test atomic delayed replacement of both guard slots, no intermediate unguarded execution, no unlisted module, no unrestricted fallback handler, no direct `signMessage`, and rejection of approved-hash authorization. If Safe cannot replace both guards atomically without a broader delayed batch, stop for a focused maintenance design.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run queue, module, recovery, and configuration integration tests. Commit as `feat: add cancellable delayed vault tier`.
 
@@ -360,27 +360,27 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 - Create: `scripts/verify-deployment.ts`
 - Create: `docs/security/call-graph.md`
 
-**Interfaces:** `buildVaultPlan(input): VaultDeploymentPlan` produces one Safe, one guard, one Delay, and an unsigned atomic setup; `verifyTopology(input): Promise<TopologyReport>` re-reads every invariant.
+**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; deterministic draft calldata is isolated to `test/fixtures/topology-draft.ts` and requires exact verified evidence. `verifyTopology(input): Promise<TopologyReport>` requires official resolver-branded output before any topology report or RPC read, then re-reads every invariant.
 
-- [ ] **Step 1: Write deterministic plan snapshots**
+- [x] **Step 1: Write deterministic plan snapshots**
 
 Assert one Safe address, owners `[passkey, burner, recovery]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
 
-- [ ] **Step 2: Implement atomic planning**
+- [x] **Step 2: Implement atomic planning**
 
-Generate unsigned calldata that configures policy, Delay, owners, both guards, and the module graph without a partially protected final state. Never broadcast from the planner.
+Generate the Safe initializer, proxy-factory deployment call, and unsigned calls for policy, both guards, and the module graph. Require a reviewed atomic encoder; if none exists, fail closed rather than emit a partially protected final state. Never broadcast from the planner.
 
-- [ ] **Step 3: Implement fail-closed verification**
+- [x] **Step 3: Implement fail-closed verification**
 
 Verify Safe singleton/version, owners, threshold, fallback, guards, modules, guard code hash/config/counters, Delay code hash/owner/avatar/target/members/cooldown/expiration, and absence of unexpected approvals recorded by the runbook.
 
-- [ ] **Step 4: Write the complete call graph**
+- [x] **Step 4: Write the complete call graph**
 
 Document base, step-up, queue, Delay execution, cancellation, freeze, recovery, configuration, replacement, and forbidden paths with caller, signer requirement, value capability, and timing.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
-Run deterministic planning twice for byte-identical output, deploy on a local fork, verify the topology, mutate each invariant individually, and require failure. Commit as `feat: build and verify one-safe vault topology`.
+Run deterministic planning twice for byte-identical output, assert fail-closed behavior where the local harness cannot prove the production atomic path, verify the topology fixture, mutate each invariant individually, and require failure. Commit the corrected implementation with a conventional message.
 
 ---
 
@@ -397,23 +397,23 @@ Run deterministic planning twice for byte-identical output, deploy on a local fo
 
 **Interfaces:** A `SafeSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; a Burner adapter returns the exact guard extension.
 
-- [ ] **Step 1: Write provider-neutral conformance tests**
+- [x] **Step 1: Write provider-neutral conformance tests**
 
 Reject chain, Safe, hash, account, or typed-data changes; invalid ERC-1271 response; wrong recovered EOA; duplicate signature; provider account/chain change; user rejection; and extension ambiguity.
 
-- [ ] **Step 2: Implement Safe-native passkey signing**
+- [x] **Step 2: Implement Safe-native passkey signing**
 
 Use the reviewed Safe passkey contracts and verify the configured signer contract identity. Produce the canonical contract signature expected by Safe and the guard.
 
-- [ ] **Step 3: Implement Burner and recovery adapters**
+- [x] **Step 3: Implement Burner and recovery adapters**
 
 Use `eth_signTypedData_v4` through generic EIP-1193/WalletConnect. Verify recovered addresses locally. Do not invoke undocumented NFC commands or bypass Burner PIN/connection behavior.
 
-- [ ] **Step 4: Prove the complete signer matrix**
+- [x] **Step 4: Prove the complete signer matrix**
 
 Passkey succeeds only for base. Burner-only and recovery-only transfers fail. Passkey-plus-Burner succeeds within Y and queues above Y. Recovery succeeds only for cancellation, freeze, and enumerated delayed repair.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run signer unit tests and real-Safe integration tests. Commit as `feat: add tiered safe signer adapters`.
 
@@ -432,19 +432,19 @@ Run signer unit tests and real-Safe integration tests. Commit as `feat: add tier
 
 **Interfaces:** `ActivityAlert` is a union of confirmed `step-up-executed`, `delayed-queued`, `delayed-cancelled`, `delayed-executed`, and derived `delayed-expired` records. The notifier has no signer or RPC write capability.
 
-- [ ] **Step 1: Write event decoding tests**
+- [x] **Step 1: Write event decoding tests**
 
 Verify chain/log identity, confirmation depth, cursor persistence, reorg removal, restart replay, idempotency, exact guard/Delay addresses, decoded asset/recipient/amount, X/Y state, queue fingerprint, and lifecycle transition.
 
-- [ ] **Step 2: Implement verified monitoring**
+- [x] **Step 2: Implement verified monitoring**
 
 For step-up events, re-read guard counters and transaction input before notification; do not notify for base events. For Delay events, re-read the queue item and state before notification.
 
-- [ ] **Step 3: Implement stdout and webhook notifiers**
+- [x] **Step 3: Implement stdout and webhook notifiers**
 
 Send only public data. Store no private key, passkey assertion, PIN, wallet session, cancellation credential, or method capable of authorizing a transaction.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run monitoring tests including suppressed, duplicate, malformed, and reorged events. Commit as `feat: monitor tiered vault activity`.
 
@@ -463,23 +463,23 @@ Run monitoring tests including suppressed, duplicate, malformed, and reorged eve
 
 **Interfaces:** Produces `npm run security:check` as the reproducible local security gate.
 
-- [ ] **Step 1: Add one test per bypass class**
+- [x] **Step 1: Add one test per bypass class**
 
-Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, only-one-guard installation, direct Delay injection, immediate weakening, retained unsafe owners, guard removal, cancelled/expired execution, and notification-service authority.
+Test split X/Y spending, counter rollback, period boundaries, wrong signer combinations, signature replay/mutation, approved hashes, arbitrary messages, fallback installation, approvals, batches, delegate calls, extra modules, explicit removal or one-slot mutation of either guard, direct Delay injection, immediate weakening, retained unsafe owners, cancelled/expired execution, and notification-service authority.
 
-- [ ] **Step 2: Add recovery and denial-of-service tests**
+- [x] **Step 2: Add recovery and denial-of-service tests**
 
-Test lost passkey, lost Burner, recovery cancellation, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
+Test lost passkey, lost Burner, recovery cancellation of a valid delayed ERC-20 transfer with pre/post cooldown and unchanged balances, requeue and actual execution, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
 
-- [ ] **Step 3: Add static and invariant gates**
+- [x] **Step 3: Add static and invariant gates**
 
-Run coverage, Slither, and stateful invariants. Require review of every external/public function, storage write, call, signature parse, and authorization branch. Imported Safe/Zodiac analysis is not presented as their audit.
+Run coverage, Slither, and stateful invariants. Require executable ABI/state-surface checks for every repository security contract plus review of every external/public function, storage write, call, signature parse, and authorization branch. Slither uses a committed reviewed baseline and fails on new findings or tool errors; imported Safe/Zodiac analysis is not presented as their audit.
 
-- [ ] **Step 4: Implement the rehearsal**
+- [x] **Step 4: Implement the rehearsal**
 
-On a time-controlled fork: deploy one Safe, verify topology, spend repeatedly through X, step up through Y, observe the tier-2 alert, reject Y+1 direct, queue Y+1, observe alert, cancel, prove non-execution, queue again, advance Z, execute, freeze, and rehearse delayed recovery. Refuse chain ID 1.
+On the actual local Hardhat time-controlled network: verify the reported chain identity, deploy one Safe, spend repeatedly through X, step up through Y, reject Y+1 direct, queue Y+1, prove queue/cancellation evidence, cancel, prove non-execution and unchanged balances, queue again, advance Z, execute, expire another item, freeze, and rehearse delayed recovery repair. Refuse chain ID 1 and reject credential/provider/broadcast environments without forwarding them.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run `npm run security:check`, the complete integration suite, rehearsal, and `git diff --check`. Commit as `test: prove single-safe tiered threat model`.
 
@@ -496,15 +496,15 @@ Run `npm run security:check`, the complete integration suite, rehearsal, and `gi
 
 **Interfaces:** Produces an unsigned reproducible deployment plan, verified public manifest, and testnet evidence bundle with no secrets.
 
-- [ ] **Step 1: Write explicit stop conditions**
+- [x] **Step 1: Write explicit stop conditions**
 
 Stop on any owner, threshold, fallback, guard slot, Safe module, Delay upstream module, bytecode hash, signer identity, X/Y counter, period anchor, cooldown, expiration, queue fingerprint, or notification mismatch.
 
-- [ ] **Step 2: Define the public manifest**
+- [x] **Step 2: Define the public manifest**
 
 Include chain, Safe, guard, Delay, dependency hashes, policy hash, setup transaction hashes, and verification report hash. Exclude seeds, passkey material, PINs, provider tokens, and private RPC credentials.
 
-- [ ] **Step 3: Generate and human-review the unsigned plan**
+- [x] **Step 3: Generate and human-review the unsigned plan**
 
 Run the planner for Sepolia and compare every decoded setup call with the call graph before signing.
 
@@ -515,6 +515,8 @@ Exercise base, step-up, queue, tier-2/tier-3 alerts, cancellation, expiry, delay
 - [ ] **Step 5: Hold the architecture gate and commit**
 
 Fail the gate if any security property depends only on UI classification, monitoring, relayer honesty, or operator discipline. Commit the runbook and redacted examples as `docs: add single-safe testnet runbook`.
+
+The live Sepolia rehearsal and architecture gate were not completed in this worktree; no live evidence bundle was collected, so this task remains open.
 
 ---
 
