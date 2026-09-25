@@ -8,6 +8,16 @@ library SafeSignatureDecoder {
     error TrailingSafeSignatureData();
     error NonCanonicalOwnerWord();
 
+    /// @notice Decodes the first Safe owner signature slot used by this guard.
+    /// @dev Supports the configured contract-signature path and, only when
+    ///      explicitly allowed, a raw ECDSA signer for recovery paths. Approved
+    ///      hashes are rejected because they do not bind the signer interaction.
+    /// @param signatures Safe signatures bytes, optionally followed by extension data.
+    /// @param safeTxHash Safe transaction hash used to recover ECDSA signers.
+    /// @param allowEcdsa Whether ECDSA owner signatures are acceptable here.
+    /// @return signer Owner address represented by the first signature slot.
+    /// @return ownerEnd Offset immediately after the owner signature payload.
+    /// @return isContractSignature True for Safe v == 0 contract signatures.
     function decode(bytes calldata signatures, bytes32 safeTxHash, bool allowEcdsa) internal pure returns (address signer, uint256 ownerEnd, bool isContractSignature) {
         if (signatures.length < 65) revert MalformedSafeSignature();
 
@@ -33,6 +43,9 @@ library SafeSignatureDecoder {
         return (signer, ownerEnd, true);
     }
 
+    /// @notice Rejects extension or trailing bytes after the owner signature.
+    /// @param signatures Complete signatures bytes to inspect.
+    /// @param ownerEnd Expected end offset returned by decode.
     function requireNoTrailingData(bytes calldata signatures, uint256 ownerEnd) internal pure {
         if (signatures.length != ownerEnd) revert TrailingSafeSignatureData();
     }

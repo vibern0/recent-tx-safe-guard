@@ -1,0 +1,12 @@
+allowBuilds:
+  esbuild: true
+  keccak: true
+  secp256k1: true
+
+overrides:
+  '@openzeppelin/contracts': 5.6.1
+  elliptic: 6.6.1
+  uuid: 11.1.1
+  'ws@7': 7.5.11
+  'ws@8': 8.21.3
+  'isows>ws': 8.21.3

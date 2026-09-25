@@ -43,12 +43,17 @@ The expected security-core commands are:
 
 ```bash
 npm ci
+npm run test:headless
 npm run build
 npm run test:unit
 npm run test:integration
 npm run test:invariant
 npm run security:check
 ```
+
+`npm run test:headless` is the local no-UI gate. It cleans stale Hardhat
+artifacts, compiles, and runs the unit, integration, and invariant suites on
+the in-process Hardhat network.
 
 On the historical `main` checkout, these scripts may not exist yet. Switch to
 the security-core branch or worktree before treating a missing script as a
