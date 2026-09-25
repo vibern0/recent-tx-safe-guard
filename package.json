@@ -43,13 +43,5 @@
     "@safe-global/safe-passkey": "0.2.0",
     "@safe-global/safe-smart-account": "1.5.0",
     "viem": "2.56.7"
-  },
-  "overrides": {
-    "elliptic": "6.6.1",
-    "ws@7": "7.5.11",
-    "ws@8": "8.21.3",
-    "isows": {
-      "ws": "8.21.3"
-    }
   }
 }
