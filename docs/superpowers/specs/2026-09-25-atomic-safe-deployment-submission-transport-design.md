@@ -14,13 +14,23 @@ This remains security research and a testnet prototype. A live Sepolia rehearsal
 ## Binding security properties
 
 - Exactly one Safe holds assets.
-- The Safe starts with the configured passkey, Burner, and recovery owners at threshold 1, no fallback handler, `TieredSpendingGuard` in both guard slots, and Zodiac Delay as its only enabled module.
+- The Safe starts with the configured passkey, Burner, and recovery signer roles as owners at threshold 1, no fallback handler, `TieredSpendingGuard` in both guard slots, and Zodiac Delay as its only enabled module. This three-role topology is inherited from the approved security-core architecture; issue #5 does not introduce it.
 - The Safe is Delay's owner, avatar, target, and only enabled upstream proposer.
 - The setup transaction never exposes a bootstrap owner, unguarded initialized Safe, alternate module, fallback handler, or partially applied policy.
 - The passkey signer, guard, and Delay may be deployed before Safe creation against the deterministically predicted Safe address. They are supporting contracts, not additional custody accounts.
 - The guard and Delay remain the authorization authorities. The planner, transport, relayer, monitoring service, and UI are non-authorizing.
 - Every deployment and submission decision fails closed on missing or inconsistent chain, bytecode, topology, policy, counter, signer, nonce, calldata, signature, or fingerprint evidence.
 - No private key, passkey material, Burner PIN, provider credential, RPC secret, or raw signature is persisted in repository artifacts or logs.
+
+### Recovery authority provenance and setup
+
+Recovery is an explicit third signer role from the existing security-core plan, not a service account created by the planner or relayer. For the prototype, the user selects an independent secp256k1 account exposed through the reviewed generic EIP-1193/WalletConnect boundary. It should be an offline hardware wallet or separately stored recovery key, not the passkey device, Burner account, relayer key, or notification account.
+
+Only the recovery account's public address enters the unsigned deployment input. The planner validates that it is nonzero and distinct from the passkey, Burner, and relayer addresses. It never requests, receives, derives, stores, or logs the recovery private key or recovery signature.
+
+Safe threshold 1 lets that address produce a Safe-valid owner signature, but `TieredSpendingGuard` is the effective authorization layer. It permits the configured recovery signer only for immediate freeze, ordered Delay cancellation, and strictly enumerated repairs that still execute through Delay. Recovery cannot authorize a transfer, raise a limit, shorten the delay, add permissions, remove enforcement, or act as a submission relayer.
+
+The public address is selected and reviewed before Safe creation. After deployment, the operator must complete the existing recovery rehearsal from that account and verify the onchain result before meaningful test funds are deposited. A failed or skipped rehearsal leaves the architecture gate open.
 
 ## Chosen architecture
 
@@ -43,7 +53,7 @@ Safe `setup` delegates once to the verified `MultiSendCallOnly`. Its packed inne
 5. Install the same guard as the Safe module guard.
 6. Enable Delay as the Safe's sole module.
 
-The initializer simultaneously establishes the exact three owners, threshold 1, zero fallback handler, zero setup payment, and zero payment receiver. Any failed inner call reverts proxy creation, so no initialized partial Safe remains.
+The initializer simultaneously establishes the exact three approved signer roles—the passkey signer contract, Burner EOA, and independently selected recovery EOA—as Safe owners at threshold 1, with a zero fallback handler, zero setup payment, and zero payment receiver. The guard, not the Safe threshold alone, restricts what each role may authorize. Any failed inner call reverts proxy creation, so no initialized partial Safe remains.
 
 The generated plan contains the predicted Safe, initializer, proxy-factory call, prerequisite deployment evidence, canonical decoded setup calls, policy hash, expected topology, and hashes needed for human review. It contains no signature or broadcast instruction and must serialize byte-for-byte identically for identical input.
 
@@ -61,7 +71,7 @@ The repository exposes one provider-neutral `SubmissionTransport` interface and 
 
 The client validates and snapshots the request before network I/O. The relayer re-reads the chain, dependency bytecode, Safe topology, guard policy/counters, nonce, queue state where applicable, and recomputed transaction hash immediately before broadcast. It rejects any drift and never edits the request.
 
-For Safe execution, the relayer only calls `Safe.execTransaction` with the supplied immutable fields and signatures. For Delay execution, it only calls `executeNextTx` for an already-recorded queue tuple that is ready and unexpired. Its gas-paying key is not a Safe owner, module, signer, recovery authority, or policy authority.
+For Safe execution, the relayer only calls `Safe.execTransaction` with the supplied immutable fields and signatures. For Delay execution, it only calls `executeNextTx` for an already-recorded queue tuple that is ready and unexpired. Its gas-paying key is not a Safe owner, module, signer, or policy authority. Recovery authority comes only from the separately configured recovery-owner address and the guard's exact recovery allowlist; the relayer has none.
 
 The transport returns a typed discriminated result:
 
