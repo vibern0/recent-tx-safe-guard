@@ -1,8 +1,11 @@
 # Atomic Safe Deployment and Submission Transport Design
 
-**Status:** Approved design for implementation  
-**Date:** 2026-09-25  
-**Issue:** [#5](https://github.com/vibern0/recent-tx-safe-guard/issues/5)  
+**Status:** Revised design pending approval
+
+**Date:** 2026-09-26
+
+**Issue:** [#5](https://github.com/vibern0/recent-tx-safe-guard/issues/5)
+
 **Blocks:** [#4](https://github.com/vibern0/recent-tx-safe-guard/issues/4)
 
 ## Purpose
@@ -14,7 +17,7 @@ This remains security research and a testnet prototype. A live Sepolia rehearsal
 ## Binding security properties
 
 - Exactly one Safe holds assets.
-- The Safe starts with the configured passkey, Burner, and recovery signer roles as owners at threshold 1, no fallback handler, `TieredSpendingGuard` in both guard slots, and Zodiac Delay as its only enabled module. This three-role topology is inherited from the approved security-core architecture; issue #5 does not introduce it.
+- The Safe starts with exactly two owners: the configured passkey signer contract and Burner card account, at threshold 1, with no fallback handler, `TieredSpendingGuard` in both guard slots, and Zodiac Delay as its only enabled module.
 - The Safe is Delay's owner, avatar, target, and only enabled upstream proposer.
 - The setup transaction never exposes a bootstrap owner, unguarded initialized Safe, alternate module, fallback handler, or partially applied policy.
 - The passkey signer, guard, and Delay may be deployed before Safe creation against the deterministically predicted Safe address. They are supporting contracts, not additional custody accounts.
@@ -22,15 +25,13 @@ This remains security research and a testnet prototype. A live Sepolia rehearsal
 - Every deployment and submission decision fails closed on missing or inconsistent chain, bytecode, topology, policy, counter, signer, nonce, calldata, signature, or fingerprint evidence.
 - No private key, passkey material, Burner PIN, provider credential, RPC secret, or raw signature is persisted in repository artifacts or logs.
 
-### Recovery authority provenance and setup
+### Deferred recovery and accepted availability risk
 
-Recovery is an explicit third signer role from the existing security-core plan, not a service account created by the planner or relayer. For the prototype, the user selects an independent secp256k1 account exposed through the reviewed generic EIP-1193/WalletConnect boundary. It should be an offline hardware wallet or separately stored recovery key, not the passkey device, Burner account, relayer key, or notification account.
+This design deliberately removes the separate recovery signer from the first prototype. No placeholder recovery address, dormant third owner, recovery EOA, email account, hosted recovery service, or vendor-controlled key is installed. A future email or other recovery design requires its own threat model, design review, delayed-authority rules, and migration plan before it can change the Safe or guard.
 
-Only the recovery account's public address enters the unsigned deployment input. The planner validates that it is nonzero and distinct from the passkey, Burner, and relayer addresses. It never requests, receives, derives, stores, or logs the recovery private key or recovery signature.
+Until then, only passkey plus Burner may authorize cancellation, freeze, signer rotation, guard repair, or policy repair through the paths allowed by the guard. This preserves the two-factor authorization model but accepts a denial-of-service risk: loss of the passkey can make the vault unusable, while loss of the Burner can leave only bounded passkey spending available and prevent step-up, delayed, cancellation, and repair actions. The UI and runbook must state this limitation before test funds are deposited.
 
-Safe threshold 1 lets that address produce a Safe-valid owner signature, but `TieredSpendingGuard` is the effective authorization layer. It permits the configured recovery signer only for immediate freeze, ordered Delay cancellation, and strictly enumerated repairs that still execute through Delay. Recovery cannot authorize a transfer, raise a limit, shorten the delay, add permissions, remove enforcement, or act as a submission relayer.
-
-The public address is selected and reviewed before Safe creation. After deployment, the operator must complete the existing recovery rehearsal from that account and verify the onchain result before meaningful test funds are deposited. A failed or skipped rehearsal leaves the architecture gate open.
+This two-owner decision supersedes the three-owner recovery topology in the 2026-09-16 research baseline and security-core implementation plan. The implementation must update those documents, the guard, typed policy, signer adapters, topology builder/verifier, call graph, rehearsal, and tests together; it must not leave code and documentation describing different owner sets.
 
 ## Chosen architecture
 
@@ -38,7 +39,7 @@ The public address is selected and reviewed before Safe creation. After deployme
 
 The planner consumes only the branded result of `resolveVerifiedDeployments`. The registry is extended to cover the Safe 1.5 `MultiSendCallOnly` deployment used during initialization. Every required address must have a pinned version, authoritative source, committed runtime bytecode hash, and matching live bytecode before planning begins.
 
-The passkey signer, non-upgradeable `TieredSpendingGuard`, reviewed Zodiac Delay instance, and reviewed guard-maintenance helper are deployed before the Safe. Their constructors or initializers bind them to the predicted Safe address and final signer/policy values. The predicted address is derived from the verified Safe proxy factory, singleton, initializer, and salt nonce; caller-supplied proxy addresses are accepted only when they equal that derivation.
+The passkey signer, non-upgradeable `TieredSpendingGuard`, reviewed Zodiac Delay instance, and reviewed guard-maintenance helper are deployed before the Safe. Their constructors or initializers bind them to the predicted Safe address and final two-signer policy values. The predicted address is derived from the verified Safe proxy factory, singleton, initializer, and salt nonce; caller-supplied proxy addresses are accepted only when they equal that derivation.
 
 This design does not add a custom deployment or setup contract. If the existing contracts cannot be initialized safely through the approved path, implementation stops for a focused design proposal as required by `AGENTS.md`.
 
@@ -53,7 +54,7 @@ Safe `setup` delegates once to the verified `MultiSendCallOnly`. Its packed inne
 5. Install the same guard as the Safe module guard.
 6. Enable Delay as the Safe's sole module.
 
-The initializer simultaneously establishes the exact three approved signer roles—the passkey signer contract, Burner EOA, and independently selected recovery EOA—as Safe owners at threshold 1, with a zero fallback handler, zero setup payment, and zero payment receiver. The guard, not the Safe threshold alone, restricts what each role may authorize. Any failed inner call reverts proxy creation, so no initialized partial Safe remains.
+The initializer simultaneously establishes exactly two Safe owners—the passkey signer contract and Burner card account—at threshold 1, with a zero fallback handler, zero setup payment, and zero payment receiver. The guard, not the Safe threshold alone, restricts what each owner may authorize. Any failed inner call reverts proxy creation, so no initialized partial Safe remains.
 
 The generated plan contains the predicted Safe, initializer, proxy-factory call, prerequisite deployment evidence, canonical decoded setup calls, policy hash, expected topology, and hashes needed for human review. It contains no signature or broadcast instruction and must serialize byte-for-byte identically for identical input.
 
@@ -71,7 +72,7 @@ The repository exposes one provider-neutral `SubmissionTransport` interface and 
 
 The client validates and snapshots the request before network I/O. The relayer re-reads the chain, dependency bytecode, Safe topology, guard policy/counters, nonce, queue state where applicable, and recomputed transaction hash immediately before broadcast. It rejects any drift and never edits the request.
 
-For Safe execution, the relayer only calls `Safe.execTransaction` with the supplied immutable fields and signatures. For Delay execution, it only calls `executeNextTx` for an already-recorded queue tuple that is ready and unexpired. Its gas-paying key is not a Safe owner, module, signer, or policy authority. Recovery authority comes only from the separately configured recovery-owner address and the guard's exact recovery allowlist; the relayer has none.
+For Safe execution, the relayer only calls `Safe.execTransaction` with the supplied immutable fields and signatures. For Delay execution, it only calls `executeNextTx` for an already-recorded queue tuple that is ready and unexpired. Its gas-paying key is not a Safe owner, module, signer, cancellation authority, or policy authority.
 
 The transport returns a typed discriminated result:
 
@@ -125,9 +126,9 @@ Retries are allowed only for byte-identical requests with the same idempotency k
 Implementation follows red-green-refactor and commits after each completed task.
 
 - Unit tests cover address prediction, canonical call-only batch encoding, deterministic serialization, exact field preservation, secret rejection, idempotency, typed errors, and mutation of every request field.
-- Real Safe 1.5 integration tests create a proxy through the production planner and prove the final topology in the creation transaction. They prove proxy creation reverts if any setup operation fails.
+- Real Safe 1.5 integration tests create a proxy through the production planner and prove the exact two-owner final topology in the creation transaction. They prove proxy creation reverts if any setup operation fails.
 - Adversarial tests cover fabricated deployment evidence, wrong bytecode, wrong chain/Safe/nonce, stale policy or counters, alternate modules/fallbacks, signature mutation/replay, transport response tampering, redirect/downgrade behavior, and relayer overreach.
-- Delay tests prove an unprivileged relayer can execute only the exact current ready queue item and cannot create, mutate, reorder, cancel, or prematurely execute it.
+- Delay tests prove an unprivileged relayer can execute only the exact current ready queue item and cannot create, mutate, reorder, cancel, or prematurely execute it. Separate tests prove no third owner or recovery-only authorization path remains.
 - Failure tests prove reverted Safe or module execution does not consume guard counters or authorization.
 - Repository gates include the focused tests, full `npm test`, invariant suite, coverage, Slither gate, local rehearsal, and `git diff --check`.
 
@@ -163,11 +164,11 @@ Requesting an unrelated injected wallet to fund or submit the transaction would 
 ## Explicit non-goals
 
 - Mainnet deployment or production-readiness claims.
-- A second custody Safe or any unrestricted owner, module, session key, fallback handler, or relayer authority.
+- A second custody Safe, third recovery owner, recovery service, or any unrestricted owner, module, session key, fallback handler, or relayer authority.
 - Fiat funding, swaps, bridges, CCTP, DeFi, NFTs, batches, token approvals, Permit/Permit2, arbitrary calldata, or arbitrary message signing.
 - Building the consumer PWA tracked by #4.
 - Persisting or operating production relayer credentials inside this repository.
 
 ## Completion boundary
 
-Code completion means the deterministic planner, atomic real-Safe integration path, typed transport, adversarial proofs, documentation, and unsigned Sepolia rehearsal package pass their gates. Issue completion additionally requires the human-reviewed low-value Sepolia rehearsal and redacted evidence bundle. If the human signing gate has not occurred, the pull request must state that limitation and must not mark #5 complete.
+Code completion means the two-owner security-core refactor, deterministic planner, atomic real-Safe integration path, typed transport, adversarial proofs, documentation, and unsigned Sepolia rehearsal package pass their gates. Issue completion additionally requires the human-reviewed low-value Sepolia rehearsal and redacted evidence bundle. If the human signing gate has not occurred, the pull request must state that limitation and must not mark #5 complete.
