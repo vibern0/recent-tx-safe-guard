@@ -10,6 +10,14 @@ const repairSignerAbi = fn("repairSigner", [
   { name: "replacement", type: "address" },
 ]);
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
+const repairPolicyAbi = fn("repairPolicy", [
+  { name: "token", type: "address" },
+  { name: "basePerTx", type: "uint256" },
+  { name: "stepUpPerTx", type: "uint256" },
+  { name: "baseDaily", type: "uint256" },
+  { name: "instantDaily", type: "uint256" },
+  { name: "recipients", type: "address[]" },
+]);
 
 describe("two-owner guard maintenance", () => {
   async function fixture() {
@@ -38,13 +46,16 @@ describe("two-owner guard maintenance", () => {
     expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort());
   });
 
+  it("rejects direct queued signer repair even when passkey plus Burner approve the queue", async () => {
+    const f = await fixture();
+    const directRepair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, directRepair, 0] });
+    await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
+  });
+
   it("rejects role 2 signer repair even when passkey plus Burner approve the queue", async () => {
     const f = await fixture();
-    const repairRoleTwo = encodeFunctionData({
-      abi: repairSignerAbi,
-      functionName: "repairSigner",
-      args: [2, f.arbitrary.account.address, f.replacement.account.address],
-    });
+    const repairRoleTwo = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [2, f.arbitrary.account.address, f.replacement.account.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repairRoleTwo, 0] });
     await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
   });
@@ -56,7 +67,7 @@ describe("two-owner guard maintenance", () => {
     await f.passkeyAndBurner(f.guard.address, freeze);
     expect(await f.guard.read.frozen()).to.equal(true);
 
-    const queuedRepair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
+    const queuedRepair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, 1n, 2n, 1n, 2n, [f.recipient.account.address]] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, queuedRepair, 0] });
     await f.passkeyAndBurner(f.delay.address, queued);
     expect(await f.delay.read.queueNonce()).to.equal(1n);

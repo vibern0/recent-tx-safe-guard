@@ -14,6 +14,8 @@ const repairPolicyAbi = fn("repairPolicy", [
   { name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" },
   { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" },
 ]);
+const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
+const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
 
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
@@ -163,6 +165,37 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
+  });
+
+  it("replaces both guard slots through delayed maintenance with an approved guard bound to the same signer set", async () => {
+    const f = await fixture();
+    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.delay.address, 86400n, 0n]]);
+    const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    await f.execute(f.delay.address, queued, signature);
+    await time.increase(10);
+    await f.executeNext(f.maintenance.address, 0n, repair, 1);
+
+    const client = await hre.viem.getPublicClient();
+    expect((await client.getStorageAt({ address: f.safe.address, slot: GUARD_SLOT }))!.toLowerCase().endsWith(replacementGuard.address.slice(2).toLowerCase())).to.equal(true);
+    expect((await client.getStorageAt({ address: f.safe.address, slot: MODULE_GUARD_SLOT }))!.toLowerCase().endsWith(replacementGuard.address.slice(2).toLowerCase())).to.equal(true);
+    expect((await replacementGuard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
+  });
+
+  it("rejects delayed guard replacement when approved code is bound to a different Burner", async () => {
+    const f = await fixture();
+    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.replacement2.account.address, f.delay.address, 86400n, 0n]]);
+    const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    await f.execute(f.delay.address, queued, signature);
+    await time.increase(10);
+    await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
+
+    const client = await hre.viem.getPublicClient();
+    expect((await client.getStorageAt({ address: f.safe.address, slot: GUARD_SLOT }))!.toLowerCase().endsWith(f.guard.address.slice(2).toLowerCase())).to.equal(true);
+    expect((await client.getStorageAt({ address: f.safe.address, slot: MODULE_GUARD_SLOT }))!.toLowerCase().endsWith(f.guard.address.slice(2).toLowerCase())).to.equal(true);
   });
 
   it("rejects an EOA replacement for the passkey role while retaining delayed signer rotation", async () => {

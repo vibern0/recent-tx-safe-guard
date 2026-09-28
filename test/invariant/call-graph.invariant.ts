@@ -43,7 +43,7 @@ describe("call-graph security invariant", () => {
   });
 
   it("has explicit fail-closed branches for signature, queue, call, and two-owner repair validation", () => {
-    for (const marker of ["InvalidPasskeySignature", "MissingBurnerExtension", "InvalidBurnerSignature", "InvalidDelayedAction", "UnsupportedTransfer", "role < 2", "_authorizeQueueProposal"]) {
+    for (const marker of ["InvalidPasskeySignature", "MissingBurnerExtension", "InvalidBurnerSignature", "InvalidDelayedAction", "UnsupportedTransfer", "role > 1", "_isExactPolicyRepair", "_authorizeQueueProposal"]) {
       expect(source, marker).to.contain(marker);
     }
   });

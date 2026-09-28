@@ -54,7 +54,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     bytes4 private constant FREEZE_SELECTOR = bytes4(keccak256("freeze()"));
     bytes4 private constant REPLACE_GUARDS_SELECTOR = 0x7ec60d4f;
     bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256)"));
-    bytes4 private constant REPAIR_SIGNER_SELECTOR = bytes4(keccak256("repairSigner(uint8,address,address)"));
     bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
     bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
 
@@ -479,7 +478,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         }
         if (operation != uint8(Enum.Operation.Call)) revert InvalidDelayedAction();
         if (target == address(this)) {
-            if (!_isExactRepair(innerData)) revert InvalidRepair();
+            if (!_isExactPolicyRepair(innerData)) revert InvalidRepair();
             return;
         }
         (address token, address recipient, uint256 amount) = _decodeTransfer(target, value, innerData);
@@ -502,7 +501,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         }
         if (frozen || operation != Enum.Operation.Call) revert InvalidDelayedAction();
         if (to == address(this)) {
-            if (!_isExactRepair(data)) revert InvalidRepair();
+            if (!_isExactPolicyRepair(data)) revert InvalidRepair();
             return;
         }
         (address token, address recipient, uint256 amount) = _decodeTransfer(to, value, data);
@@ -532,20 +531,11 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR);
     }
 
-    /// @dev Accepts only canonical ABI encoding for signer or policy repairs.
-    function _isExactRepair(bytes memory data) internal pure returns (bool) {
-        if (data.length < 4) return false;
-        if (bytes4(data) == REPAIR_SIGNER_SELECTOR) {
-            if (data.length != 100) return false;
-            (uint8 role, address expectedOld, address replacement) = abi.decode(_copy(data, 4), (uint8, address, address));
-            return role < 2 && keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, expectedOld, replacement));
-        }
-        if (bytes4(data) == REPAIR_POLICY_SELECTOR) {
-            if (data.length < 4 + 32 * 6) return false;
-            (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(_copy(data, 4), (address, uint256, uint256, uint256, uint256, address[]));
-            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, token, a, b, c, d, recipients));
-        }
-        return false;
+    /// @dev Accepts only canonical ABI encoding for direct delayed policy repair.
+    function _isExactPolicyRepair(bytes memory data) internal pure returns (bool) {
+        if (data.length < 4 + 32 * 6 || bytes4(data) != REPAIR_POLICY_SELECTOR) return false;
+        (address token, uint256 a, uint256 b, uint256 c, uint256 d, address[] memory recipients) = abi.decode(_copy(data, 4), (address, uint256, uint256, uint256, uint256, address[]));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_POLICY_SELECTOR, token, a, b, c, d, recipients));
     }
 
     /// @dev Accepts only canonical ABI encoding for immediate policy tightening.

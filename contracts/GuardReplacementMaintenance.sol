@@ -35,9 +35,18 @@ interface IERC1271Evidence {
 ///      through the verified Delay module; both setter calls are self-calls of
 ///      the Safe and therefore either both commit or both roll back.
 contract GuardReplacementMaintenance {
+    struct GuardRuntimeConfig {
+        address configuredSafe;
+        address passkey;
+        address burner;
+        address configuredDelay;
+        uint64 periodSeconds;
+        uint64 periodAnchor;
+    }
+
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x2ce73f0d8f57f18abfb7198fa0b027f1f4d025169518dac8b12c5da172b6f377;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x1673eb39c8885a620dd688e6998262ba0028986bd9eb151ad18fbd3fc7621815;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
@@ -45,6 +54,7 @@ contract GuardReplacementMaintenance {
 
     address public immutable safe;
     address public immutable delay;
+    address private immutable self;
 
     error OnlyDelay();
     error WrongExecutionContext();
@@ -58,6 +68,7 @@ contract GuardReplacementMaintenance {
         require(expectedSafe != address(0) && verifiedDelay != address(0), "zero address");
         safe = expectedSafe;
         delay = verifiedDelay;
+        self = address(this);
     }
 
     /// @notice Atomically replaces both Safe guard slots with a reviewed guard.
@@ -81,11 +92,12 @@ contract GuardReplacementMaintenance {
         if (expectedGuard == address(0) || replacement == address(0) || currentGuard != expectedGuard || currentModuleGuard != expectedGuard) revert InvalidReplacement();
         if (!_isApprovedGuardImplementation(replacement)) revert InvalidReplacement();
         if (!_supports(replacement, type(ITransactionGuard).interfaceId) || !_supports(replacement, type(IModuleGuard).interfaceId)) revert InvalidReplacement();
+        if (!_matchesReplacementGuardConfiguration(expectedGuard, replacement)) revert InvalidReplacement();
 
         (bool first,) = address(this).call(abi.encodeWithSignature("setGuard(address)", replacement));
         (bool second,) = address(this).call(abi.encodeWithSignature("setModuleGuard(address)", replacement));
-        (bool configured,) = replacement.call(abi.encodeWithSignature("setMaintenance(address)", address(this)));
-        if (!first || !second || !configured || !_matchesGuardConfiguration(replacement, address(0), 0) || !_hasMaintenance(replacement)) revert SetterFailed();
+        (bool configured,) = replacement.call(abi.encodeWithSignature("setMaintenance(address)", self));
+        if (!first || !second || !configured || !_hasMaintenance(replacement)) revert SetterFailed();
         assembly { sstore(LOCK_SLOT, 0) }
     }
 
@@ -154,7 +166,7 @@ contract GuardReplacementMaintenance {
     /// @dev Confirms a replacement guard recorded this helper as maintenance.
     function _hasMaintenance(address candidate) private view returns (bool) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardMaintenance.maintenance.selector));
-        return ok && result.length == 32 && abi.decode(result, (address)) == address(this);
+        return ok && result.length == 32 && abi.decode(result, (address)) == self;
     }
 
     /// @dev Checks the candidate guard still targets this Safe, Delay, and signer set.
@@ -162,19 +174,46 @@ contract GuardReplacementMaintenance {
     /// @param expectedOld Optional signer expected for the selected role.
     /// @param role Signer role to compare when expectedOld is provided.
     function _matchesGuardConfiguration(address candidate, address expectedOld, uint8 role) private view returns (bool) {
-        (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.config.selector));
-        if (!ok || result.length != 192) return false;
-        (address configuredSafe, address passkey, address burner, address configuredDelay, uint64 periodSeconds,) = abi.decode(
-            result,
-            (address, address, address, address, uint64, uint64)
-        );
+        (bool ok, GuardRuntimeConfig memory guardConfig) = _readGuardConfiguration(candidate);
+        if (!ok) return false;
         if (
-            configuredSafe != safe || configuredDelay != delay || periodSeconds != 86400 ||
-            passkey == address(0) || burner == address(0) ||
-            passkey == burner
+            guardConfig.configuredSafe != safe || guardConfig.configuredDelay != delay || guardConfig.periodSeconds != 86400 ||
+            guardConfig.passkey == address(0) || guardConfig.burner == address(0) ||
+            guardConfig.passkey == guardConfig.burner
         ) return false;
         if (expectedOld == address(0)) return true;
-        address configuredSigner = role == 0 ? passkey : role == 1 ? burner : address(0);
+        address configuredSigner = role == 0 ? guardConfig.passkey : role == 1 ? guardConfig.burner : address(0);
         return configuredSigner == expectedOld;
+    }
+
+    /// @dev Confirms replacement guards preserve current Safe, Delay, signer, and period binding.
+    function _matchesReplacementGuardConfiguration(address current, address replacement) private view returns (bool) {
+        (bool currentOk, GuardRuntimeConfig memory currentConfig) = _readGuardConfiguration(current);
+        (bool replacementOk, GuardRuntimeConfig memory replacementConfig) = _readGuardConfiguration(replacement);
+        if (!currentOk || !replacementOk) return false;
+        if (
+            currentConfig.configuredSafe != safe || replacementConfig.configuredSafe != safe ||
+            currentConfig.configuredDelay != delay || replacementConfig.configuredDelay != delay ||
+            currentConfig.periodSeconds != 86400 || replacementConfig.periodSeconds != currentConfig.periodSeconds ||
+            replacementConfig.periodAnchor != currentConfig.periodAnchor ||
+            currentConfig.passkey == address(0) || currentConfig.burner == address(0) ||
+            currentConfig.passkey == currentConfig.burner
+        ) return false;
+        return replacementConfig.passkey == currentConfig.passkey && replacementConfig.burner == currentConfig.burner;
+    }
+
+    /// @dev Reads the guard config ABI shared by approved guard implementations.
+    function _readGuardConfiguration(address candidate) private view returns (bool ok, GuardRuntimeConfig memory guardConfig) {
+        (bool callOk, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.config.selector));
+        if (!callOk || result.length != 192) return (false, guardConfig);
+        (
+            guardConfig.configuredSafe,
+            guardConfig.passkey,
+            guardConfig.burner,
+            guardConfig.configuredDelay,
+            guardConfig.periodSeconds,
+            guardConfig.periodAnchor
+        ) = abi.decode(result, (address, address, address, address, uint64, uint64));
+        return (true, guardConfig);
     }
 }
