@@ -57,7 +57,7 @@ export type DeploymentInfrastructureInput = Readonly<{
 
 type DependencyMap = Record<DependencyName, VerifiedDependency>;
 
-export type VerifiedDeploymentInfrastructure = Readonly<{
+export type DeploymentInfrastructure = Readonly<{
   chainId: number;
   deployer: Address;
   observedDeployerNonce: bigint;
@@ -70,6 +70,7 @@ export type VerifiedDeploymentInfrastructure = Readonly<{
   dependencies: DependencyMap;
 }>;
 
+export type VerifiedDeploymentInfrastructure = DeploymentInfrastructure;
 export type VerifiedDeployments = VerifiedDeploymentInfrastructure;
 
 const verifiedInfrastructure = new WeakSet<object>();
@@ -189,8 +190,8 @@ export async function resolveDeploymentInfrastructureRegistry(
   client: ReadOnlyDeploymentClient,
   input: DeploymentInfrastructureInput,
   registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry>,
-  options: Readonly<{ requireEvidence?: boolean; markVerified?: boolean }> = {},
-): Promise<VerifiedDeploymentInfrastructure> {
+  options: Readonly<{ requireEvidence?: boolean }> = {},
+): Promise<DeploymentInfrastructure> {
   if (typeof client.getTransactionCount !== "function") failClosed("deployer nonce reader is required");
   if (typeof client.readContract !== "function") failClosed("passkey binding reader is required");
 
@@ -220,9 +221,8 @@ export async function resolveDeploymentInfrastructureRegistry(
     multiSendCallOnly: dependencies.multiSendCallOnly,
     passkeySigner,
     dependencies,
-  }) satisfies VerifiedDeploymentInfrastructure;
+  }) satisfies DeploymentInfrastructure;
 
-  if (options.markVerified !== false) verifiedInfrastructure.add(result);
   return result;
 }
 
@@ -230,10 +230,11 @@ export async function resolveVerifiedDeploymentInfrastructure(
   client: ReadOnlyDeploymentClient,
   input: DeploymentInfrastructureInput,
 ): Promise<VerifiedDeploymentInfrastructure> {
-  return resolveDeploymentInfrastructureRegistry(client, input, OFFICIAL_DEPLOYMENT_REGISTRY, {
+  const result = await resolveDeploymentInfrastructureRegistry(client, input, OFFICIAL_DEPLOYMENT_REGISTRY, {
     requireEvidence: true,
-    markVerified: true,
   });
+  verifiedInfrastructure.add(result);
+  return result;
 }
 
 export async function resolveVerifiedDeployments(

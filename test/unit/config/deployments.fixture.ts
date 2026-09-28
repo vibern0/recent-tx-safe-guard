@@ -1,6 +1,7 @@
 import type {
   DeploymentInfrastructureInput,
   DeploymentInfrastructureRegistry,
+  DeploymentInfrastructure,
   DeploymentRegistry,
   ReadOnlyDeploymentClient,
   VerifiedDeploymentInfrastructure,
@@ -17,10 +18,9 @@ export async function resolveDeploymentInfrastructureFixture(
   client: ReadOnlyDeploymentClient,
   input: DeploymentInfrastructureInput,
   registry: DeploymentInfrastructureRegistry,
-): Promise<VerifiedDeploymentInfrastructure> {
+): Promise<DeploymentInfrastructure> {
   return resolveDeploymentInfrastructureRegistry(client, input, registry, {
     requireEvidence: false,
-    markVerified: true,
   });
 }
 

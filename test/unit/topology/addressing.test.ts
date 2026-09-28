@@ -33,31 +33,31 @@ describe("address derivation", () => {
 
   it("matches Safe 1.5 createProxyWithNonce CREATE2 derivation for the canonical Sepolia factory", () => {
     const base = {
-      factory: "0xA83c336B20401Af773B6219BA5027174338D1836" as Address,
+      factory: "0x14F2982D601c9458F93bd70B218933A6f8165e7b" as Address,
       singleton: "0xFf51A5898e281Db6DfC7855790607438dF2ca44b" as Address,
       proxyCreationCode: SAFE_PROXY_ARTIFACT.bytecode,
       initializer: "0xdeadbeef" as Hex,
       saltNonce: 123n,
     };
 
-    expect(deriveSafeProxyAddress(base)).to.equal("0x726D9e2CCB18b6c48cEa201B3640E788177257af");
+    expect(deriveSafeProxyAddress(base)).to.equal("0x3c9327F971b85954351ffB1027c4e9F9c72b6E5d");
     expect(deriveSafeProxyAddress({ ...base, initializer: "0xdeadbeee" as Hex })).to.equal(
-      "0xD03Bee0C10F838CABAC02cB822feB0510c29DCC9",
+      "0xdC0faDF50FCBB7e3BB4fD20e328a8bc4478AD97C",
     );
     expect(deriveSafeProxyAddress({ ...base, singleton: "0x0000000000000000000000000000000000000001" as Address })).to.not.equal(
-      "0x726D9e2CCB18b6c48cEa201B3640E788177257af",
+      "0x3c9327F971b85954351ffB1027c4e9F9c72b6E5d",
     );
     expect(deriveSafeProxyAddress({ ...base, factory: "0x0000000000000000000000000000000000000002" as Address })).to.not.equal(
-      "0x726D9e2CCB18b6c48cEa201B3640E788177257af",
+      "0x3c9327F971b85954351ffB1027c4e9F9c72b6E5d",
     );
     expect(deriveSafeProxyAddress({ ...base, saltNonce: 124n })).to.not.equal(
-      "0x726D9e2CCB18b6c48cEa201B3640E788177257af",
+      "0x3c9327F971b85954351ffB1027c4e9F9c72b6E5d",
     );
   });
 
   it("rejects invalid Safe proxy derivation inputs", () => {
     const base = {
-      factory: "0xA83c336B20401Af773B6219BA5027174338D1836" as Address,
+      factory: "0x14F2982D601c9458F93bd70B218933A6f8165e7b" as Address,
       singleton: "0xFf51A5898e281Db6DfC7855790607438dF2ca44b" as Address,
       proxyCreationCode: SAFE_PROXY_ARTIFACT.bytecode,
       initializer: "0xdeadbeef" as Hex,

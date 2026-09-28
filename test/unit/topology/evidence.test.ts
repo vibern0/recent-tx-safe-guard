@@ -114,10 +114,10 @@ const clientFor = (
 };
 
 describe("vault evidence", () => {
-  it("brands verified deployment infrastructure only after bytecode, nonce, and passkey binding reads match", async () => {
+  it("verifies injected-registry infrastructure without minting the production brand", async () => {
     const result = await resolveDeploymentInfrastructureFixture(clientFor(), input, fixtureRegistry());
 
-    expect(isVerifiedDeploymentInfrastructure(result)).to.equal(true);
+    expect(isVerifiedDeploymentInfrastructure(result)).to.equal(false);
     expect(result.chainId).to.equal(CHAIN_ID);
     expect(result.deployer).to.equal(addresses.deployer);
     expect(result.observedDeployerNonce).to.equal(17n);
