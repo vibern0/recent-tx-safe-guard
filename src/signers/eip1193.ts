@@ -36,7 +36,7 @@ async function providerState(provider: Eip1193Provider, expected: SafeSignerRequ
 
 export type Eip1193SignerOptions = Readonly<{ provider: Eip1193Provider; account: Address }>;
 
-export function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
+function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
   const seen = new Set<string>();
   return Object.freeze({
     address: options.account,
