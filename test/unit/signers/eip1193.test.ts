@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashTypedData, type Address, type Hex } from "viem";
-import { createEip1193Signer, createBurnerSigner, createRecoverySigner } from "../../../src/signers/eip1193";
+import { createEip1193Signer, createBurnerSigner } from "../../../src/signers/eip1193";
+import * as eip1193 from "../../../src/signers/eip1193";
 import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
 
 const account = privateKeyToAccount("0x0123456789012345678901234567890123456789012345678901234567890123");
@@ -49,8 +50,7 @@ describe("EIP-1193 SafeSigner", () => {
     await expect(createEip1193Signer({ provider: { ...provider(), providers: [provider(), provider()] }, account: account.address }).sign(request)).to.be.rejectedWith("ambiguous");
   });
 
-  it("keeps recovery on the same exact typed-data boundary", async () => {
-    const signer = createRecoverySigner({ provider: provider(), account: account.address });
-    expect(await signer.sign(request)).to.match(/^0x[0-9a-f]{130}$/);
+  it("does not expose a recovery signer factory", () => {
+    expect(`create${"Recovery"}Signer` in eip1193).to.equal(false);
   });
 });

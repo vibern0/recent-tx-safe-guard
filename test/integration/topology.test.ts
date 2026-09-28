@@ -5,7 +5,7 @@ import { buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../fixture
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
 const ev = (address: Address, version: string): any => ({ address, version, runtimeCodeHash: keccak256("0x6001"), source: "official-test-evidence", evidence: "verified" });
-const policy = { chainId: 31337, safe: a(1), passkey: a(2), burner: a(3), recovery: a(4), delay: a(5), periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: 3600, expirationSeconds: 86400, assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }] };
+const policy = { chainId: 31337, safe: a(1), passkey: a(2), burner: a(3), delay: a(5), periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: 3600, expirationSeconds: 86400, assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }] };
 const deployments: TopologyDeploymentEvidence = { safeSingleton: { ...ev(a(30), "1.5.0"), supportsModuleGuards: true }, safeProxyFactory: ev(a(31), "1.5.0"), guard: ev(a(6), "task7-reviewed"), delay: ev(a(5), "1.1.1") };
 
 describe("one-Safe setup integration gate", () => {

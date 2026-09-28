@@ -39,7 +39,7 @@ export function buildVaultPlanDraft(input: Readonly<{ policy: VaultPolicy; safeP
   if (input.policy.delay.toLowerCase() !== input.deployments.delay.address.toLowerCase()) throw new Error("policy Delay address does not match verified deployment Delay address");
   if (input.policy.safe.toLowerCase() !== input.safeProxy.toLowerCase()) throw new Error("Safe proxy does not match policy");
   if (input.safeProxySaltNonce < 0n) throw new Error("salt nonce must not be negative");
-  const owners = [input.policy.passkey, input.policy.burner, input.policy.recovery] as const;
+  const owners = [input.policy.passkey, input.policy.burner] as const;
   const safeInitializer = encodeFunctionData({ abi: SAFE_ABI, functionName: "setup", args: [owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO] });
   const safeProxyDeployment: UnsignedSetupCall = { to: input.deployments.safeProxyFactory.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce] }) };
   const setup: UnsignedSetupCall[] = [];

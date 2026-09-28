@@ -15,7 +15,6 @@ const config = {
   delay: address(3),
   passkey: address(4),
   burner: address(5),
-  recovery: address(6),
   safeSingleton: { address: address(7), runtimeCodeHash: hash(7) },
   delayDependency: { address: address(3), runtimeCodeHash: hash(3) },
   guardRuntimeCodeHash: hash(2),
@@ -36,8 +35,8 @@ const observed = {
   chainId: 11155111,
   policyHash: buildDeploymentPlan(config).policyHash,
   dependencies: { safeSingleton: { address: address(7), runtimeCodeHash: hash(7) }, delay: { address: address(3), runtimeCodeHash: hash(3) } },
-  safe: { address: address(1), singletonAddress: address(7), owners: [address(4), address(5), address(6)], threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
-  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), recovery: address(6), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
+  safe: { address: address(1), singletonAddress: address(7), owners: [address(4), address(5)], threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
+  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
   delay: { address: address(3), dependencyAddress: address(3), runtimeCodeHash: hash(3), owner: address(1), avatar: address(1), target: address(1), enabledUpstreamModules: [address(1)], cooldownSeconds: 86400, expirationSeconds: 172800 },
   queueFingerprints: [hash(10)],
   setupTransactionHashes: [hash(11)],
@@ -126,6 +125,7 @@ describe("Sepolia deployment runbook scripts", () => {
 
   it("rejects unknown or missing public configuration fields", () => {
     expect(() => buildDeploymentPlan({ ...config, unexpected: true })).to.throw("config.unexpected");
+    expect(() => buildDeploymentPlan({ ...config, recovery: address(6) })).to.throw(`config.${"recovery"}`);
     const incomplete = { ...config } as Record<string, unknown>;
     delete incomplete.safe;
     expect(() => buildDeploymentPlan(incomplete)).to.throw("config.safe");

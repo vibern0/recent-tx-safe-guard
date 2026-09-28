@@ -32,11 +32,6 @@ const DELAY_SELECTORS = new Set([
   "invalidate(bytes32)",
   "setTxNonce(uint256)",
 ].map((signature) => toFunctionSelector(signature).slice(2)));
-const RECOVERY_SELECTORS = new Set([
-  "cancel(bytes32)",
-  "freeze()",
-  "queueRepair(bytes)",
-].map((signature) => toFunctionSelector(signature).slice(2)));
 const SAFE_DELAYED_ABI = parseAbi([
   "function setGuard(address)",
   "function setModuleGuard(address)",
@@ -55,7 +50,6 @@ const DELAY_ABI = parseAbi([
   "function invalidate(bytes32)",
   "function setTxNonce(uint256)",
 ]);
-const RECOVERY_ABI = parseAbi(["function cancel(bytes32)", "function freeze()", "function queueRepair(bytes)"]);
 
 function same(a: string, b: string): boolean { return a.toLowerCase() === b.toLowerCase(); }
 
@@ -95,13 +89,6 @@ function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction
     if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("skipExpired()").slice(2)) return exactCall(DELAY_ABI, action.data, "skipExpired");
     if (action.data.slice(2, 10).toLowerCase() === toFunctionSelector("invalidate(bytes32)").slice(2)) return exactCall(DELAY_ABI, action.data, "invalidate");
     return exactCall(DELAY_ABI, action.data, "setTxNonce");
-  }
-  if (same(action.to, policy.recovery)) {
-    if (action.data.length < 10 || !RECOVERY_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
-    const selector = action.data.slice(2, 10).toLowerCase();
-    if (selector === toFunctionSelector("cancel(bytes32)").slice(2)) return exactCall(RECOVERY_ABI, action.data, "cancel");
-    if (selector === toFunctionSelector("freeze()").slice(2)) return exactCall(RECOVERY_ABI, action.data, "freeze");
-    return exactCall(RECOVERY_ABI, action.data, "queueRepair");
   }
   if (!same(action.to, policy.safe) || action.data.length < 10 || !DELAYED_SAFE_SELECTORS.has(action.data.slice(2, 10).toLowerCase())) return false;
   const functionName = ["setGuard", "setModuleGuard", "enableModule", "disableModule", "addOwnerWithThreshold", "removeOwner", "swapOwner", "changeThreshold", "setFallbackHandler", "setNonce"].find((name) => toFunctionSelector(`${name}(${name === "setGuard" || name === "setModuleGuard" || name === "enableModule" || name === "setFallbackHandler" ? "address" : name === "disableModule" ? "address,address" : name === "removeOwner" || name === "swapOwner" ? "address,address,address" : name === "addOwnerWithThreshold" ? "address,uint256" : "uint256"})`).slice(2) === action.data.slice(2, 10).toLowerCase());

@@ -76,7 +76,7 @@ function validateSnapshot(value: unknown, plan: ReturnType<typeof buildDeploymen
   exact(safe, ["address", "singletonAddress", "owners", "threshold", "fallbackHandler", "transactionGuard", "moduleGuard", "enabledModules"], "snapshot.safe");
   if (address(safe.address, "snapshot.safe.address") !== plan.deployments.safe) throw new Error("Safe address mismatch");
   if (address(safe.singletonAddress, "snapshot.safe.singletonAddress") !== address(singleton.address, "snapshot.dependencies.safeSingleton.address")) throw new Error("Safe singleton topology binding mismatch");
-  if (!equal(addresses(safe.owners, "snapshot.safe.owners"), [plan.deployments.passkey, plan.deployments.burner, plan.deployments.recovery])) throw new Error("owners mismatch");
+  if (!equal(addresses(safe.owners, "snapshot.safe.owners"), [plan.deployments.passkey, plan.deployments.burner])) throw new Error("owners mismatch");
   if (safe.threshold !== 1) throw new Error("threshold mismatch");
   if (address(safe.fallbackHandler, "snapshot.safe.fallbackHandler") !== ZERO_ADDRESS) throw new Error("fallback handler mismatch");
   if (address(safe.transactionGuard, "snapshot.safe.transactionGuard") !== plan.deployments.guard) throw new Error("transaction guard mismatch");
@@ -89,8 +89,8 @@ function validateSnapshot(value: unknown, plan: ReturnType<typeof buildDeploymen
   if (address(guard.address, "snapshot.guard.address") !== plan.deployments.guard) throw new Error("guard address mismatch");
   if (hash(guard.runtimeCodeHash, "snapshot.guard.runtimeCodeHash") !== plan.dependencies.guardRuntimeCodeHash) throw new Error("guard bytecode hash mismatch");
   const guardConfig = object(guard.config, "snapshot.guard.config");
-  exact(guardConfig, ["safe", "passkey", "burner", "recovery", "delay", "periodSeconds", "periodAnchor"], "snapshot.guard.config");
-  for (const key of ["safe", "passkey", "burner", "recovery", "delay"] as const) if (address(guardConfig[key], `snapshot.guard.config.${key}`) !== plan.deployments[key]) throw new Error(`guard ${key} mismatch`);
+  exact(guardConfig, ["safe", "passkey", "burner", "delay", "periodSeconds", "periodAnchor"], "snapshot.guard.config");
+  for (const key of ["safe", "passkey", "burner", "delay"] as const) if (address(guardConfig[key], `snapshot.guard.config.${key}`) !== plan.deployments[key]) throw new Error(`guard ${key} mismatch`);
   numberLike(guardConfig.periodSeconds, bigintValue(policy.periodSeconds, "config.policy.periodSeconds"), "guard periodSeconds");
   numberLike(guardConfig.periodAnchor, bigintValue(policy.periodAnchor, "config.policy.periodAnchor"), "guard periodAnchor");
 

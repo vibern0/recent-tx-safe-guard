@@ -73,7 +73,3 @@ export function createBurnerSigner(options: Eip1193SignerOptions): SafeSigner & 
     return `${signature}${toHex(65n, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
   }});
 }
-
-export function createRecoverySigner(options: Eip1193SignerOptions): SafeSigner {
-  return createEip1193Signer(options);
-}

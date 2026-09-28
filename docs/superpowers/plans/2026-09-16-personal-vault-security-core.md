@@ -6,6 +6,8 @@
 
 **Architecture:** One Safe holds all assets and has the passkey signer contract, Burner signer, and offline recovery signer as owners at Safe threshold 1. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
 
+> **2026-09-28 supersession:** Task 2 of the two-owner atomic deployment transport plan supersedes this plan's three-owner recovery topology for current code, tests, deployment examples, and verification. The active security-core interface uses exactly two ordered Safe owners, `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, `periodAnchor`. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of either factor is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use the older three-owner sections below as implementation requirements.
+
 **Tech Stack:** Solidity, TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, Safe passkey contracts, current `@gnosis-guild/zodiac` Delay deployments, OpenZeppelin signature utilities where reviewed, Mocha/Chai, Slither, Echidna or Foundry invariant tests, and a Sepolia fork.
 
 **Spec:** `docs/research/2026-09-16-personal-vault-research.md`

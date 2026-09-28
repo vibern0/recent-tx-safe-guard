@@ -4,6 +4,14 @@
 **Date:** 2026-09-16
 **Repository:** `recent-tx-safe-guard`
 
+## 2026-09-28 supersession: two-owner security-core prototype
+
+The active Task 2 baseline for the atomic deployment transport work supersedes the earlier three-owner recovery topology for code, configuration, deployment examples, and verification. The prototype now uses exactly two Safe owners, ordered `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, and `periodAnchor`.
+
+The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing either the passkey or Burner is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the two-owner call graph.
+
+Historical analysis in this document is left intact as evidence and product direction. Where it conflicts with this supersession note, the active two-owner Task 2 baseline controls implementation.
+
 ## Executive summary
 
 The original project idea remains valuable, but it should no longer be framed as only a recent-transaction guard. The stronger product is a single-Safe personal vault with three authorization tiers:

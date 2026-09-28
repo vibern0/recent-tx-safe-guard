@@ -76,7 +76,7 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
 
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
-  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "recovery", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash"]);
+  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash"]);
   if (config.formatVersion !== 1) throw new Error("config.formatVersion must be 1");
   if (config.network !== "sepolia" || config.chainId !== 11155111) throw new Error("planner is Sepolia-only");
   if (!Array.isArray(config.setupTransactionHashes) || !Array.isArray(config.expectedQueueFingerprints)) throw new Error("evidence arrays must be explicit");
@@ -88,7 +88,6 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     delay: address(config.delay, "delay"),
     passkey: address(config.passkey, "passkey"),
     burner: address(config.burner, "burner"),
-    recovery: address(config.recovery, "recovery"),
   };
   const singleton = record(config.safeSingleton, "safeSingleton");
   const delayDependency = record(config.delayDependency, "delayDependency");
