@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, hashTypedData, toFunctionSelector, type Address, type Hex } from "viem";
-import { createBurnerSigner, createRecoverySigner } from "../../src/signers/eip1193";
+import { createBurnerSigner } from "../../src/signers/eip1193";
 import { createTestPasskeySigner } from "../helpers/passkey";
 import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
 
@@ -27,8 +27,8 @@ function walletProvider(wallet: any, publicClient: any): Eip1193Provider {
 }
 
 describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard", () => {
-  it("accepts passkey base, requires Burner for step-up, queues delayed action, and restricts recovery", async () => {
-    const [deployer, burnerWallet, recoveryWallet, recipient] = await hre.viem.getWalletClients();
+  it("accepts passkey base, requires Burner for step-up, queues delayed action, and rejects EOA-only paths", async () => {
+    const [deployer, burnerWallet, arbitraryWallet, recipient] = await hre.viem.getWalletClients();
     const publicClient = await hre.viem.getPublicClient();
     const singleton = await hre.viem.deployContract("Safe");
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
@@ -36,11 +36,10 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     // Test-only ERC-1271 mock; this is not a WebAuthn implementation or deployment evidence.
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burnerWallet.account.address, recoveryWallet.account.address, delay.address, 86400n, 0n]]);
-    await safe.write.setup([[passkey.address, burnerWallet.account.address, recoveryWallet.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())), 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burnerWallet.account.address, delay.address, 86400n, 0n]]);
+    await safe.write.setup([[passkey.address, burnerWallet.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())), 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     await deployer.sendTransaction({ to: safe.address, value: 500n });
-    const provider = (wallet: typeof recoveryWallet) => walletProvider(wallet as never, publicClient);
-    const recovery = createRecoverySigner({ provider: provider(recoveryWallet), account: recoveryWallet.account.address });
+    const provider = (wallet: typeof burnerWallet) => walletProvider(wallet as never, publicClient);
     const passkeySigner = createTestPasskeySigner({ address: passkey.address, verifierAddress: passkey.address, chainId: 31337, provider: provider(deployer), sign: async () => "0x" });
     const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
@@ -49,7 +48,7 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
       return { chainId: 31337, safe: safe.address, safeTxHash: await safe.read.getTransactionHash([to, value, data, 0, 0n, 0n, 0n, ZERO, ZERO, nonce]), typedData };
     };
     const execute = async (to: Address, value: bigint, data: Hex, signatures: Hex) => safe.write.execTransaction([to, value, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
-    const ownerCall = async (to: Address, data: Hex) => { const req = await buildRequest(to, 0n, data); await execute(to, 0n, data, await recovery.sign(req)); };
+    const ownerCall = async (to: Address, data: Hex) => { const req = await buildRequest(to, 0n, data); await execute(to, 0n, data, await burnerWallet.signTypedData(req.typedData)); };
 
     await ownerCall(guard.address, encodeFunctionData({ abi: guardPolicyAbi, functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 150n, [recipient.account.address]] }));
     await ownerCall(delay.address, encodeFunctionData({ abi: enableAbi, functionName: "enableModule", args: [safe.address] }));
@@ -85,22 +84,23 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const secondDelayedRequest = await buildRequest(delay.address, 0n, secondDelayedData);
     await execute(delay.address, 0n, secondDelayedData, `${await passkeySigner.sign(secondDelayedRequest)}${(await burner.sign(secondDelayedRequest)).slice(2)}` as Hex);
     const invalidateRequest = await buildRequest(delay.address, 0n, encodeFunctionData({ abi: [{ name: "setTxNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "nonce", type: "uint256" }], outputs: [] }] as const, functionName: "setTxNonce", args: [2n] }));
-    await execute(delay.address, 0n, invalidateRequest.typedData.message.data, await recovery.sign(invalidateRequest));
+    await execute(delay.address, 0n, invalidateRequest.typedData.message.data, `${await passkeySigner.sign(invalidateRequest)}${(await burner.sign(invalidateRequest)).slice(2)}` as Hex);
     expect(await delay.read.txNonce()).to.equal(2n);
     await expect(delay.write.executeNextTx([recipient.account.address, 170n, "0x", 0])).to.be.rejectedWith("empty");
 
     const repairData = encodeFunctionData({ abi: guardPolicyAbi, functionName: "setAssetPolicy", args: [passkey.address, 40n, 90n, 40n, 140n, [recipient.account.address, burnerWallet.account.address]] });
     const repairRequest = await buildRequest(guard.address, 0n, repairData);
-    await expect(execute(guard.address, 0n, repairData, await recovery.sign(repairRequest))).to.be.rejected;
+    await expect(execute(guard.address, 0n, repairData, await burnerWallet.signTypedData(repairRequest.typedData))).to.be.rejected;
     expect((await guard.read.assetPolicy([passkey.address]))[3]).to.equal(0n);
     expect(await guard.read.allowedRecipient([passkey.address, burnerWallet.account.address])).to.equal(false);
 
-    const recoveryTransfer = await buildRequest(recipient.account.address, 1n, "0x");
-    await expect(execute(recipient.account.address, 1n, "0x", await recovery.sign(recoveryTransfer))).to.be.rejected;
+    const arbitraryTransfer = await buildRequest(recipient.account.address, 1n, "0x");
+    await expect(execute(recipient.account.address, 1n, "0x", await arbitraryWallet.signTypedData(arbitraryTransfer.typedData))).to.be.rejected;
 
     const freezeData = toFunctionSelector("freeze()") as Hex;
     const freezeRequest = await buildRequest(guard.address, 0n, freezeData);
-    await execute(guard.address, 0n, freezeData, await recovery.sign(freezeRequest));
+    await expect(execute(guard.address, 0n, freezeData, await passkeySigner.sign(freezeRequest))).to.be.rejected;
+    await execute(guard.address, 0n, freezeData, `${await passkeySigner.sign(freezeRequest)}${(await burner.sign(freezeRequest)).slice(2)}` as Hex);
     expect(await guard.read.frozen()).to.equal(true);
   });
 });

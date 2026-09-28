@@ -14,7 +14,7 @@ interface ISafeOwnerMaintenance {
 
 interface IGuardSignerRepair {
     /// @notice Returns the guard's configured Safe, signers, Delay, and period data.
-    function config() external view returns (address safe, address passkey, address burner, address recovery, address delay, uint64 periodSeconds, uint64 periodAnchor);
+    function config() external view returns (address safe, address passkey, address burner, address delay, uint64 periodSeconds, uint64 periodAnchor);
 
     /// @notice Replaces one signer role inside the guard configuration.
     function repairSigner(uint8 role, address expectedOld, address replacement) external;
@@ -93,7 +93,7 @@ contract GuardReplacementMaintenance {
     /// @dev Used by delayed signer repair so Safe ownership and guard policy do
     ///      not diverge. Role 0 replacements must provide ERC-1271 evidence.
     /// @param guard Current guard installed in both Safe guard slots.
-    /// @param role Signer role: 0 passkey, 1 Burner, 2 recovery.
+    /// @param role Signer role: 0 passkey, 1 Burner.
     /// @param expectedOld Current signer that must be present in guard config.
     /// @param replacement New signer for both guard config and Safe owners.
     /// @param previousOwner Previous Safe linked-list owner before expectedOld.
@@ -108,7 +108,7 @@ contract GuardReplacementMaintenance {
     ) external {
         if (msg.sender != delay) revert OnlyDelay();
         if (address(this) != safe) revert WrongExecutionContext();
-        if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || previousOwner == address(0) || replacement == expectedOld) revert InvalidReplacement();
+        if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || previousOwner == address(0) || replacement == expectedOld || role > 1 || threshold != 1) revert InvalidReplacement();
         address currentGuard;
         address currentModuleGuard;
         assembly {
@@ -163,18 +163,18 @@ contract GuardReplacementMaintenance {
     /// @param role Signer role to compare when expectedOld is provided.
     function _matchesGuardConfiguration(address candidate, address expectedOld, uint8 role) private view returns (bool) {
         (bool ok, bytes memory result) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.config.selector));
-        if (!ok || result.length != 224) return false;
-        (address configuredSafe, address passkey, address burner, address recovery, address configuredDelay, uint64 periodSeconds,) = abi.decode(
+        if (!ok || result.length != 192) return false;
+        (address configuredSafe, address passkey, address burner, address configuredDelay, uint64 periodSeconds,) = abi.decode(
             result,
-            (address, address, address, address, address, uint64, uint64)
+            (address, address, address, address, uint64, uint64)
         );
         if (
             configuredSafe != safe || configuredDelay != delay || periodSeconds != 86400 ||
-            passkey == address(0) || burner == address(0) || recovery == address(0) ||
-            passkey == burner || passkey == recovery || burner == recovery
+            passkey == address(0) || burner == address(0) ||
+            passkey == burner
         ) return false;
         if (expectedOld == address(0)) return true;
-        address configuredSigner = role == 0 ? passkey : role == 1 ? burner : role == 2 ? recovery : address(0);
+        address configuredSigner = role == 0 ? passkey : role == 1 ? burner : address(0);
         return configuredSigner == expectedOld;
     }
 }

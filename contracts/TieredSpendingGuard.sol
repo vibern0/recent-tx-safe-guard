@@ -18,7 +18,7 @@ interface IDelayPolicy {
     function txExpiration() external view returns (uint256);
 }
 
-/// @notice Safe guard that enforces passkey, Burner, recovery, and Delay policy.
+/// @notice Safe guard that enforces passkey, Burner, and Delay policy.
 /// @dev Installed as both the Safe transaction guard and module guard. The Safe
 ///      still validates the threshold signature first; this guard then narrows
 ///      which signer and transaction shape are acceptable for each policy tier.
@@ -29,7 +29,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         address safe;
         address passkey;
         address burner;
-        address recovery;
         address delay;
         uint64 periodSeconds;
         uint64 periodAnchor;
@@ -113,7 +112,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     constructor(GuardConfig memory initialConfig) {
         if (
             initialConfig.safe == address(0) || initialConfig.passkey == address(0) || initialConfig.burner == address(0) ||
-            initialConfig.recovery == address(0) || initialConfig.periodSeconds != 86400
+            initialConfig.delay == address(0) || initialConfig.passkey == initialConfig.burner || initialConfig.periodSeconds != 86400
         ) revert InvalidConfig();
         config = initialConfig;
     }
@@ -169,23 +168,22 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     /// @notice Freezes immediate transfer execution.
-    /// @dev Recovery can invoke this as an emergency action. The delayed repair
+    /// @dev Passkey plus Burner can invoke this as an emergency action. The delayed repair
     ///      paths remain available so the Safe is not permanently bricked.
     function freeze() external onlySafe {
         frozen = true;
     }
 
     /// @notice Repairs one configured signer after the delayed path approves it.
-    /// @param role Signer role: 0 passkey, 1 Burner, 2 recovery.
+    /// @param role Signer role: 0 passkey, 1 Burner.
     /// @param expectedOld Current signer that must still match guard config.
     /// @param replacement New signer address for the role.
     function repairSigner(uint8 role, address expectedOld, address replacement) external onlySafe {
-        if (replacement == address(0) || expectedOld == address(0) || replacement == config.passkey || replacement == config.burner || replacement == config.recovery || role > 2) revert InvalidRepair();
-        address current = role == 0 ? config.passkey : role == 1 ? config.burner : config.recovery;
+        if (replacement == address(0) || expectedOld == address(0) || replacement == config.passkey || replacement == config.burner || role > 1) revert InvalidRepair();
+        address current = role == 0 ? config.passkey : config.burner;
         if (current != expectedOld) revert InvalidRepair();
         if (role == 0) config.passkey = replacement;
-        else if (role == 1) config.burner = replacement;
-        else config.recovery = replacement;
+        else config.burner = replacement;
     }
 
     /// @notice Replaces one asset policy through the delayed repair path.
@@ -232,7 +230,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             AssetPolicy memory p = assetPolicy[token];
             assets[i] = keccak256(abi.encode(token, p.basePerTransaction, p.stepUpPerTransaction, p.baseDailyLimit, p.instantDailyLimit, policyRecipients[token]));
         }
-        return keccak256(abi.encode(block.chainid, config.safe, config.passkey, config.burner, config.recovery, config.delay, config.periodSeconds, config.periodAnchor, IDelayPolicy(config.delay).txCooldown(), IDelayPolicy(config.delay).txExpiration(), assets));
+        return keccak256(abi.encode(block.chainid, config.safe, config.passkey, config.burner, config.delay, config.periodSeconds, config.periodAnchor, IDelayPolicy(config.delay).txCooldown(), IDelayPolicy(config.delay).txExpiration(), assets));
     }
 
     /// @notice Reconstructs the Safe transaction hash this guard binds signatures to.
@@ -314,38 +312,32 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 currentNonce = ISafe(payable(config.safe)).nonce();
         if (currentNonce == 0) revert InvalidPasskeySignature();
         bytes32 txHash = PolicyDigest.safeTransactionHash(config.safe, to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, currentNonce - 1);
-        bool recoveryAction = _isRecoveryAction(to, value, data, operation);
         bool emergencyAction = _isEmergencyAction(to, value, data, operation);
-        (, uint256 ownerEnd, bool isContractSignature) = SafeSignatureDecoder.decode(signatures, txHash, recoveryAction);
-        (address passkeySigner,,) = SafeSignatureDecoder.decode(signatures, txHash, recoveryAction);
-        if (recoveryAction && !emergencyAction) {
-            if (passkeySigner != config.recovery) revert InvalidPasskeySignature();
-        } else if (emergencyAction) {
-            if (passkeySigner != config.passkey && passkeySigner != config.recovery) revert InvalidPasskeySignature();
-        } else if (passkeySigner != config.passkey || !isContractSignature) revert InvalidPasskeySignature();
-        if (passkeySigner == config.passkey && !isContractSignature) revert InvalidPasskeySignature();
+        (, uint256 ownerEnd, bool isContractSignature) = SafeSignatureDecoder.decode(signatures, txHash, false);
+        (address passkeySigner,,) = SafeSignatureDecoder.decode(signatures, txHash, false);
+        if (passkeySigner != config.passkey || !isContractSignature) revert InvalidPasskeySignature();
         try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, signatures, 1) {} catch { revert InvalidPasskeySignature(); }
 
+        bool burnerApproved = false;
         if (signatures.length > ownerEnd) {
-            if (recoveryAction && !emergencyAction) revert InvalidDelayedAction();
             bytes calldata burnerSignature = _burnerExtension(signatures, ownerEnd);
             if (!SignatureChecker.isValidSignatureNow(config.burner, txHash, burnerSignature)) revert InvalidBurnerSignature();
             bytes32 authorization = keccak256(abi.encode(txHash, keccak256(burnerSignature)));
             if (burnerAuthorizationUsed[authorization]) revert InvalidBurnerSignature();
             burnerAuthorizationUsed[authorization] = true;
+            burnerApproved = true;
         }
 
-        if (recoveryAction) {
-            if (emergencyAction && passkeySigner == config.passkey && signatures.length == ownerEnd) revert MissingBurnerExtension();
-            _authorizeRecovery(to, value, data, operation);
+        if (emergencyAction) {
+            if (!burnerApproved) revert MissingBurnerExtension();
         } else if (_isImmediateDelayTightening(to, value, data, operation)) {
-            if (signatures.length > ownerEnd) revert InvalidDelayedAction();
+            if (burnerApproved) revert InvalidDelayedAction();
         } else if (_isExactSetAssetPolicy(data) && to == address(this) && value == 0 && operation == Enum.Operation.Call) {
-            if (signatures.length > ownerEnd) revert InvalidDelayedAction();
+            if (burnerApproved) revert InvalidDelayedAction();
         } else if (_isQueueProposal(to, value, data, operation)) {
-            _authorizeQueueProposal(data, signatures.length > ownerEnd, recoveryAction);
+            _authorizeQueueProposal(data, burnerApproved);
         } else {
-            _authorizeTransfer(to, value, data, operation, signatures.length > ownerEnd);
+            _authorizeTransfer(to, value, data, operation, burnerApproved);
         }
     }
 
@@ -476,21 +468,20 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     /// @dev Validates the exact Delay queue tuple before it enters the queue.
     /// @param data Delay execTransactionFromModule calldata.
     /// @param burnerApproved Whether Burner approved the outer Safe transaction.
-    /// @param recoveryApproved Whether recovery signed this recovery-only path.
-    function _authorizeQueueProposal(bytes calldata data, bool burnerApproved, bool recoveryApproved) internal view {
+    function _authorizeQueueProposal(bytes calldata data, bool burnerApproved) internal view {
         if (data.length < 4 + 32 * 4) revert InvalidDelayedAction();
         (address target, uint256 value, bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
         if (keccak256(data) != keccak256(abi.encodeWithSelector(DELAY_QUEUE_SELECTOR, target, value, innerData, operation))) revert InvalidDelayedAction();
+        if (!burnerApproved) revert MissingBurnerExtension();
         if (operation == uint8(Enum.Operation.DelegateCall)) {
-            if (!_isMaintenanceAction(target, innerData) || (!burnerApproved && !recoveryApproved)) revert InvalidDelayedAction();
+            if (!_isMaintenanceAction(target, innerData)) revert InvalidDelayedAction();
             return;
         }
         if (operation != uint8(Enum.Operation.Call)) revert InvalidDelayedAction();
         if (target == address(this)) {
-            if (!_isExactRepair(innerData) || (!recoveryApproved && !burnerApproved)) revert InvalidRepair();
+            if (!_isExactRepair(innerData)) revert InvalidRepair();
             return;
         }
-        if (!burnerApproved) revert MissingBurnerExtension();
         (address token, address recipient, uint256 amount) = _decodeTransfer(target, value, innerData);
         AssetPolicy memory policy = assetPolicy[token];
         SpendState memory state = spendState[token];
@@ -534,26 +525,11 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         return (to, recipient, amount);
     }
 
-    /// @dev Identifies actions the recovery signer may approve directly or queue.
-    function _isRecoveryAction(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
-        if (value != 0 || operation != Enum.Operation.Call) return false;
-        if (to == address(this) && data.length == 4 && bytes4(data[:4]) == FREEZE_SELECTOR) return true;
-        if (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR) return true;
-        return _isQueueProposal(to, value, data, operation) && _queueContainsRepair(data);
-    }
-
-    /// @dev Identifies immediate emergency actions available to recovery.
+    /// @dev Identifies immediate emergency actions available to passkey plus Burner.
     function _isEmergencyAction(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
         if (value != 0 || operation != Enum.Operation.Call) return false;
         return (to == address(this) && data.length == 4 && bytes4(data[:4]) == FREEZE_SELECTOR) ||
             (to == config.delay && data.length == 36 && bytes4(data[:4]) == DELAY_SET_NONCE_SELECTOR);
-    }
-
-    /// @dev Checks whether a Delay queue call contains an approved repair action.
-    function _queueContainsRepair(bytes calldata data) internal view returns (bool) {
-        (address target, , bytes memory innerData, uint8 operation) = abi.decode(data[4:], (address, uint256, bytes, uint8));
-        return (operation == uint8(Enum.Operation.Call) && _isExactRepair(innerData)) ||
-            (operation == uint8(Enum.Operation.DelegateCall) && _isMaintenanceAction(target, innerData));
     }
 
     /// @dev Accepts only canonical ABI encoding for signer or policy repairs.
@@ -562,7 +538,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (bytes4(data) == REPAIR_SIGNER_SELECTOR) {
             if (data.length != 100) return false;
             (uint8 role, address expectedOld, address replacement) = abi.decode(_copy(data, 4), (uint8, address, address));
-            return keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, expectedOld, replacement));
+            return role < 2 && keccak256(data) == keccak256(abi.encodeWithSelector(REPAIR_SIGNER_SELECTOR, role, expectedOld, replacement));
         }
         if (bytes4(data) == REPAIR_POLICY_SELECTOR) {
             if (data.length < 4 + 32 * 6) return false;
@@ -624,11 +600,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             allowedRecipient[token][recipients[i]] = true;
             policyRecipients[token].push(recipients[i]);
         }
-    }
-
-    /// @dev Revalidates that a recovery-approved call is inside the recovery set.
-    function _authorizeRecovery(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view {
-        if (!_isRecoveryAction(to, value, data, operation)) revert InvalidDelayedAction();
     }
 
     /// @dev Reads an ERC-20 balance and rejects non-standard return shapes.

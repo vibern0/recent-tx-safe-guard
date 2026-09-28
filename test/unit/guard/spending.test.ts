@@ -6,17 +6,17 @@ const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
 describe("TieredSpendingGuard spending policy", () => {
   it("exposes a configured per-token policy and anchored spend state", async () => {
-    const [deployer, burner, recovery] = await hre.viem.getWalletClients();
+    const [deployer, burner] = await hre.viem.getWalletClients();
     const singleton = await hre.viem.deployContract("Safe");
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[
-      safe.address, passkey.address, burner.account.address, recovery.account.address,
-      ZERO, 86400n, 0n,
+      safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n,
     ]]);
-    const owners = [passkey.address, burner.account.address, recovery.account.address]
+    const owners = [passkey.address, burner.account.address]
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
 
