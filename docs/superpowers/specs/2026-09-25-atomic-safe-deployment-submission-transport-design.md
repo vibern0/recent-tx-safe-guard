@@ -1,6 +1,6 @@
 # Atomic Safe Deployment and Submission Transport Design
 
-**Status:** Revised design pending approval
+**Status:** Approved 2026-09-28
 
 **Date:** 2026-09-26
 
@@ -37,13 +37,13 @@ This two-owner decision supersedes the three-owner recovery topology in the 2026
 
 ### 1. Verified prerequisite deployments
 
-The planner consumes only the branded result of `resolveVerifiedDeployments`. The registry is extended to cover the Safe 1.5 `MultiSendCallOnly` deployment used during initialization. Every required address must have a pinned version, authoritative source, committed runtime bytecode hash, and matching live bytecode before planning begins.
+The planner consumes only the branded result of `resolveVerifiedDeploymentInfrastructure`. The registry is extended to cover the Safe 1.5 `MultiSendCallOnly` deployment used during initialization. Every already-deployed infrastructure address and the selected passkey signer must have a pinned version or reviewed artifact identity, authoritative source, committed runtime bytecode hash, matching live bytecode, and matching configuration before planning begins.
 
 The passkey signer is selected first. The non-upgradeable `TieredSpendingGuard`, reviewed Zodiac Delay instance, and reviewed guard-maintenance helper are then deployed before the Safe. Their constructors bind them to the predicted Safe address and final two-signer policy values.
 
 The guard and Delay addresses are needed inside the Safe initializer, while their constructors need the future Safe address. The planner resolves that dependency without a new contract: it accepts a reviewed deployment sender plus an exact starting nonce, predicts the three supporting-contract addresses from their contiguous `CREATE` nonces, builds the Safe initializer using those addresses, derives the Safe proxy address from the verified factory, singleton, initializer, and salt nonce, and finally encodes the supporting-contract creation transactions with that predicted Safe address. The unsigned plan fixes transaction order and nonce for every prerequisite deployment. Before each broadcast, the executor re-reads the sender nonce and aborts on any drift; a failed prerequisite deployment invalidates the remaining plan.
 
-Caller-supplied component or proxy addresses are accepted only when they equal these derivations. Before Safe creation, the planner re-reads every prerequisite runtime bytecode hash and immutable/configured binding. The undeployed Safe address is the only authority accepted by the new guard, Delay, and maintenance instances, so the prerequisite interval exposes no usable owner or module path.
+Caller-supplied component or proxy addresses are accepted only when they equal these derivations. The full unsigned plan may be rendered before the three supporting contracts exist, but its Safe creation transaction is not eligible for submission at that point. After the supporting deployment transactions land and immediately before Safe creation, the executor obtains branded prerequisite evidence by re-reading every prerequisite runtime bytecode hash and immutable/configured binding, and verifies that the sender nonce is exactly the planned next nonce. Partial deployment, mismatched evidence, or nonce drift invalidates the remainder of the plan. The undeployed Safe address is the only authority accepted by the new guard, Delay, and maintenance instances, so the prerequisite interval exposes no usable owner or module path.
 
 This design does not add a custom deployment or setup contract. If the existing contracts cannot be initialized safely through the approved path, implementation stops for a focused design proposal as required by `AGENTS.md`.
 
@@ -97,12 +97,12 @@ The first implementation defines the protocol, client, validation, and an inject
 ### Planning
 
 1. Read public policy input and verified dependency registry.
-2. Verify runtime code on the selected chain.
-3. Derive the canonical Safe initializer and predicted proxy address.
-4. Prove every prerequisite contract binds to that address and policy.
-5. Encode the call-only setup batch and proxy-factory transaction.
-6. Render an unsigned canonical plan and human-readable review summary.
-7. Refuse output if any invariant is missing or inconsistent.
+2. Verify infrastructure and passkey signer runtime code and bindings on the selected chain.
+3. Derive the canonical Safe initializer, predicted prerequisite addresses, and predicted proxy address.
+4. Encode the prerequisite deployments, call-only setup batch, and proxy-factory transaction.
+5. Render an unsigned canonical plan and human-readable review summary.
+6. After prerequisite deployment, prove each instance binds to the predicted Safe and policy and verify the exact next sender nonce.
+7. Refuse Safe creation if any invariant is missing or inconsistent.
 
 ### Authorized Safe submission
 
