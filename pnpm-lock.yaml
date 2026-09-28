@@ -22,6 +22,9 @@ importers:
       '@openzeppelin/contracts':
         specifier: 5.6.1
         version: 5.6.1
+      '@safe-global/safe-deployments':
+        specifier: 1.37.63
+        version: 1.37.63
       '@safe-global/safe-passkey':
         specifier: 0.2.0
         version: 0.2.0(ethers@5.4.0)
@@ -670,6 +673,10 @@ packages:
     resolution: {integrity: sha512-fP1jewywSwsIniM04NsqPyVRFKPMAuirC3ftA/TA4X3Zc5EnwQp/UCJUU2PL/37/z/jMo8UUaJ+pnFNWmMU7dQ==}
     peerDependencies:
       ethers: 5.4.0
+
+  '@safe-global/safe-deployments@1.37.63':
+    resolution: {integrity: sha512-dH4V3iHH5tZdxx3DBvvBzmnlOZpKMXUx6CBFGUwlARnUa9MEVVyg8Sbpc3DplsaPB5fLh0J97+WB5ylxhLWCRA==}
+    engines: {node: '>=22.0.0', pnpm: '>=10.16.0'}
 
   '@safe-global/safe-passkey@0.2.0':
     resolution: {integrity: sha512-B9IpVvwXLvK3m+BRhn9z8kCbEizFmua4YmaUBZ9yr0xM9YsX2PRTnxbFvC7pLph1OQ2u+9O2V3FEmPiS10YEIw==}
@@ -3329,6 +3336,10 @@ snapshots:
   '@safe-global/safe-contracts@1.4.1(ethers@5.4.0)':
     dependencies:
       ethers: 5.4.0
+
+  '@safe-global/safe-deployments@1.37.63':
+    dependencies:
+      semver: 7.8.5
 
   '@safe-global/safe-passkey@0.2.0(ethers@5.4.0)':
     dependencies:
