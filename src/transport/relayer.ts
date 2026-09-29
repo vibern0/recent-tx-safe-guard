@@ -145,7 +145,7 @@ async function validateSafe(request: SafeExecutionRequest, context: RelayerConte
 
 async function validateDelay(request: DelayExecutionRequest, context: RelayerContext, requestHash: Hex): Promise<SubmissionResult | undefined> {
   const liveNonce = await context.readers.delayNonce(request.delay);
-  if (liveNonce > request.queueNonce) return result(requestHash, "stale", "Delay queue nonce advanced");
+  if (liveNonce !== request.queueNonce) return result(requestHash, "stale", "Delay queue nonce is not executable head");
 
   const item = await context.readers.delayItem(request.delay, request.queueNonce);
   if (

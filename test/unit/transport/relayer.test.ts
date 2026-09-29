@@ -131,7 +131,7 @@ function context(overrides: Partial<RelayerContext["readers"]> = {}, receipts: R
     policyHash: async () => policyHash,
     spendState: async () => ({ window: 86400n, baseSpent: 0n, instantSpent: 11n }),
     delayItem: async () => ({ txHash: delayRequest().queueFingerprint, createdAt: 100n, to: recipient, value: 22n, data: "0x1234" as Hex, operation: 0 }),
-    delayNonce: async () => 0n,
+    delayNonce: async () => delayRequest().queueNonce,
     blockTimestamp: async () => 111n,
     receipt: async (hash: Hex) => receipts[hash.toLowerCase()],
     ...overrides,
@@ -272,6 +272,16 @@ describe("relayer validation", () => {
 
   it("rejects Delay cancellation nonce advancement before any broadcaster call", async () => {
     const ctx = context({ delayNonce: async () => delayRequest().queueNonce + 1n } as Partial<RelayerContext["readers"]>);
+
+    const result = await validateAndBroadcast(delayRequest(), ctx);
+
+    expect(result.kind).to.equal("stale");
+    expect(ctx.safeCalls).to.have.length(0);
+    expect(ctx.delayCalls).to.have.length(0);
+  });
+
+  it("rejects future Delay queue items that are not the live executable head", async () => {
+    const ctx = context({ delayNonce: async () => delayRequest().queueNonce - 1n });
 
     const result = await validateAndBroadcast(delayRequest(), ctx);
 
