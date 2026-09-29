@@ -38,6 +38,7 @@ export type RelayerContext = Readonly<{
     policyHash(guard: Address): Promise<Hex>;
     spendState(guard: Address, asset: Address): Promise<AssetSpendState>;
     delayItem(delay: Address, nonce: bigint): Promise<QueueItem>;
+    delayNonce(delay: Address): Promise<bigint>;
     blockTimestamp(): Promise<bigint>;
     receipt(hash: Hex): Promise<CanonicalReceipt | undefined>;
   }>;
@@ -123,10 +124,9 @@ async function validateCommon(request: SubmissionRequest, context: RelayerContex
   return undefined;
 }
 
-async function validateSafe(request: SafeExecutionRequest, context: RelayerContext, requestHash: Hex, nonceOnly = false): Promise<SubmissionResult | undefined> {
+async function validateSafe(request: SafeExecutionRequest, context: RelayerContext, requestHash: Hex): Promise<SubmissionResult | undefined> {
   const nonce = await context.readers.safeNonce(request.safe);
   if (nonce !== request.transaction.nonce) return result(requestHash, "stale", "Safe nonce drift");
-  if (nonceOnly) return undefined;
 
   const computedSafeTxHash = hashTypedData({
     domain: { chainId: request.chainId, verifyingContract: request.safe },
@@ -143,7 +143,10 @@ async function validateSafe(request: SafeExecutionRequest, context: RelayerConte
   return undefined;
 }
 
-async function validateDelay(request: DelayExecutionRequest, context: RelayerContext, requestHash: Hex, queueOnly = false): Promise<SubmissionResult | undefined> {
+async function validateDelay(request: DelayExecutionRequest, context: RelayerContext, requestHash: Hex): Promise<SubmissionResult | undefined> {
+  const liveNonce = await context.readers.delayNonce(request.delay);
+  if (liveNonce > request.queueNonce) return result(requestHash, "stale", "Delay queue nonce advanced");
+
   const item = await context.readers.delayItem(request.delay, request.queueNonce);
   if (
     item.createdAt === 0n ||
@@ -155,8 +158,6 @@ async function validateDelay(request: DelayExecutionRequest, context: RelayerCon
     !sameHex(queueFingerprint(request), request.queueFingerprint) ||
     item.createdAt !== request.createdAt
   ) return result(requestHash, "stale", "Delay queue drift");
-  if (queueOnly) return undefined;
-
   const now = await context.readers.blockTimestamp();
   const readyAt = request.createdAt + request.cooldownSeconds;
   if (now < readyAt) return result(requestHash, "stale", "Delay cooldown not elapsed");
@@ -164,6 +165,14 @@ async function validateDelay(request: DelayExecutionRequest, context: RelayerCon
     return result(requestHash, "stale", "Delay queue item expired");
   }
   return undefined;
+}
+
+async function validateSafeNow(request: SafeExecutionRequest, context: RelayerContext, requestHash: Hex): Promise<SubmissionResult | undefined> {
+  return await validateCommon(request, context, requestHash) ?? await validateSafe(request, context, requestHash);
+}
+
+async function validateDelayNow(request: DelayExecutionRequest, context: RelayerContext, requestHash: Hex): Promise<SubmissionResult | undefined> {
+  return await validateCommon(request, context, requestHash) ?? await validateDelay(request, context, requestHash);
 }
 
 function knownHash(error: unknown): Hex | undefined {
@@ -206,7 +215,7 @@ export async function validateAndBroadcast(input: SubmissionRequest, context: Re
       const stale = await validateSafe(request, context, requestHash);
       if (stale) return stale;
       const calldata = encodeSafeExecutionCalldata(request);
-      const recheck = await validateSafe(request, context, requestHash, true);
+      const recheck = await validateSafeNow(request, context, requestHash);
       if (recheck) return recheck;
       try {
         return await reconcile(await context.broadcaster.executeSafe(request.safe, calldata), requestHash, context);
@@ -219,7 +228,7 @@ export async function validateAndBroadcast(input: SubmissionRequest, context: Re
     const stale = await validateDelay(request, context, requestHash);
     if (stale) return stale;
     const calldata = encodeDelayExecutionCalldata(request);
-    const recheck = await validateDelay(request, context, requestHash, true);
+    const recheck = await validateDelayNow(request, context, requestHash);
     if (recheck) return recheck;
     try {
       return await reconcile(await context.broadcaster.executeDelay(request.delay, calldata), requestHash, context);

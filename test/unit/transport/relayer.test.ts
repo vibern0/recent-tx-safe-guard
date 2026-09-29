@@ -131,6 +131,7 @@ function context(overrides: Partial<RelayerContext["readers"]> = {}, receipts: R
     policyHash: async () => policyHash,
     spendState: async () => ({ window: 86400n, baseSpent: 0n, instantSpent: 11n }),
     delayItem: async () => ({ txHash: delayRequest().queueFingerprint, createdAt: 100n, to: recipient, value: 22n, data: "0x1234" as Hex, operation: 0 }),
+    delayNonce: async () => 0n,
     blockTimestamp: async () => 111n,
     receipt: async (hash: Hex) => receipts[hash.toLowerCase()],
     ...overrides,
@@ -233,6 +234,50 @@ describe("relayer validation", () => {
     const delayResult = await validateAndBroadcast(delayRequest(), delayCtx);
     expect(delayResult).to.include({ kind: "submitted", transactionHash: h(501), requestHash: submissionRequestHash(delayRequest()) });
     expect(delayCtx.delayCalls).to.deep.equal([{ target: delay, data: encodeDelayExecutionCalldata(delayRequest()) }]);
+  });
+
+  it("rejects Safe state drift during the final pre-broadcast re-read with zero broadcaster calls", async () => {
+    let spendReads = 0;
+    const ctx = context({
+      spendState: async () => {
+        spendReads++;
+        return spendReads === 1
+          ? { window: 86400n, baseSpent: 0n, instantSpent: 11n }
+          : { window: 86400n, baseSpent: 1n, instantSpent: 11n };
+      },
+    });
+
+    const result = await validateAndBroadcast(safeRequest(), ctx);
+
+    expect(result.kind).to.equal("stale");
+    expect(ctx.safeCalls).to.have.length(0);
+    expect(ctx.delayCalls).to.have.length(0);
+  });
+
+  it("rejects Delay state drift during the final pre-broadcast re-read with zero broadcaster calls", async () => {
+    let timestampReads = 0;
+    const ctx = context({
+      blockTimestamp: async () => {
+        timestampReads++;
+        return timestampReads === 1 ? 111n : 171n;
+      },
+    });
+
+    const result = await validateAndBroadcast(delayRequest(), ctx);
+
+    expect(result.kind).to.equal("stale");
+    expect(ctx.safeCalls).to.have.length(0);
+    expect(ctx.delayCalls).to.have.length(0);
+  });
+
+  it("rejects Delay cancellation nonce advancement before any broadcaster call", async () => {
+    const ctx = context({ delayNonce: async () => delayRequest().queueNonce + 1n } as Partial<RelayerContext["readers"]>);
+
+    const result = await validateAndBroadcast(delayRequest(), ctx);
+
+    expect(result.kind).to.equal("stale");
+    expect(ctx.safeCalls).to.have.length(0);
+    expect(ctx.delayCalls).to.have.length(0);
   });
 
   it("reconciles an accepted broadcaster timeout by known transaction hash and never rebroadcasts changed data", async () => {

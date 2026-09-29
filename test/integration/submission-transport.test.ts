@@ -6,6 +6,7 @@ import {
   getAddress,
   hashTypedData,
   keccak256,
+  parseAbiItem,
   type Address,
   type Hex,
 } from "viem";
@@ -26,6 +27,7 @@ process.env.NODE_ENV = "test";
 const h = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 const a = (n: number) => getAddress(`0x${n.toString(16).padStart(40, "0")}`);
 const freezeAbi = fn("freeze", []);
+const transactionAddedEvent = parseAbiItem("event TransactionAdded(uint256 indexed queueNonce, bytes32 indexed txHash, address to, uint256 value, bytes data, uint8 operation)");
 const replaceSignerAbi = fn("replaceSigner", [
   { name: "guard", type: "address" },
   { name: "role", type: "uint8" },
@@ -109,17 +111,21 @@ describe("submission transport", () => {
           return { window, baseSpent, instantSpent };
         },
         delayItem: async (_delay, nonce) => {
+          const logs = await publicClient.getLogs({ address: delay.address, event: transactionAddedEvent, fromBlock: 0n, toBlock: "latest" });
+          const log = logs.find((entry) => entry.args.queueNonce === nonce);
           const txHash = await delay.read.getTxHash([nonce]);
           const createdAt = await delay.read.getTxCreatedAt([nonce]);
+          if (!log) return { txHash, createdAt, to: ZERO, value: 0n, data: "0x" as Hex, operation: 0 };
           return {
             txHash,
             createdAt,
-            to: recipient.account.address,
-            value: 110n,
-            data: "0x" as Hex,
-            operation: 0,
+            to: getAddress(log.args.to),
+            value: log.args.value,
+            data: log.args.data,
+            operation: log.args.operation,
           };
         },
+        delayNonce: async () => delay.read.txNonce(),
         blockTimestamp: async () => BigInt((await publicClient.getBlock()).timestamp),
         receipt: async (hash) => {
           const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => undefined);
