@@ -76,7 +76,11 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
 
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
-  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash"]);
+  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "burner", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash", "atomicSafeCreation"]);
+  if (config.atomicSafeCreation === true) {
+    throw new Error("atomic Safe creation requires buildVaultPlan prerequisite evidence, expected runtime hashes, Safe proxy creation code, verified prerequisites, and assertSafeCreationReady");
+  }
+  if (config.atomicSafeCreation !== undefined && config.atomicSafeCreation !== false) throw new Error("config.atomicSafeCreation must be true or false");
   if (config.formatVersion !== 1) throw new Error("config.formatVersion must be 1");
   if (config.network !== "sepolia" || config.chainId !== 11155111) throw new Error("planner is Sepolia-only");
   if (!Array.isArray(config.setupTransactionHashes) || !Array.isArray(config.expectedQueueFingerprints)) throw new Error("evidence arrays must be explicit");

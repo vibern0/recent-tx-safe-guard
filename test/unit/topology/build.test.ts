@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { decodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
 import {
   assertSafeCreationReady,
   buildVaultPlan,
@@ -9,11 +9,13 @@ import {
 } from "../../../src/topology/build";
 import {
   resolveDeploymentInfrastructureRegistry,
+  brandVerifiedDeploymentInfrastructureForTestsOnly,
   type DeploymentInfrastructureRegistry,
   type ReadOnlyDeploymentClient,
   type VerifiedDeploymentInfrastructure,
 } from "../../../src/config/deployments";
 import { passkeySignerBindingHash } from "../../../src/topology/evidence";
+import { deriveSafeProxyAddress } from "../../../src/topology/addressing";
 import { type VaultPolicy } from "../../../src/config/policy";
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
@@ -22,6 +24,7 @@ const hash = (value: Hex) => keccak256(value);
 
 const SAFE_SETUP_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "address[]" }, { name: "threshold", type: "uint256" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }, { name: "fallbackHandler", type: "address" }, { name: "paymentToken", type: "address" }, { name: "payment", type: "uint256" }, { name: "paymentReceiver", type: "address" }], outputs: [] }] as const;
 const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
 
 const deployer = a(100);
 const startingNonce = 11n;
@@ -31,7 +34,7 @@ const components = {
   delay: getContractAddress({ from: deployer, nonce: startingNonce + 2n }),
   maintenance: getContractAddress({ from: deployer, nonce: startingNonce + 3n }),
 };
-const policy: VaultPolicy = {
+const policyBase = {
   chainId: 11155111,
   safe: a(1),
   passkey: a(2),
@@ -42,7 +45,7 @@ const policy: VaultPolicy = {
   cooldownSeconds: 3600,
   expirationSeconds: 86400,
   assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20), a(21)] }],
-};
+} satisfies VaultPolicy;
 const registry: DeploymentInfrastructureRegistry = {
   11155111: {
     safeSingleton: { name: "Safe singleton", version: "1.5.0", address: a(30), runtimeCodeHash: hash(code(30)), supportsModuleGuards: true, source: "test registry" },
@@ -57,47 +60,84 @@ async function verifiedInfrastructure(): Promise<VerifiedDeploymentInfrastructur
   const client: ReadOnlyDeploymentClient = {
     async getBytecode({ address }) {
       const entry = Object.values(registry[11155111]!).find((candidate) => candidate.address?.toLowerCase() === address.toLowerCase());
-      if (address.toLowerCase() === policy.passkey.toLowerCase()) return code(2);
+      if (address.toLowerCase() === policyBase.passkey.toLowerCase()) return code(2);
       return entry ? code(Number.parseInt(address.slice(-2), 16)) : undefined;
     },
     async getTransactionCount() { return startingNonce; },
     async readContract({ functionName }) {
-      if (functionName === "getSigner") return policy.passkey;
+      if (functionName === "getSigner") return policyBase.passkey;
       throw new Error(`unexpected read ${functionName}`);
     },
   };
-  return resolveDeploymentInfrastructureRegistry(client, {
+  const result = await resolveDeploymentInfrastructureRegistry(client, {
     chainId: 11155111,
     deployer,
     expectedDeployerNonce: startingNonce,
     passkeySigner: {
-      address: policy.passkey,
+      address: policyBase.passkey,
       runtimeCodeHash: hash(code(2)),
       bindingHash: passkeySignerBindingHash({ factory: registry[11155111]!.passkeySignerFactory.address!, x: 1n, y: 2n, verifiers: 32n }),
       source: "test passkey",
       binding: { x: 1n, y: 2n, verifiers: 32n },
     },
-  }, registry, { brandVerifiedInfrastructure: true });
+  }, registry);
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+  try {
+    return brandVerifiedDeploymentInfrastructureForTestsOnly(result);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
 }
 
-async function productionPlan(): Promise<VaultDeploymentPlan> {
+async function productionPlan(policy: VaultPolicy = policyBase): Promise<VaultDeploymentPlan> {
   return buildVaultPlan({
     policy,
     deployer,
     startingNonce,
     safeProxySaltNonce: 7n,
+    safeProxyCreationCode: code(44),
     setupHelperCreationCode: code(40),
     guardCreationCode: code(41),
     delayCreationCode: code(42),
     maintenanceCreationCode: code(43),
+    prerequisiteRuntimeCodeHashes: {
+      setupHelper: hash(code(80)),
+      guard: hash(code(81)),
+      delay: hash(code(82)),
+      maintenance: hash(code(83)),
+    },
     deployments: await verifiedInfrastructure(),
   });
 }
 
+async function derivedPolicy(): Promise<VaultPolicy> {
+  const deployments = await verifiedInfrastructure();
+  const helperData = encodeFunctionData({
+    abi: HELPER_ABI,
+    functionName: "setup",
+    args: [{
+      guard: components.guard,
+      delay: components.delay,
+      maintenance: components.maintenance,
+      passkey: policyBase.passkey,
+      burner: policyBase.burner,
+      periodSeconds: 86400n,
+      periodAnchor: policyBase.periodAnchor,
+      assets: policyBase.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
+    }],
+  });
+  const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey, policyBase.burner], 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });
+  const safe = deriveSafeProxyAddress({ factory: deployments.safeProxyFactory.address, singleton: deployments.safeSingleton.address, proxyCreationCode: code(44), initializer, saltNonce: 7n });
+  return { ...policyBase, safe };
+}
+
 describe("buildVaultPlan", () => {
   it("produces byte-identical unsigned production output with fixed owners, initializer, nonces, and addresses", async () => {
-    const first = await productionPlan();
-    const second = await productionPlan();
+    const policy = await derivedPolicy();
+    const first = await productionPlan(policy);
+    const second = await productionPlan(policy);
     const json = (value: unknown) => JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v);
 
     expect(json(first)).to.equal(json(second));
@@ -141,13 +181,18 @@ describe("buildVaultPlan", () => {
 
   it("fails closed on fabricated infrastructure, deployer nonce drift, and wrong deterministic Delay address", async () => {
     const deployments = await verifiedInfrastructure();
-    expect(() => buildVaultPlan({ policy, deployer, startingNonce, safeProxySaltNonce: 7n, setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), deployments: { ...deployments } as never })).to.throw("verified resolver");
-    expect(() => buildVaultPlan({ policy, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), deployments })).to.throw("nonce changed");
-    expect(() => buildVaultPlan({ policy: { ...policy, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), deployments })).to.throw("Delay address");
+    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments: { ...deployments } as never })).to.throw("verified resolver");
+    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments })).to.throw("nonce changed");
+    expect(() => buildVaultPlan({ policy: { ...policyBase, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments })).to.throw("Delay address");
+  });
+
+  it("rejects a policy Safe that differs from the Safe 1.5 factory derivation", async () => {
+    await expect(productionPlan(policyBase)).to.be.rejectedWith("derived Safe proxy address");
   });
 
   it("brands prerequisite evidence only after all four planned deployments and bindings match", async () => {
-    const plan = await productionPlan();
+    const policy = await derivedPolicy();
+    const plan = await productionPlan(policy);
     const deployed = new Map<Address, Hex>([
       [plan.prerequisites.setupHelper.expectedCreatedAddress, code(80)],
       [plan.prerequisites.guard.expectedCreatedAddress, code(81)],
@@ -171,6 +216,7 @@ describe("buildVaultPlan", () => {
     const missing = new Map(deployed);
     missing.delete(plan.prerequisites.delay.expectedCreatedAddress);
     await expect(verifyVaultPrerequisites({ ...client, async getBytecode({ address }) { return missing.get(address); } }, plan)).to.be.rejectedWith("delay is not deployed");
+    await expect(verifyVaultPrerequisites({ ...client, async getBytecode({ address }) { return address === plan.prerequisites.guard.expectedCreatedAddress ? code(99) : deployed.get(address); } }, plan)).to.be.rejectedWith("guard runtime code hash mismatch");
 
     const evidence = await verifyVaultPrerequisites(client, plan);
     expect(() => assertSafeCreationReady(plan, evidence, startingNonce)).to.throw("nonce drift");

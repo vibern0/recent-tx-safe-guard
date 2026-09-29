@@ -13,7 +13,7 @@ import {
   type ReadOnlyDeploymentClient,
   type VerifiedDeploymentInfrastructure,
 } from "../config/deployments";
-import { deriveComponentAddresses } from "./addressing";
+import { deriveComponentAddresses, deriveSafeProxyAddress } from "./addressing";
 import { type VerifiedComponent } from "./evidence";
 import { type UnsignedSetupCall } from "./multisend";
 
@@ -48,10 +48,17 @@ export type VaultPlanInput = Readonly<{
   deployer: Address;
   startingNonce: bigint;
   safeProxySaltNonce: bigint;
+  safeProxyCreationCode: Hex;
   setupHelperCreationCode: Hex;
   guardCreationCode: Hex;
   delayCreationCode: Hex;
   maintenanceCreationCode: Hex;
+  prerequisiteRuntimeCodeHashes: Readonly<{
+    setupHelper: Hex;
+    guard: Hex;
+    delay: Hex;
+    maintenance: Hex;
+  }>;
   deployments: VerifiedDeploymentInfrastructure;
 }>;
 
@@ -60,6 +67,7 @@ export type PlannedDeploymentTransaction = UnsignedSetupCall & Readonly<{
   description: string;
   expectedCreatedAddress: Address;
   creationCodeHash: Hex;
+  expectedRuntimeCodeHash: Hex;
 }>;
 
 export type VaultDeploymentPlan = Readonly<{
@@ -92,6 +100,7 @@ export type VaultDeploymentPlan = Readonly<{
     periodAnchor: bigint;
     policyHash: Hex;
     creationCodeHashes: Readonly<{ setupHelper: Hex; guard: Hex; delay: Hex; maintenance: Hex }>;
+    runtimeCodeHashes: Readonly<{ setupHelper: Hex; guard: Hex; delay: Hex; maintenance: Hex }>;
   }>;
 }>;
 
@@ -112,7 +121,7 @@ export function policyHash(policy: VaultPolicy): Hex {
 
 export function planHash(plan: VaultDeploymentPlan): Hex {
   return keccak256(encodeAbiParameters(
-    [{ type: "uint256" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }],
+    [{ type: "uint256" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }, { type: "address" }, { type: "bytes32" }, { type: "bytes32" }],
     [
       BigInt(plan.chainId),
       plan.deployer,
@@ -120,12 +129,16 @@ export function planHash(plan: VaultDeploymentPlan): Hex {
       plan.safeProxySaltNonce,
       plan.prerequisites.setupHelper.expectedCreatedAddress,
       plan.prerequisites.setupHelper.creationCodeHash,
+      plan.prerequisites.setupHelper.expectedRuntimeCodeHash,
       plan.prerequisites.guard.expectedCreatedAddress,
       plan.prerequisites.guard.creationCodeHash,
+      plan.prerequisites.guard.expectedRuntimeCodeHash,
       plan.prerequisites.delay.expectedCreatedAddress,
       plan.prerequisites.delay.creationCodeHash,
+      plan.prerequisites.delay.expectedRuntimeCodeHash,
       plan.prerequisites.maintenance.expectedCreatedAddress,
       plan.prerequisites.maintenance.creationCodeHash,
+      plan.prerequisites.maintenance.expectedRuntimeCodeHash,
       plan.safeProxyDeployment.expectedCreatedAddress,
       keccak256(plan.safeInitializer),
       plan.review.policyHash,
@@ -137,11 +150,15 @@ function assertCreationCode(value: Hex, label: string): void {
   if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(value)) throw new Error(`${label} creation code is required`);
 }
 
+function assertRuntimeHash(value: Hex, label: string): void {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error(`${label} runtime code hash is required`);
+}
+
 function same(left: Address, right: Address): boolean {
   return isAddressEqual(left, right);
 }
 
-function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
+function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedRuntimeCodeHash: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
   return {
     description,
     nonce,
@@ -151,6 +168,7 @@ function deployTransaction(description: string, deployer: Address, nonce: bigint
     data: creationCode,
     expectedCreatedAddress,
     creationCodeHash: keccak256(creationCode),
+    expectedRuntimeCodeHash,
   };
 }
 
@@ -168,6 +186,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     delay: input.delayCreationCode,
     maintenance: input.maintenanceCreationCode,
   })) assertCreationCode(code as Hex, label);
+  assertCreationCode(input.safeProxyCreationCode, "Safe proxy");
+  for (const [label, runtimeHash] of Object.entries(input.prerequisiteRuntimeCodeHashes)) assertRuntimeHash(runtimeHash as Hex, label);
 
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
@@ -196,6 +216,14 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     functionName: "createProxyWithNonce",
     args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce],
   });
+  const derivedSafeProxy = deriveSafeProxyAddress({
+    factory: input.deployments.safeProxyFactory.address,
+    singleton: input.deployments.safeSingleton.address,
+    proxyCreationCode: input.safeProxyCreationCode,
+    initializer: safeInitializer,
+    saltNonce: input.safeProxySaltNonce,
+  });
+  if (!same(input.policy.safe, derivedSafeProxy)) throw new Error("fail closed: policy Safe does not match derived Safe proxy address");
 
   return {
     unsigned: true,
@@ -205,10 +233,10 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     startingNonce: input.startingNonce,
     safeProxySaltNonce: input.safeProxySaltNonce,
     prerequisites: {
-      setupHelper: deployTransaction("deploy SafeAtomicSetupHelper", input.deployer, input.startingNonce, input.setupHelperCreationCode, components.setupHelper),
-      guard: deployTransaction("deploy TieredSpendingGuard", input.deployer, input.startingNonce + 1n, input.guardCreationCode, components.guard),
-      delay: deployTransaction("deploy Zodiac Delay", input.deployer, input.startingNonce + 2n, input.delayCreationCode, components.delay),
-      maintenance: deployTransaction("deploy GuardReplacementMaintenance", input.deployer, input.startingNonce + 3n, input.maintenanceCreationCode, components.maintenance),
+      setupHelper: deployTransaction("deploy SafeAtomicSetupHelper", input.deployer, input.startingNonce, input.setupHelperCreationCode, input.prerequisiteRuntimeCodeHashes.setupHelper, components.setupHelper),
+      guard: deployTransaction("deploy TieredSpendingGuard", input.deployer, input.startingNonce + 1n, input.guardCreationCode, input.prerequisiteRuntimeCodeHashes.guard, components.guard),
+      delay: deployTransaction("deploy Zodiac Delay", input.deployer, input.startingNonce + 2n, input.delayCreationCode, input.prerequisiteRuntimeCodeHashes.delay, components.delay),
+      maintenance: deployTransaction("deploy GuardReplacementMaintenance", input.deployer, input.startingNonce + 3n, input.maintenanceCreationCode, input.prerequisiteRuntimeCodeHashes.maintenance, components.maintenance),
     },
     safeProxyDeployment: {
       description: "create Vault Safe proxy with atomic helper initializer",
@@ -217,8 +245,9 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       value: 0n,
       operation: 0,
       data: factoryCall,
-      expectedCreatedAddress: input.policy.safe,
+      expectedCreatedAddress: derivedSafeProxy,
       creationCodeHash: keccak256(factoryCall),
+      expectedRuntimeCodeHash: keccak256(factoryCall),
     },
     safeInitializer,
     setupHelperCalldata,
@@ -241,17 +270,20 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
         delay: keccak256(input.delayCreationCode),
         maintenance: keccak256(input.maintenanceCreationCode),
       },
+      runtimeCodeHashes: input.prerequisiteRuntimeCodeHashes,
     },
   };
 }
 
-async function verifyCode(client: ReadOnlyDeploymentClient, name: VerifiedComponent["name"], address: Address, creationCodeHash: Hex): Promise<VerifiedComponent> {
+async function verifyCode(client: ReadOnlyDeploymentClient, name: VerifiedComponent["name"], address: Address, creationCodeHash: Hex, expectedRuntimeCodeHash: Hex): Promise<VerifiedComponent> {
   const runtimeCode = await client.getBytecode({ address });
   if (!runtimeCode || runtimeCode === "0x") throw new Error(`fail closed: ${name} is not deployed at planned address`);
+  const runtimeCodeHash = keccak256(runtimeCode);
+  if (runtimeCodeHash.toLowerCase() !== expectedRuntimeCodeHash.toLowerCase()) throw new Error(`fail closed: ${name} runtime code hash mismatch`);
   return Object.freeze({
     name,
     address,
-    runtimeCodeHash: keccak256(runtimeCode),
+    runtimeCodeHash,
     bindingHash: creationCodeHash,
     source: "planned prerequisite",
   });
@@ -272,10 +304,10 @@ async function readBigInt(client: ReadOnlyDeploymentClient, address: Address, ab
 }
 
 export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient, plan: VaultDeploymentPlan): Promise<VerifiedVaultPrerequisites> {
-  const setupHelper = await verifyCode(client, "setupHelper", plan.prerequisites.setupHelper.expectedCreatedAddress, plan.prerequisites.setupHelper.creationCodeHash);
-  const guard = await verifyCode(client, "guard", plan.prerequisites.guard.expectedCreatedAddress, plan.prerequisites.guard.creationCodeHash);
-  const delay = await verifyCode(client, "delay", plan.prerequisites.delay.expectedCreatedAddress, plan.prerequisites.delay.creationCodeHash);
-  const maintenance = await verifyCode(client, "maintenance", plan.prerequisites.maintenance.expectedCreatedAddress, plan.prerequisites.maintenance.creationCodeHash);
+  const setupHelper = await verifyCode(client, "setupHelper", plan.prerequisites.setupHelper.expectedCreatedAddress, plan.prerequisites.setupHelper.creationCodeHash, plan.prerequisites.setupHelper.expectedRuntimeCodeHash);
+  const guard = await verifyCode(client, "guard", plan.prerequisites.guard.expectedCreatedAddress, plan.prerequisites.guard.creationCodeHash, plan.prerequisites.guard.expectedRuntimeCodeHash);
+  const delay = await verifyCode(client, "delay", plan.prerequisites.delay.expectedCreatedAddress, plan.prerequisites.delay.creationCodeHash, plan.prerequisites.delay.expectedRuntimeCodeHash);
+  const maintenance = await verifyCode(client, "maintenance", plan.prerequisites.maintenance.expectedCreatedAddress, plan.prerequisites.maintenance.creationCodeHash, plan.prerequisites.maintenance.expectedRuntimeCodeHash);
 
   if (typeof client.readContract !== "function") throw new Error("fail closed: prerequisite binding reader is required");
   const guardConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "config" });

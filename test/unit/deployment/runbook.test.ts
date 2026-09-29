@@ -62,6 +62,10 @@ describe("Sepolia deployment runbook scripts", () => {
     expect(first.setupCalls.every((call) => !("signature" in call))).to.equal(true);
   });
 
+  it("fails closed when asked to emit atomic Safe creation without prerequisite evidence inputs", () => {
+    expect(() => buildDeploymentPlan({ ...config, atomicSafeCreation: true })).to.throw("atomic Safe creation requires buildVaultPlan prerequisite evidence");
+  });
+
   it("fails closed when any topology, policy, queue, or notification invariant differs", () => {
     const report = verifyDeployment(config, { ...observed, safe: { ...observed.safe, moduleGuard: address(99) } });
     expect(report.ok).to.equal(false);

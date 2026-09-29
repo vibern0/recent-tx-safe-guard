@@ -146,7 +146,7 @@ async function resolveInfrastructureDependencies(
   client: ReadOnlyDeploymentClient,
   chainId: number,
   registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry>,
-  options: Readonly<{ requireEvidence?: boolean; brandVerifiedInfrastructure?: boolean }> = {},
+  options: Readonly<{ requireEvidence?: boolean }> = {},
 ): Promise<DependencyMap> {
   if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
     failClosed(`unsupported chain ${chainId}`);
@@ -223,8 +223,15 @@ export async function resolveDeploymentInfrastructureRegistry(
     dependencies,
   }) satisfies DeploymentInfrastructure;
 
-  if (options.brandVerifiedInfrastructure === true) verifiedInfrastructure.add(result);
   return result;
+}
+
+export function brandVerifiedDeploymentInfrastructureForTestsOnly(value: DeploymentInfrastructure): VerifiedDeploymentInfrastructure {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only deployment infrastructure branding is disabled outside tests");
+  }
+  verifiedInfrastructure.add(value);
+  return value;
 }
 
 export async function resolveVerifiedDeploymentInfrastructure(
@@ -233,8 +240,8 @@ export async function resolveVerifiedDeploymentInfrastructure(
 ): Promise<VerifiedDeploymentInfrastructure> {
   const result = await resolveDeploymentInfrastructureRegistry(client, input, OFFICIAL_DEPLOYMENT_REGISTRY, {
     requireEvidence: true,
-    brandVerifiedInfrastructure: true,
   });
+  verifiedInfrastructure.add(result);
   return result;
 }
 
