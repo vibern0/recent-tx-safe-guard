@@ -366,7 +366,7 @@ The queue must show:
 
 ### Recovery
 
-Recovery should be rehearsed. The product should periodically remind the owner to verify the backup Burner card and offline recovery signer without moving funds or exposing secrets.
+Historical note: recovery-owner rehearsal guidance is superseded for the active two-owner prototype. The product should remind the owner to verify the backup Burner factor without moving funds or exposing secrets, but it must not describe, collect, or rely on an offline recovery signer until a separate delayed recovery design is written, reviewed, implemented, and tested.
 
 ## Assessment of the existing repository
 
@@ -464,7 +464,7 @@ The primary differentiation is the complete consumer workflow:
 The first security-core prototype should include:
 
 - One EVM test network
-- One Safe holding assets, with passkey, Burner, and recovery owners at threshold 1
+- One Safe holding assets, with exactly the passkey signer contract and Burner signer as owners at threshold 1, and no recovery owner
 - One non-upgradeable `TieredSpendingGuard` installed as transaction guard and module guard
 - One reviewed Zodiac Delay as the only enabled execution module
 - One native asset and selected ERC-20 assets
