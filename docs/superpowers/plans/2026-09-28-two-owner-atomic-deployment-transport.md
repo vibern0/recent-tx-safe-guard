@@ -399,4 +399,4 @@ Run: `git add docs config deployments scripts package.json test && git commit -m
 - [x] Request fresh whole-branch security review focused on Review Focus items, every ledger ruling, two-owner completeness, atomic setup, relayer non-authority.
 - [x] Fix Critical/Important findings once. Each fix starts with failing test, ends green focused/full suites, commits separately.
 - [x] Re-run complete repository gate and `git status --short`.
-- [ ] Push `codex/issue-5-atomic-deployment-transport` and open PR linked to #5. State live Sepolia rehearsal remains outstanding unless actually executed. Do not use `Closes #5` while gate open.
+- [x] Push `codex/issue-5-atomic-deployment-transport` and open PR linked to #5. State live Sepolia rehearsal remains outstanding unless actually executed. Do not use `Closes #5` while gate open.
