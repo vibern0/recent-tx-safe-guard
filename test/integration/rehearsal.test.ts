@@ -4,7 +4,7 @@ import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
-const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
+const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 
 describe("local time-controlled security rehearsal", () => {
   it("proves real X/Y spending, delayed cancellation/expiry/execution, and delayed two-owner repair", async () => {
@@ -88,7 +88,7 @@ describe("local time-controlled security rehearsal", () => {
     expect(await guard.read.frozen()).to.equal(true);
     const burnerIndex = owners.findIndex((owner) => owner.toLowerCase() === burner.account.address.toLowerCase());
     const previousOwner = (burnerIndex === 0 ? "0x0000000000000000000000000000000000000001" : owners[burnerIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, burner.account.address, replacement.account.address, previousOwner, 1n] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, burner.account.address, replacement.account.address, previousOwner, 1n, "0x"] });
     const repairQueue = await queue(0n, repair, maintenance.address, 1, burner, true);
     await expect(delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account })).to.be.rejected;
     await time.increase(11);

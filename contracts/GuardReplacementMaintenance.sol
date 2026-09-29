@@ -46,7 +46,7 @@ contract GuardReplacementMaintenance {
 
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x1673eb39c8885a620dd688e6998262ba0028986bd9eb151ad18fbd3fc7621815;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0xb10dd9585e36df855e33653ac258f6716f635cfcbf499e6029d7721cbcba4039;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
@@ -116,7 +116,8 @@ contract GuardReplacementMaintenance {
         address expectedOld,
         address replacement,
         address previousOwner,
-        uint256 threshold
+        uint256 threshold,
+        bytes calldata replacementProof
     ) external {
         if (msg.sender != delay) revert OnlyDelay();
         if (address(this) != safe) revert WrongExecutionContext();
@@ -128,7 +129,9 @@ contract GuardReplacementMaintenance {
             currentModuleGuard := sload(MODULE_GUARD_SLOT)
         }
         if (currentGuard != guard || currentModuleGuard != guard || !_matchesGuardConfiguration(guard, expectedOld, role)) revert InvalidReplacement();
-        if (role == 0 && !_hasContract1271Evidence(replacement)) revert InvalidReplacement();
+        if (role == 0) {
+            if (!_hasContract1271Evidence(replacement, guard, expectedOld, replacementProof)) revert InvalidReplacement();
+        } else if (replacementProof.length != 0) revert InvalidReplacement();
         (bool repaired,) = guard.call(abi.encodeWithSelector(IGuardSignerRepair.repairSigner.selector, role, expectedOld, replacement));
         (bool removed,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.removeOwner.selector, previousOwner, expectedOld, threshold));
         (bool added,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.addOwnerWithThreshold.selector, replacement, threshold));
@@ -153,12 +156,13 @@ contract GuardReplacementMaintenance {
     }
 
     /// @dev Confirms a passkey replacement is a contract exposing ERC-1271.
-    function _hasContract1271Evidence(address candidate) private view returns (bool) {
+    function _hasContract1271Evidence(address candidate, address guard, address expectedOld, bytes calldata replacementProof) private view returns (bool) {
         uint256 codeSize;
         assembly { codeSize := extcodesize(candidate) }
         if (codeSize == 0) return false;
+        bytes32 proofHash = keccak256(abi.encode("RecentTxSafeGuard.passkeyReplacement.v1", block.chainid, safe, delay, guard, expectedOld, candidate));
         (bool ok, bytes memory result) = candidate.staticcall(
-            abi.encodeWithSelector(IERC1271Evidence.isValidSignature.selector, bytes32(0), bytes("") )
+            abi.encodeWithSelector(IERC1271Evidence.isValidSignature.selector, proofHash, replacementProof)
         );
         return ok && result.length == 32 && abi.decode(result, (bytes4)) == ERC1271_MAGICVALUE;
     }

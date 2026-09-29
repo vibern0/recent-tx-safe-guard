@@ -1,25 +1,93 @@
 import { expect } from "chai";
 import { keccak256, type Address, type Hex } from "viem";
+import { brandVerifiedDeploymentInfrastructureForTestsOnly, type DeploymentInfrastructure } from "../../../src/config/deployments";
+import { policyHash, verifyVaultPrerequisites, type VaultDeploymentPlan, type VerifiedVaultPrerequisites } from "../../../src/topology/build";
 import { verifyTopology, type TopologyInput } from "../../../src/topology/verify";
-import { policyHash } from "../../../src/topology/build";
 import { type VaultPolicy } from "../../../src/config/policy";
 
+process.env.NODE_ENV = "test";
+
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
+const h = (n: number) => (`0x${n.toString(16).padStart(64, "0")}`) as Hex;
 const policy: VaultPolicy = { chainId: 31337, safe: a(1), passkey: a(2), burner: a(3), delay: a(5), periodSeconds: 86400, periodAnchor: 0n, cooldownSeconds: 3600, expirationSeconds: 86400, assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }] };
-const code = "0x6001" as Hex; const hash = keccak256(code); const zero = a(0);
+const code = "0x6001" as Hex; const runtimeHash = keccak256(code); const zero = a(0);
 const sentinel = a(1);
 const FALLBACK_HANDLER_SLOT = "0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5" as Hex;
 const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
 const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
 const slotWord = (address: Address) => `0x${"0".repeat(24)}${address.slice(2)}` as Hex;
-const dep = (address: Address, version: string) => ({ name: version, version, address, runtimeCodeHash: hash, source: "test" });
-const deployments = { chainId: 31337, dependencies: { safeSingleton: { ...dep(a(30), "1.5.0"), supportsModuleGuards: true }, safeProxyFactory: dep(a(31), "1.5.0"), passkeySignerFactory: dep(a(32), "0.2.0"), passkeySignerVerifier: dep(a(33), "0.2.0"), multiSend: dep(a(34), "1.5.0"), guard: dep(a(6), "task7-reviewed"), delay: dep(a(5), "1.1.1") } } as any;
-const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: [a(2), a(3)], getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel] };
-function fixture(overrides: Record<string, unknown> = {}): TopologyInput { const data = { ...values, ...overrides }; return { chainId: 31337, policy: (overrides.policy as VaultPolicy | undefined) ?? policy, safe: a(1), guard: a(6), delay: a(5), expectedSafeProxyCodeHash: hash, deployments, client: { getBytecode: async () => code, getStorageAt: async ({ slot }: { slot: Hex }) => slot === FALLBACK_HANDLER_SLOT ? data.fallbackSlot as Hex : slot === GUARD_SLOT ? data.guardSlot as Hex : slot === MODULE_GUARD_SLOT ? data.moduleGuardSlot as Hex : undefined, readContract: async ({ address, functionName }: { address: Address; functionName: string }) => functionName === "getModulesPaginated" ? (address === a(5) ? data.delayModulesPage : data.safeModulesPage) : data[functionName] } }; }
+const dep = (address: Address, version: string) => Object.freeze({ name: version, version, address, runtimeCodeHash: runtimeHash, evidence: "verified" as const, source: "test" });
+const dependency = dep(a(30), "1.5.0");
+const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.freeze({
+  chainId: 31337,
+  deployer: a(40),
+  observedDeployerNonce: 0n,
+  safeSingleton: { ...dependency, supportsModuleGuards: true },
+  safeProxyFactory: dep(a(31), "1.5.0"),
+  passkeySignerFactory: dep(a(32), "0.2.0"),
+  passkeySignerVerifier: dep(a(33), "0.2.0"),
+  multiSendCallOnly: dep(a(34), "1.5.0"),
+  passkeySigner: Object.freeze({ name: "passkeySigner" as const, address: a(2), runtimeCodeHash: runtimeHash, bindingHash: h(2), source: "test" }),
+  dependencies: Object.freeze({
+    safeSingleton: { ...dependency, supportsModuleGuards: true },
+    safeProxyFactory: dep(a(31), "1.5.0"),
+    passkeySignerFactory: dep(a(32), "0.2.0"),
+    passkeySignerVerifier: dep(a(33), "0.2.0"),
+    multiSendCallOnly: dep(a(34), "1.5.0"),
+  }),
+} satisfies DeploymentInfrastructure));
+const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: [a(2), a(3)], getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], maintenance: a(7), getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel], safe: a(1), delay: a(5) };
+
+function plan(): VaultDeploymentPlan {
+  const tx = (expectedCreatedAddress: Address) => ({ description: "test", nonce: 0n, to: zero, value: 0n, operation: 0 as const, data: code, expectedCreatedAddress, creationCodeHash: runtimeHash, expectedRuntimeCodeHash: runtimeHash });
+  return {
+    unsigned: true,
+    broadcast: false,
+    chainId: 31337,
+    deployer: a(40),
+    startingNonce: 0n,
+    safeProxySaltNonce: 0n,
+    prerequisites: { setupHelper: tx(a(4)), guard: tx(a(6)), delay: tx(a(5)), maintenance: tx(a(7)) },
+    safeProxyDeployment: { ...tx(a(1)), to: deployments.safeProxyFactory.address },
+    safeInitializer: "0x",
+    setupHelperCalldata: "0x",
+    review: { owners: [a(2), a(3)], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
+  };
+}
+
+async function prerequisites(overrides: Record<string, unknown> = {}): Promise<VerifiedVaultPrerequisites> {
+  const data = { ...values, ...overrides };
+  return verifyVaultPrerequisites({
+    getBytecode: async () => code,
+    readContract: async ({ address, functionName }: { address: Address; functionName: string }) => {
+      if (functionName === "config") return data.config;
+      if (functionName === "maintenance") return data.maintenance;
+      if (functionName === "safe") return data.safe;
+      if (functionName === "delay") return data.delay;
+      if (address === a(5) && functionName === "owner") return data.owner;
+      if (address === a(5) && functionName === "avatar") return data.avatar;
+      if (address === a(5) && functionName === "target") return data.target;
+      return data[functionName];
+    },
+  }, plan());
+}
+
+async function fixture(overrides: Record<string, unknown> = {}): Promise<TopologyInput> {
+  const data = { ...values, ...overrides };
+  return { chainId: 31337, policy: (overrides.policy as VaultPolicy | undefined) ?? policy, safe: a(1), guard: a(6), delay: a(5), expectedSafeProxyCodeHash: runtimeHash, deployments, prerequisites: (overrides.prerequisites as VerifiedVaultPrerequisites | undefined) ?? await prerequisites(), client: { getBytecode: async () => code, getStorageAt: async ({ slot }: { slot: Hex }) => slot === FALLBACK_HANDLER_SLOT ? data.fallbackSlot as Hex : slot === GUARD_SLOT ? data.guardSlot as Hex : slot === MODULE_GUARD_SLOT ? data.moduleGuardSlot as Hex : undefined, readContract: async ({ address, functionName }: { address: Address; functionName: string }) => functionName === "getModulesPaginated" ? (address === a(5) ? data.delayModulesPage : data.safeModulesPage) : data[functionName] } };
+}
 
 describe("verifyTopology", () => {
-  it("rejects structurally fabricated deployments before any topology report or RPC read", async () => { let reads = 0; const input = fixture(); input.client.getBytecode = async () => { reads += 1; return code; }; input.client.readContract = async () => { reads += 1; return undefined; }; const report = await verifyTopology(input); expect(report.ok).to.equal(false); expect(report.failures).to.deep.equal(["deployments: official resolver evidence required"]); expect(report.checked).to.deep.equal([]); expect(reads).to.equal(0); });
-  for (const [name, override] of [["singleton", { masterCopy: a(9) }], ["version", { VERSION: "1.3.0" }], ["owners", { getOwners: [a(2), a(3), a(4)] }], ["threshold", { getThreshold: 2n }], ["fallback", { fallbackSlot: slotWord(a(9)) }], ["transaction guard", { guardSlot: slotWord(a(9)) }], ["module guard", { moduleGuardSlot: slotWord(a(9)) }], ["modules", { safeModulesPage: [[a(5), a(9)], sentinel] }], ["guard config", { config: [a(9), a(2), a(3), a(5), 86400n, 0n] }], ["policy hash", { policyHash: keccak256("0x99") }], ["asset", { assetPolicy: [11n, 100n, 100n, 1000n] }], ["recipients", { getPolicyRecipients: [a(21)] }], ["counter", { spendState: [0n, 101n, 0n] }], ["Delay owner", { owner: a(9) }], ["Delay avatar", { avatar: a(9) }], ["Delay target", { target: a(9) }], ["cooldown", { txCooldown: 1n }], ["expiration", { txExpiration: 1n }], ["Delay upstream", { delayModulesPage: [[a(1), a(9)], sentinel] }]] as const) it(`fails closed on mutated ${name}`, async () => { const report = await verifyTopology(fixture(override)); expect(report.ok).to.equal(false); });
-  it("fails closed on missing bytecode or unavailable enumeration", async () => { const noCode = fixture(); noCode.client.getBytecode = async () => undefined; expect((await verifyTopology(noCode)).ok).to.equal(false); expect((await verifyTopology(fixture({ getConfiguredTokens: undefined }))).ok).to.equal(false); expect((await verifyTopology(fixture({ delayModulesPage: undefined }))).ok).to.equal(false); });
-  it("fails closed when policy Delay differs from verified deployment Delay", async () => { const mismatched = { ...policy, delay: a(9) }; expect((await verifyTopology(fixture({ policy: mismatched }))).ok).to.equal(false); });
+  it("accepts branded infrastructure plus branded vault prerequisite evidence", async () => {
+    const report = await verifyTopology(await fixture());
+    expect(report.ok, report.failures.join(", ")).to.equal(true);
+    expect(report.failures).to.deep.equal([]);
+  });
+
+  it("rejects structurally fabricated deployments before any topology report or RPC read", async () => { let reads = 0; const input = await fixture(); input.client.getBytecode = async () => { reads += 1; return code; }; input.client.readContract = async () => { reads += 1; return undefined; }; const report = await verifyTopology({ ...input, deployments: { ...deployments } as never }); expect(report.ok).to.equal(false); expect(report.failures).to.deep.equal(["deployments: official resolver evidence required"]); expect(report.checked).to.deep.equal([]); expect(reads).to.equal(0); });
+  it("rejects structurally fabricated vault prerequisites before any topology report or RPC read", async () => { let reads = 0; const input = await fixture(); input.client.getBytecode = async () => { reads += 1; return code; }; input.client.readContract = async () => { reads += 1; return undefined; }; const report = await verifyTopology({ ...input, prerequisites: { ...input.prerequisites } as never }); expect(report.ok).to.equal(false); expect(report.failures).to.deep.equal(["prerequisites: vault component evidence required"]); expect(report.checked).to.deep.equal([]); expect(reads).to.equal(0); });
+
+  for (const [name, override] of [["singleton", { masterCopy: a(9) }], ["version", { VERSION: "1.3.0" }], ["owners", { getOwners: [a(2), a(3), a(4)] }], ["threshold", { getThreshold: 2n }], ["fallback", { fallbackSlot: slotWord(a(9)) }], ["transaction guard", { guardSlot: slotWord(a(9)) }], ["module guard", { moduleGuardSlot: slotWord(a(9)) }], ["modules", { safeModulesPage: [[a(5), a(9)], sentinel] }], ["guard config", { config: [a(9), a(2), a(3), a(5), 86400n, 0n] }], ["policy hash", { policyHash: keccak256("0x99") }], ["asset", { assetPolicy: [11n, 100n, 100n, 1000n] }], ["recipients", { getPolicyRecipients: [a(21)] }], ["counter", { spendState: [0n, 101n, 0n] }], ["Delay owner", { owner: a(9) }], ["Delay avatar", { avatar: a(9) }], ["Delay target", { target: a(9) }], ["cooldown", { txCooldown: 1n }], ["expiration", { txExpiration: 1n }], ["Delay upstream", { delayModulesPage: [[a(1), a(9)], sentinel] }]] as const) it(`fails closed on mutated ${name}`, async () => { const report = await verifyTopology(await fixture(override)); expect(report.ok).to.equal(false); });
+  it("fails closed on missing bytecode or unavailable enumeration", async () => { const noCode = await fixture(); noCode.client.getBytecode = async () => undefined; expect((await verifyTopology(noCode)).ok).to.equal(false); expect((await verifyTopology(await fixture({ getConfiguredTokens: undefined }))).ok).to.equal(false); expect((await verifyTopology(await fixture({ delayModulesPage: undefined }))).ok).to.equal(false); });
+  it("fails closed when policy Delay differs from verified prerequisite Delay", async () => { const mismatched = { ...policy, delay: a(9) }; expect((await verifyTopology(await fixture({ policy: mismatched }))).ok).to.equal(false); });
 });

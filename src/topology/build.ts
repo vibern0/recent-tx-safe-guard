@@ -114,6 +114,10 @@ export type VerifiedVaultPrerequisites = Readonly<{
 
 const prerequisiteEvidence = new WeakSet<object>();
 
+export function isVerifiedVaultPrerequisites(value: unknown): value is VerifiedVaultPrerequisites {
+  return typeof value === "object" && value !== null && prerequisiteEvidence.has(value);
+}
+
 export function policyHash(policy: VaultPolicy): Hex {
   const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
   return keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32[]" }], [BigInt(policy.chainId), policy.safe, policy.passkey, policy.burner, policy.delay, BigInt(policy.periodSeconds), policy.periodAnchor, BigInt(policy.cooldownSeconds), BigInt(policy.expirationSeconds), assets]));

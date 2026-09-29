@@ -104,7 +104,7 @@ Run: `git add contracts test && git commit -m "refactor: enforce two-owner vault
 
 **Interfaces:**
 - Produces: `VaultPolicy` without `recovery`.
-- Produces: `verifyTopology(input): Promise<TopologyReport>` requiring ordered owners `[policy.passkey, policy.burner]` and six-field guard config.
+- Produces: `verifyTopology(input): Promise<TopologyReport>` requiring official resolver-branded infrastructure, branded vault prerequisite evidence, ordered owners `[policy.passkey, policy.burner]`, and six-field guard config.
 - Removes: `createRecoverySigner`.
 - Preserves: `createBurnerSigner` and generic internal EIP-1193 exact typed-data implementation.
 
@@ -302,7 +302,7 @@ Run: `git add src/transport test/unit/transport && git commit -m "feat: add exac
 
 **Interfaces:**
 - Produces: `validateAndBroadcast(request: SubmissionRequest, context: RelayerContext): Promise<SubmissionResult>`.
-- `RelayerContext` contains `readers: Readonly<{ chainId(): Promise<number>; deployments(): Promise<VerifiedDeploymentInfrastructure>; topology(safe: Address): Promise<TopologyReport>; safeNonce(safe: Address): Promise<bigint>; policyHash(guard: Address): Promise<Hex>; spendState(guard: Address, asset: Address): Promise<AssetSpendState>; delayItem(delay: Address, nonce: bigint): Promise<QueueItem>; blockTimestamp(): Promise<bigint>; receipt(hash: Hex): Promise<CanonicalReceipt | undefined> }>` and `broadcaster: Readonly<{ executeSafe(target: Address, exactCalldata: Hex): Promise<Hex>; executeDelay(target: Address, exactCalldata: Hex): Promise<Hex> }>`.
+- `RelayerContext` contains `readers: Readonly<{ chainId(): Promise<number>; deployments(): Promise<VerifiedDeploymentInfrastructure>; topology(safe: Address): Promise<TopologyReport>; safeNonce(safe: Address): Promise<bigint>; policyHash(guard: Address): Promise<Hex>; spendState(guard: Address, asset: Address): Promise<AssetSpendState>; delayItem(delay: Address, nonce: bigint): Promise<QueueItem>; delayNonce(delay: Address): Promise<bigint>; blockTimestamp(): Promise<bigint>; receipt(hash: Hex): Promise<CanonicalReceipt | undefined> }>` and `broadcaster: Readonly<{ executeSafe(target: Address, exactCalldata: Hex): Promise<Hex>; executeDelay(target: Address, exactCalldata: Hex): Promise<Hex> }>`.
 - Produces: `CanonicalReceipt = Readonly<{ transactionHash: Hex; blockNumber: bigint; blockHash: Hex; status: "success" | "reverted" }>`; reuse existing verified `QueueItem` shape from `src/monitoring/delay-events.ts`.
 - Produces: canonical `encodeSafeExecutionCalldata(request)` and `encodeDelayExecutionCalldata(request)`; broadcaster receives only these bytes and target address.
 

@@ -35,6 +35,7 @@ const replaceSignerAbi = fn("replaceSigner", [
   { name: "replacement", type: "address" },
   { name: "previousOwner", type: "address" },
   { name: "threshold", type: "uint256" },
+  { name: "replacementProof", type: "bytes" },
 ]);
 
 function verifiedDeployments(): VerifiedDeploymentInfrastructure {
@@ -168,7 +169,7 @@ describe("submission transport", () => {
     await expect(f.safe.write.execTransactionFromModule([f.recipient.account.address, 1n, "0x", 0], { account: f.deployer.account })).to.be.rejected;
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.safe.write.execTransaction([f.guard.address, 0n, freeze, 0, 0n, 0n, 0n, ZERO, ZERO, unauthorizedSignature], { account: f.deployer.account })).to.be.rejected;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, f.owners[0], 1n] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, f.owners[0], 1n, "0x"] });
     await expect(f.safe.write.execTransaction([f.maintenance.address, 0n, repair, 1, 0n, 0n, 0n, ZERO, ZERO, unauthorizedSignature], { account: f.deployer.account })).to.be.rejected;
 
     const spend = async (): Promise<SafeExecutionRequest["expectedSpend"]> => {

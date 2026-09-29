@@ -53,7 +53,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     bytes4 private constant DELAY_SET_NONCE_SELECTOR = 0x46ba2307; // setTxNonce(uint256)
     bytes4 private constant FREEZE_SELECTOR = bytes4(keccak256("freeze()"));
     bytes4 private constant REPLACE_GUARDS_SELECTOR = 0x7ec60d4f;
-    bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256)"));
+    bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256,bytes)"));
     bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
     bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
 
@@ -552,8 +552,15 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (maintenance == address(0) || target != maintenance || data.length < 4) return false;
         bytes4 selector = bytes4(data);
         if (selector == REPLACE_GUARDS_SELECTOR) return data.length == 68;
-        if (selector == REPLACE_SIGNER_SELECTOR) return data.length == 196;
+        if (selector == REPLACE_SIGNER_SELECTOR) return _isExactReplaceSignerMaintenance(data);
         return false;
+    }
+
+    /// @dev Accepts only canonical ABI encoding for delayed signer maintenance.
+    function _isExactReplaceSignerMaintenance(bytes memory data) internal pure returns (bool) {
+        if (data.length < 4 + 32 * 8 || bytes4(data) != REPLACE_SIGNER_SELECTOR) return false;
+        (address guard, uint8 role, address expectedOld, address replacement, address previousOwner, uint256 threshold, bytes memory proof) = abi.decode(_copy(data, 4), (address, uint8, address, address, address, uint256, bytes));
+        return keccak256(data) == keccak256(abi.encodeWithSelector(REPLACE_SIGNER_SELECTOR, guard, role, expectedOld, replacement, previousOwner, threshold, proof));
     }
 
     /// @dev Allows immediate Delay changes only when cooldown/expiration tighten.

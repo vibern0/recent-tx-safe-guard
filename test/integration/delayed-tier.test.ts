@@ -1,12 +1,12 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
 import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
-const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }]);
+const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 const replaceGuardsAbi = fn("replaceGuards", [{ name: "expectedGuard", type: "address" }, { name: "replacement", type: "address" }]);
 const setCooldownAbi = fn("setTxCooldown", [{ name: "cooldown", type: "uint256" }]);
 const setExpirationAbi = fn("setTxExpiration", [{ name: "expiration", type: "uint256" }]);
@@ -17,6 +17,11 @@ const repairPolicyAbi = fn("repairPolicy", [
 const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
 const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
 const itUnlessCoverage = process.env.SOLIDITY_COVERAGE === "true" ? it.skip : it;
+const passkeyRepairProofHash = (chainId: bigint, safe: Address, delay: Address, guard: Address, expectedOld: Address, replacement: Address): Hex =>
+  keccak256(encodeAbiParameters(
+    [{ type: "string" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }],
+    ["RecentTxSafeGuard.passkeyReplacement.v1", chainId, safe, delay, guard, expectedOld, replacement],
+  ));
 
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
@@ -116,7 +121,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const f = await fixture();
     const burnerIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.burner.account.address.toLowerCase());
     const previous = (burnerIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[burnerIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, previous, 1n] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
     const signature = await f.passkeyAndBurner(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
@@ -205,13 +210,33 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const f = await fixture();
     const passkeyIndex = f.owners.indexOf(f.passkey.address);
     const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, f.replacement.account.address, previous, 1n] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, f.replacement.account.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
     const signature = await f.passkeyAndBurner(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
     expect((await f.guard.read.config())[1].toLowerCase()).to.equal(f.passkey.address.toLowerCase());
+  });
+
+  it("rotates a passkey signer only with exact ERC-1271 replacement proof", async () => {
+    const f = await fixture();
+    const replacementPasskey = await hre.viem.deployContract("HashBound1271Signer");
+    const proof = "0x1234" as Hex;
+    const proofHash = passkeyRepairProofHash(31337n, f.safe.address, f.delay.address, f.guard.address, f.passkey.address, replacementPasskey.address);
+    await replacementPasskey.write.setAccepted([proofHash, proof], { account: f.deployer.account });
+    const passkeyIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.passkey.address.toLowerCase());
+    const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, replacementPasskey.address, previous, 1n, proof] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    await f.execute(f.delay.address, queued, signature);
+    await time.increase(10);
+    await f.executeNext(f.maintenance.address, 0n, repair, 1);
+
+    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(replacementPasskey.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.passkey.address.toLowerCase());
+    expect((await f.guard.read.config())[1].toLowerCase()).to.equal(replacementPasskey.address.toLowerCase());
   });
 
   it("permits only monotonic Delay tightening on the immediate owner path", async () => {

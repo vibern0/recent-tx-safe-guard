@@ -208,7 +208,7 @@ Recovery signature ────────────────────�
 Independent service ── step-up execution + delayed lifecycle alerts
 ```
 
-The product deploys exactly one Safe. That Safe holds the assets and lists the passkey signer contract, Burner signer, and offline recovery signer as owners at threshold 1. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires additional self-authenticating signatures when the tier demands them. A Burner-only or recovery-only Safe transaction therefore passes the Safe's basic threshold check but is rejected by the guard unless it is one of the narrowly allowed emergency or recovery actions.
+Historical note: the following diagram and the original recovery-owner wording in this section are superseded by the two-owner amendment in `docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md`. The active prototype deploys exactly one Safe with exactly the passkey signer contract and Burner signer as owners at threshold 1; it has no recovery owner, recovery signer adapter, or active recovery selector. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires additional self-authenticating Burner signatures when the tier demands them. Burner-only transactions are rejected by the guard.
 
 The guard is installed as both the Safe transaction guard and Safe 1.5 module guard. Exactly one execution module is enabled: a reviewed Zodiac Delay instance whose owner, avatar, and target are the Safe. The Safe itself is the only Delay proposer. Owner transactions may queue through Delay only when the guard validates the inner action and required signers; Delay is the only module allowed to execute against the Safe. Every other owner or module path is denied.
 
@@ -235,7 +235,7 @@ For transfers, the Safe-validated threshold signature must be the configured pas
 
 Step-up and delayed proposals carry a Burner co-signature in a typed signature extension. The Burner signs the exact Safe transaction hash recomputed by the guard. The extension is not trusted merely because it is appended to the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
 
-The recovery owner may directly authorize only cancellation and immediate security-tightening functions. It may queue a strictly enumerated signer-recovery or policy-repair action through Delay, but it cannot queue or execute an asset transfer.
+Historical note: the recovery-owner rule above is superseded for the active prototype. There is no recovery owner. Cancellation, freeze, queued signer repair, and queued policy repair require the configured passkey plus Burner path described in the two-owner plan. Loss of either factor is an accepted testnet availability risk until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed.
 
 For the highest assurance, the root passkey should be device-bound or held on a hardware security key. A synced passkey is still materially stronger than SMS or a reusable password, but its cloud-account recovery domain must be included in the threat model.
 
@@ -264,7 +264,7 @@ The first MVP should use token-denominated limits. USD-denominated aggregate lim
 
 ### Delayed tier
 
-When a recognized transfer would make shared daily spending exceed Y, the guard rejects direct execution and permits only a call from the Safe to queue that exact transfer in Delay. The queue transaction requires the passkey Safe signature plus the Burner signature extension. Security-weakening configuration changes use the same delayed path; narrowly enumerated recovery repairs may instead be queued by the recovery owner. Approval does not immediately execute the action. The queue record must bind:
+When a recognized transfer would make shared daily spending exceed Y, the guard rejects direct execution and permits only a call from the Safe to queue that exact transfer in Delay. The queue transaction requires the passkey Safe signature plus the Burner signature extension. Security-weakening configuration changes and signer repair use the same delayed two-owner path; no recovery owner may queue repair in the active prototype. Approval does not immediately execute the action. The queue record must bind:
 
 - Chain ID
 - Safe address
@@ -288,7 +288,7 @@ Every confirmed step-up execution must also produce an independent notification 
 
 At least one notification channel must be independent from the proposing browser session. Examples include a second-device push notification, email with no signing capability, or an operator-selected webhook. Notification compromise must not authorize spending.
 
-The recovery owner may invalidate queued items and freeze both instant tiers through exact guard allowlists, but it cannot transfer funds, raise limits, shorten the delay, expand permissions, remove enforcement, or execute recovery immediately. The passkey-plus-Burner pair may also cancel. Because Zodiac Delay is ordered, advancing its transaction nonce may invalidate earlier queued items; the cancellation builder and UI must enumerate every affected nonce before approval.
+In the active two-owner prototype, the passkey-plus-Burner pair may invalidate queued items and freeze both instant tiers through exact guard allowlists. There is no recovery owner. Because Zodiac Delay is ordered, advancing its transaction nonce may invalidate earlier queued items; the cancellation builder and UI must enumerate every affected nonce before approval.
 
 ### Policy and recovery changes
 
@@ -299,7 +299,7 @@ Changes that weaken security must not become effective immediately:
 - Adding a token, recipient, function, signer, module, or guard exception
 - Removing a signer, guard, or module that participates in enforcement
 - Expanding message-signing capability
-- Changing recovery authority
+- Changing future recovery authority, if a later separately reviewed recovery design is added
 
 Security-tightening actions may be immediate:
 
