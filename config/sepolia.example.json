@@ -44,7 +44,7 @@
   "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "setupCalls": [
     {
-      "description": "Replace with decoded atomic Safe setup calls after independently reviewed deployment",
+      "description": "Replace with decoded two-owner atomic Safe setup calls after independently reviewed deployment",
       "to": "0x0000000000000000000000000000000000000001",
       "value": "0",
       "data": "0x"

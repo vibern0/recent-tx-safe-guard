@@ -36,6 +36,8 @@ The selected passkey signer instance is component evidence, not an official Safe
 
 Task 6 integration compiles the pinned Zodiac Delay v1.1.1 source at commit `30f3aafa9b3be3425bcac390fe6ab6bd9afb5f16` as `contracts/test/ZodiacDelayV1_1_1.sol`. This is a test fixture, not a production artifact or deployment claim. Its test-only Zodiac core compatibility surface exists solely because the installed zodiac-core package uses newer transient-storage syntax than the repository's pinned Solidity compiler; it is not a deployment dependency or a substitute for deployed bytecode verification. The production resolver fails closed when official deployment evidence is absent, before accepting an address or runtime hash.
 
+Task 7 adds no new dependency. `npm run package:sepolia-rehearsal` packages only public unsigned artifacts derived from the redacted Sepolia config: unsigned plan, decoded review, public manifest, and expected evidence hashes. It rejects signatures, secrets, RPC URLs, private keys, Burner PINs, broadcast instructions, and recovery fields before writing package files. The package is review material only; live Sepolia execution and independent review remain outstanding.
+
 ## Codacy PR #2 dependency findings
 
 Codacy PR #2 identified transitive `elliptic@6.5.4` and `ws` 7.x/8.x releases with security findings. `elliptic` is pinned through an npm override to `6.6.1`; `ws` is pinned by major family (`7.5.11` and `8.21.3`) so the Ethers 5 and Ethers 6 consumers retain their respective major APIs. These are tooling and signer-library transitive dependencies, not direct vault runtime dependencies. Their exact resolution is recorded in `package-lock.json`; rerun the test suite after any override change.

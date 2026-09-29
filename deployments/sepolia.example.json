@@ -8,6 +8,7 @@
   "delay": "0x0000000000000000000000000000000000000003",
   "passkey": "0x0000000000000000000000000000000000000004",
   "burner": "0x0000000000000000000000000000000000000005",
+  "safeOwners": ["0x0000000000000000000000000000000000000004", "0x0000000000000000000000000000000000000005"],
   "dependencyHashes": {
     "safeSingletonRuntime": "0x0000000000000000000000000000000000000000000000000000000000000007",
     "delayRuntime": "0x0000000000000000000000000000000000000000000000000000000000000003",
@@ -49,7 +50,7 @@
   "expectedQueueFingerprints": [],
   "setupCalls": [
     {
-      "description": "Replace with decoded atomic Safe setup calls after independently reviewed deployment",
+      "description": "Replace with decoded two-owner atomic Safe setup calls after independently reviewed deployment",
       "to": "0x0000000000000000000000000000000000000001",
       "value": "0",
       "data": "0x"
@@ -58,5 +59,6 @@
   "policyHash": "0x89ebbf7149255bcff1d0e8adcf307859679983dde0a131c34d269ef700fe6e52",
   "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "verificationReportHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-  "redaction": "No secrets, signatures, seed phrases, passkey material, Burner PINs, provider tokens, or private RPC credentials"
+  "liveSepoliaRehearsal": "OUTSTANDING_UNTIL_HUMAN_REVIEW_AND_LOW_VALUE_EXECUTION",
+  "redaction": "Public manifest only: no secrets, seed phrases, passkey material, Burner PINs, provider tokens, private RPC credentials, broadcast instructions, or recovery fields"
 }

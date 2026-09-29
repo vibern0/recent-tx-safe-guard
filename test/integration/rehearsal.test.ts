@@ -21,6 +21,7 @@ describe("local time-controlled security rehearsal", () => {
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
     const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
+    expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
     const sign = async (to: Address, value: bigint, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data, { chainId: network, value });

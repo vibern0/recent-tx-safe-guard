@@ -361,33 +361,33 @@ Run: `git add src/transport test/unit/transport test/integration && git commit -
 - Produces: `npm run package:sepolia-rehearsal -- <public-config> <output-dir>` containing only unsigned plan, decoded review, public manifest, expected evidence hashes.
 - Preserves: `npm run rehearse` as local Hardhat-only, secret-rejecting, non-broadcast proof.
 
-- [ ] **Step 1: Write failing rehearsal-package and documentation consistency tests**
+- [x] **Step 1: Write failing rehearsal-package and documentation consistency tests**
 
 Assert package contains no signatures, secrets, RPC URLs, private keys, Burner PINs, broadcast instruction. Assert owners exactly passkey/Burner. Assert hashes match canonical plan. Assert recovery fields rejected. Assert checked-in call graph, research amendment, plan checklist, runbook use same two-owner terms.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `npm run test:unit -- --grep "Sepolia deployment runbook|rehearsal input|two-owner documentation"`
 
 Expected: FAIL because package command and aligned documents do not exist yet.
 
-- [ ] **Step 3: Implement packaging and finish security documentation**
+- [x] **Step 3: Implement packaging and finish security documentation**
 
 Document prerequisite deployment, atomic setup, Safe submission, Delay execution, cancellation/freeze, signer repair, forbidden paths, lost-factor availability risk, future-recovery boundary. Mark only checks proven by committed automated evidence. Leave live low-value Sepolia rehearsal unchecked until human reviews and signs package.
 
-- [ ] **Step 4: Run complete repository gate**
+- [x] **Step 4: Run complete repository gate**
 
 Run: `npm run build && npm test && npm run test:invariant && npm run coverage && npm run slither && npm run rehearse && git diff --check`
 
 Expected: all commands exit 0; 0 test failures; Slither has no unreviewed finding; local rehearsal reports Hardhat chain 31337, unsigned, non-broadcast.
 
-- [ ] **Step 5: Generate and inspect unsigned example package**
+- [x] **Step 5: Generate and inspect unsigned example package**
 
 Run: `npm run package:sepolia-rehearsal -- config/sepolia.example.json /tmp/recent-tx-safe-guard-issue-5-rehearsal`
 
 Expected: deterministic public artifacts only. Record human signing/live-Sepolia gate outstanding. Do not fabricate transaction hashes or mark issue #5 complete.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `git add docs config deployments scripts package.json test && git commit -m "docs: package two-owner testnet rehearsal"`
 

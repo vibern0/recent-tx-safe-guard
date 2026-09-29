@@ -8,6 +8,8 @@
 
 > **2026-09-28 supersession:** Task 2 of the two-owner atomic deployment transport plan supersedes this plan's three-owner recovery topology for current code, tests, deployment examples, and verification. The active security-core interface uses exactly two ordered Safe owners, `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, `periodAnchor`. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of either factor is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use the older three-owner sections below as implementation requirements.
 
+> **2026-09-29 Task 7 package gate:** The Sepolia runbook and rehearsal package now follow the active two-owner passkey/Burner boundary. `npm run package:sepolia-rehearsal` emits only public unsigned artifacts for human review: unsigned plan, decoded review, public manifest, and expected evidence hashes. The live low-value Sepolia rehearsal remains outstanding until separately reviewed, signed, executed, and recorded; this branch does not mark issue #5 complete.
+
 **Tech Stack:** Solidity, TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, Safe passkey contracts, current `@gnosis-guild/zodiac` Delay deployments, OpenZeppelin signature utilities where reviewed, Mocha/Chai, Slither, Echidna or Foundry invariant tests, and a Sepolia fork.
 
 **Spec:** `docs/research/2026-09-16-personal-vault-research.md`

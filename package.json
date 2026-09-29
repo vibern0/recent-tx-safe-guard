@@ -16,7 +16,8 @@
     "verify:dependencies": "if [ -f scripts/verify-dependencies.ts ]; then tsx scripts/verify-dependencies.ts; else echo 'scripts/verify-dependencies.ts not present; skipped until a later task adds it'; fi",
     "verify:deployment": "if [ -f scripts/verify-deployment.ts ]; then tsx scripts/verify-deployment.ts; else echo 'scripts/verify-deployment.ts not present; skipped until a later task adds it'; fi",
     "watch:activity": "if [ -f scripts/watch-activity.ts ]; then tsx scripts/watch-activity.ts; else echo 'scripts/watch-activity.ts not present; skipped until a later task adds it'; fi",
-    "rehearse": "if [ -f scripts/rehearse.ts ]; then tsx scripts/rehearse.ts; else echo 'scripts/rehearse.ts not present; skipped until a later task adds it'; fi"
+    "rehearse": "if [ -f scripts/rehearse.ts ]; then tsx scripts/rehearse.ts; else echo 'scripts/rehearse.ts not present; skipped until a later task adds it'; fi",
+    "package:sepolia-rehearsal": "tsx scripts/package-sepolia-rehearsal.ts"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "0.15.5",

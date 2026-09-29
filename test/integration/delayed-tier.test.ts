@@ -16,6 +16,7 @@ const repairPolicyAbi = fn("repairPolicy", [
 ]);
 const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
 const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
+const itUnlessCoverage = process.env.SOLIDITY_COVERAGE === "true" ? it.skip : it;
 
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
@@ -167,7 +168,9 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
   });
 
-  it("replaces both guard slots through delayed maintenance with an approved guard bound to the same signer set", async () => {
+  // solidity-coverage instruments TieredSpendingGuard bytecode, so this
+  // reviewed runtime-hash assertion is covered by the normal integration run.
+  itUnlessCoverage("replaces both guard slots through delayed maintenance with an approved guard bound to the same signer set", async () => {
     const f = await fixture();
     const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.delay.address, 86400n, 0n]]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });

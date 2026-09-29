@@ -1,6 +1,6 @@
 # Security-core call graph
 
-This document records the complete Task 7 topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
+This document records the complete two-owner Task 7 topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
 
 ## Topology authority
 
@@ -98,4 +98,4 @@ The adversarial integration suite proves split X/Y spending and anchored reset; 
 
 The invariant suite performs an executable ABI inventory for `TieredSpendingGuard` and `GuardReplacementMaintenance`, checks the Safe-only modifier on guard entry points, rejects public spend primitives, and checks explicit fail-closed branches for signatures, queues, calls, and two-owner repair validation. Its text search is only a static documentation cross-check; it cannot prove complete reachability or inventory imported Safe/Zodiac code, and the test states that limitation. Imported Safe and Zodiac code is not represented as this repository's audit. Slither is filtered to repository security code and excludes legacy/test support; `slither-baseline.json` records the reviewed detector/function findings and this gate fails on any unlisted finding or tool error.
 
-The rehearsal runs only on Hardhat chain 31337 with controlled time. It refuses chain 1, non-local networks, secret-bearing environment variables, and broadcast mode. It exercises the adversarial and two-owner maintenance flows and emits only unsigned public evidence. All outputs remain security research and a testnet prototype until independent review and professional audit.
+The rehearsal runs only on Hardhat chain 31337 with controlled time. It refuses chain 1, non-local networks, signatures, RPC URLs, private keys, Burner PINs, secret-bearing environment variables, recovery fields, and broadcast mode. It exercises the adversarial and two-owner maintenance flows and emits only unsigned public evidence. The Sepolia rehearsal package contains only the unsigned plan, decoded review, public manifest, and expected evidence hashes; live low-value Sepolia execution remains outstanding until separately performed by a human. All outputs remain security research and a testnet prototype until independent review and professional audit.
