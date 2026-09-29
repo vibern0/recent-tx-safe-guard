@@ -89,7 +89,7 @@ function storageAddress(word: Hex): Address {
   return `0x${word.slice(-40)}` as Address;
 }
 
-describe("SafeAtomicSetupHelper", () => {
+describe("atomic two-owner topology via SafeAtomicSetupHelper", () => {
   async function deployAtomicTopology() {
     const [deployer, burner, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
@@ -186,7 +186,7 @@ describe("SafeAtomicSetupHelper", () => {
 
   it("rejects direct helper calls outside Safe setup delegatecall", async () => {
     const f = await deployAtomicTopology();
-    const params = { guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, burner: f.burner.account.address, periodSeconds: 86400, periodAnchor: 0, assets: [] };
+    const params = { guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, burner: f.burner.account.address, periodSeconds: 86400n, periodAnchor: 0n, assets: [] };
     await expect(f.helper.write.setup([params], { account: f.deployer.account })).to.be.rejected;
   });
 

@@ -9,8 +9,8 @@ const policy = { chainId: 31337, safe: a(1), passkey: a(2), burner: a(3), delay:
 const deployments: TopologyDeploymentEvidence = { safeSingleton: { ...ev(a(30), "1.5.0"), supportsModuleGuards: true }, safeProxyFactory: ev(a(31), "1.5.0"), setupHelper: ev(a(4), "task4-reviewed"), guard: ev(a(6), "task7-reviewed"), delay: ev(a(5), "1.1.1"), maintenance: ev(a(7), "task1-reviewed") };
 
 describe("one-Safe setup integration gate", () => {
-  it("fails closed instead of producing a partially protected deployment when no atomic production path is reviewed", () => {
-    expect(() => buildVaultPlan({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments } as never)).to.throw("official resolver");
+  it("fails closed instead of planning from fabricated production evidence", () => {
+    expect(() => buildVaultPlan({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments } as never)).to.throw("verified resolver");
   });
   it("keeps the deterministic draft encoder test-only and unsigned", () => {
     const plan = buildVaultPlanDraft({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments });

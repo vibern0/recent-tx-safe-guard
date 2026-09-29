@@ -146,7 +146,7 @@ async function resolveInfrastructureDependencies(
   client: ReadOnlyDeploymentClient,
   chainId: number,
   registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry>,
-  options: Readonly<{ requireEvidence?: boolean }> = {},
+  options: Readonly<{ requireEvidence?: boolean; brandVerifiedInfrastructure?: boolean }> = {},
 ): Promise<DependencyMap> {
   if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
     failClosed(`unsupported chain ${chainId}`);
@@ -223,6 +223,7 @@ export async function resolveDeploymentInfrastructureRegistry(
     dependencies,
   }) satisfies DeploymentInfrastructure;
 
+  if (options.brandVerifiedInfrastructure === true) verifiedInfrastructure.add(result);
   return result;
 }
 
@@ -232,8 +233,8 @@ export async function resolveVerifiedDeploymentInfrastructure(
 ): Promise<VerifiedDeploymentInfrastructure> {
   const result = await resolveDeploymentInfrastructureRegistry(client, input, OFFICIAL_DEPLOYMENT_REGISTRY, {
     requireEvidence: true,
+    brandVerifiedInfrastructure: true,
   });
-  verifiedInfrastructure.add(result);
   return result;
 }
 
