@@ -306,35 +306,35 @@ Run: `git add src/transport test/unit/transport && git commit -m "feat: add exac
 - Produces: `CanonicalReceipt = Readonly<{ transactionHash: Hex; blockNumber: bigint; blockHash: Hex; status: "success" | "reverted" }>`; reuse existing verified `QueueItem` shape from `src/monitoring/delay-events.ts`.
 - Produces: canonical `encodeSafeExecutionCalldata(request)` and `encodeDelayExecutionCalldata(request)`; broadcaster receives only these bytes and target address.
 
-- [ ] **Step 1: Write failing read-before-broadcast tests**
+- [x] **Step 1: Write failing read-before-broadcast tests**
 
 Cover wrong chain, unverified deployment aggregate, topology failure, nonce drift, policy/counter drift, transaction-hash mismatch, signer mutation, queue nonce/tuple/cooldown/expiration/cancellation drift, broadcaster calldata mutation. Assert broadcaster call count zero for every rejection.
 
-- [ ] **Step 2: Write failing real Safe/Delay integration tests**
+- [x] **Step 2: Write failing real Safe/Delay integration tests**
 
 Submit passkey base transaction, passkey-plus-Burner step-up transaction, ready Delay tuple through relayer context. Assert exact balances/counters/queue transitions. Prove gas-paying account is not owner/module and cannot authorize transfer, queue, cancellation, freeze, repair.
 
-- [ ] **Step 3: Add timeout reconciliation test**
+- [x] **Step 3: Add timeout reconciliation test**
 
 Simulate broadcaster timeout after accepting exact bytes. Require canonical receipt/nonce reconciliation to return `submitted` or `confirmed` for same outer hash. Never issue second broadcast with changed data.
 
-- [ ] **Step 4: Run focused tests and verify RED**
+- [x] **Step 4: Run focused tests and verify RED**
 
 Run: `npm run test:unit -- --grep "relayer validation" && npm run test:integration -- --grep "submission transport"`
 
 Expected: FAIL because relayer validator and calldata encoders do not exist.
 
-- [ ] **Step 5: Implement minimal relayer validation and broadcast**
+- [x] **Step 5: Implement minimal relayer validation and broadcast**
 
 Reuse `verifyTopology`, policy hashing, signer encoding, queue helpers. Do not duplicate policy classification. Perform reads at coherent observed block where client supports it. Recheck nonce/queue immediately before injected broadcaster call. Return only typed result union.
 
-- [ ] **Step 6: Run focused tests and verify GREEN**
+- [x] **Step 6: Run focused tests and verify GREEN**
 
 Run: `npm run test:unit -- --grep "relayer validation" && npm run test:integration -- --grep "submission transport|delayed" && git diff --check`
 
 Expected: PASS with exact broadcast calldata and zero relayer authority.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Run: `git add src/transport test/unit/transport test/integration && git commit -m "feat: revalidate and relay authorized vault calls"`
 
