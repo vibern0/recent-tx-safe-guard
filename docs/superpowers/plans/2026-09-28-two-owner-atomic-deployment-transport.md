@@ -261,31 +261,31 @@ Run: `git add src/topology scripts/plan-deployment.ts test docs/security/call-gr
 - Produces: `SubmissionTransport = Readonly<{ submit(request: SubmissionRequest): Promise<SubmissionResult> }>`
 - Produces: `snapshotSubmissionRequest(input: unknown): SubmissionRequest` and `createHttpsSubmissionTransport(options: Readonly<{ endpoint: URL; fetch: typeof globalThis.fetch; timeoutMs: number }>): SubmissionTransport`.
 
-- [ ] **Step 1: Write failing strict-schema tests**
+- [x] **Step 1: Write failing strict-schema tests**
 
 Cover every field mutation/type mismatch, unknown/missing fields, noncanonical bigint/hex/address forms, malformed Safe signatures, mismatched transaction/fingerprint hashes, sensitive fields, both operation variants. Add Review Focus test rejecting one idempotency key reused for different canonical payload.
 
-- [ ] **Step 2: Write failing HTTPS boundary tests**
+- [x] **Step 2: Write failing HTTPS boundary tests**
 
 Reject HTTP, URL credentials, redirects, cross-origin response identity, unknown response fields, request/result hash mismatch, sensitive response fields, non-JSON bodies, oversized bodies. Verify timeout/network failures normalize to `transport-unavailable` without logging request/signature.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [x] **Step 3: Run tests and verify RED**
 
 Run: `npm run test:unit -- --grep "submission request|HTTPS submission"`
 
 Expected: FAIL because `src/transport` does not exist.
 
-- [ ] **Step 4: Implement validation and HTTPS client**
+- [x] **Step 4: Implement validation and HTTPS client**
 
 Use strict exact-key validation and immutable snapshots. Inject `fetch` and in-memory idempotency registry. Add no server framework or persistence. Send one POST with canonical JSON and `redirect: "error"`. Expose no logger receiving request bodies.
 
-- [ ] **Step 5: Run tests and verify GREEN**
+- [x] **Step 5: Run tests and verify GREEN**
 
 Run: `npm run test:unit -- --grep "submission request|HTTPS submission" && git diff --check`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `git add src/transport test/unit/transport && git commit -m "feat: add exact HTTPS submission protocol"`
 
