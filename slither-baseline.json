@@ -1,14 +1,15 @@
 {
   "findings": [
-    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L522-L525",
-    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L379-L399",
-    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L53-L76",
-    "unused-return|checkTransaction|contracts/TieredSpendingGuard.sol#L221-L275",
-    "unused-return|decodeBurnerExtension|contracts/TieredSpendingGuard.sol#L216-L219",
-    "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L211-L214",
-    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L324-L373",
-    "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L522-L525",
-    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L379-L399",
-    "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L188"
+    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L615-L618",
+    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L470-L490",
+    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L78-L102",
+    "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L265-L268",
+    "unused-return|decodeBurnerExtension|contracts/TieredSpendingGuard.sol#L273-L276",
+    "unused-return|checkTransaction|contracts/TieredSpendingGuard.sol#L293-L341",
+    "calls-loop|_checkedCall|contracts/SafeAtomicSetupHelper.sol#L127-L130",
+    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L411-L460",
+    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L470-L490",
+    "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L615-L618",
+    "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L227"
   ]
 }

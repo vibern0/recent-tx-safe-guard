@@ -11,10 +11,11 @@ const assertHex = (value: Hex, label: string): void => {
 };
 
 const assertCreateNonce = (nonce: bigint): void => {
-  if (nonce < 0n || nonce + 2n > MAX_CREATE_NONCE) throw new Error("starting nonce must leave room for three contiguous CREATE deployments");
+  if (nonce < 0n || nonce + 3n > MAX_CREATE_NONCE) throw new Error("starting nonce must leave room for four contiguous CREATE deployments");
 };
 
 export function deriveComponentAddresses(input: { deployer: Address; startingNonce: bigint }): {
+  setupHelper: Address;
   guard: Address;
   delay: Address;
   maintenance: Address;
@@ -22,9 +23,10 @@ export function deriveComponentAddresses(input: { deployer: Address; startingNon
   assertAddress(input.deployer, "deployer");
   assertCreateNonce(input.startingNonce);
   return {
-    guard: getContractAddress({ from: input.deployer, nonce: input.startingNonce }),
-    delay: getContractAddress({ from: input.deployer, nonce: input.startingNonce + 1n }),
-    maintenance: getContractAddress({ from: input.deployer, nonce: input.startingNonce + 2n }),
+    setupHelper: getContractAddress({ from: input.deployer, nonce: input.startingNonce }),
+    guard: getContractAddress({ from: input.deployer, nonce: input.startingNonce + 1n }),
+    delay: getContractAddress({ from: input.deployer, nonce: input.startingNonce + 2n }),
+    maintenance: getContractAddress({ from: input.deployer, nonce: input.startingNonce + 3n }),
   };
 }
 

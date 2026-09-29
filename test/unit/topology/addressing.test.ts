@@ -11,16 +11,17 @@ const SAFE_PROXY_ARTIFACT = JSON.parse(
 ) as { bytecode: Hex };
 
 describe("address derivation", () => {
-  it("derives the circular guard, Delay, and maintenance addresses from contiguous CREATE nonces", () => {
+  it("derives the setup helper, guard, Delay, and maintenance addresses from contiguous CREATE nonces", () => {
     expect(
       deriveComponentAddresses({
         deployer: "0x1111111111111111111111111111111111111111" as Address,
         startingNonce: 7n,
       }),
     ).to.deep.equal({
-      guard: "0x34E0765525c4d4D837Dc20bcb458EdD206120e59",
-      delay: "0x43CeE6586B589FE6F81637bf323121087f54FEF0",
-      maintenance: "0xA1eD4d0134858BAe8B320F13C90ab97Fb8222677",
+      setupHelper: "0x34E0765525c4d4D837Dc20bcb458EdD206120e59",
+      guard: "0x43CeE6586B589FE6F81637bf323121087f54FEF0",
+      delay: "0xA1eD4d0134858BAe8B320F13C90ab97Fb8222677",
+      maintenance: "0x3f819cB883e845F7a90484699c5E35490b8d2fB6",
     });
   });
 
@@ -28,7 +29,7 @@ describe("address derivation", () => {
     const deployer = "0x1111111111111111111111111111111111111111" as Address;
 
     expect(() => deriveComponentAddresses({ deployer, startingNonce: -1n })).to.throw("nonce");
-    expect(() => deriveComponentAddresses({ deployer, startingNonce: (1n << 64n) - 2n })).to.throw("nonce");
+    expect(() => deriveComponentAddresses({ deployer, startingNonce: (1n << 64n) - 3n })).to.throw("nonce");
   });
 
   it("matches Safe 1.5 createProxyWithNonce CREATE2 derivation for the canonical Sepolia factory", () => {

@@ -7,8 +7,10 @@ export type VerifiedCodeEvidence = Readonly<{ address: Address; version: string;
 export type TopologyDeploymentEvidence = Readonly<{
   safeSingleton: VerifiedCodeEvidence & Readonly<{ supportsModuleGuards: true }>;
   safeProxyFactory: VerifiedCodeEvidence;
+  setupHelper: VerifiedCodeEvidence;
   guard: VerifiedCodeEvidence;
   delay: VerifiedCodeEvidence;
+  maintenance: VerifiedCodeEvidence;
 }>;
 export type VaultPlanDraft = Readonly<{
   unsigned: true; chainId: number; deployments: TopologyDeploymentEvidence & Readonly<{ safeProxy: Address }>;
@@ -26,7 +28,12 @@ const SAFE_ABI = [
   { name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] },
 ] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
-const GUARD_ABI = [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }], outputs: [] }] as const;
+const GUARD_ABI = [
+  { name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }], outputs: [] },
+  { name: "setMaintenance", type: "function", stateMutability: "nonpayable", inputs: [{ name: "maintenance", type: "address" }], outputs: [] },
+] as const;
+const DELAY_ABI = [{ name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 
 function requireEvidence(name: string, item: { address?: Address; runtimeCodeHash?: Hex; version?: string; source?: string; evidence?: string }): void {
   if (item.evidence !== "verified" || !item.address || item.address.toLowerCase() === ZERO || !item.runtimeCodeHash || !item.version || !item.source) throw new Error(`fail closed: ${name} lacks verified deployment evidence`);
@@ -40,10 +47,13 @@ export function buildVaultPlanDraft(input: Readonly<{ policy: VaultPolicy; safeP
   if (input.policy.safe.toLowerCase() !== input.safeProxy.toLowerCase()) throw new Error("Safe proxy does not match policy");
   if (input.safeProxySaltNonce < 0n) throw new Error("salt nonce must not be negative");
   const owners = [input.policy.passkey, input.policy.burner] as const;
-  const safeInitializer = encodeFunctionData({ abi: SAFE_ABI, functionName: "setup", args: [owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO] });
+  const helperData = encodeFunctionData({ abi: HELPER_ABI, functionName: "setup", args: [{ guard: input.deployments.guard.address, delay: input.deployments.delay.address, maintenance: input.deployments.maintenance.address, passkey: input.policy.passkey, burner: input.policy.burner, periodSeconds: input.policy.periodSeconds, periodAnchor: input.policy.periodAnchor, assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }] });
+  const safeInitializer = encodeFunctionData({ abi: SAFE_ABI, functionName: "setup", args: [owners, 1n, input.deployments.setupHelper.address, helperData, ZERO, ZERO, 0n, ZERO] });
   const safeProxyDeployment: UnsignedSetupCall = { to: input.deployments.safeProxyFactory.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce] }) };
   const setup: UnsignedSetupCall[] = [];
   for (const asset of input.policy.assets) setup.push({ to: input.deployments.guard.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: GUARD_ABI, functionName: "setAssetPolicy", args: [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]] }) });
+  setup.push({ to: input.deployments.guard.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: GUARD_ABI, functionName: "setMaintenance", args: [input.deployments.maintenance.address] }) });
+  setup.push({ to: input.deployments.delay.address, value: 0n, operation: 0, data: encodeFunctionData({ abi: DELAY_ABI, functionName: "enableModule", args: [input.safeProxy] }) });
   setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setGuard", args: [input.deployments.guard.address] }) });
   setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "setModuleGuard", args: [input.deployments.guard.address] }) });
   setup.push({ to: input.safeProxy, value: 0n, operation: 0, data: encodeFunctionData({ abi: SAFE_ABI, functionName: "enableModule", args: [input.deployments.delay.address] }) });

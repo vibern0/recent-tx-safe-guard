@@ -1,7 +1,7 @@
 import { encodeAbiParameters, isAddress, keccak256, type Address, type Hex } from "viem";
 
 export type VerifiedComponent = Readonly<{
-  name: "passkeySigner" | "guard" | "delay" | "maintenance";
+  name: "passkeySigner" | "setupHelper" | "guard" | "delay" | "maintenance";
   address: Address;
   runtimeCodeHash: Hex;
   bindingHash: Hex;
