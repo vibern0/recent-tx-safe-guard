@@ -215,31 +215,31 @@ Run: `git add package.json package-lock.json pnpm-lock.yaml yarn.lock src/config
 - Produces: branded `VerifiedVaultPrerequisites = Readonly<{ setupHelper: VerifiedComponent; guard: VerifiedComponent; delay: VerifiedComponent; maintenance: VerifiedComponent }>` from `verifyVaultPrerequisites(client, plan)` only after all four deployments match planned addresses, runtime hashes, Safe/policy bindings.
 - Produces: `assertSafeCreationReady(plan, prerequisites, observedDeployerNonce): void`; rejects other-plan evidence and any nonce other than `startingNonce + 4n` before Safe factory transaction submission.
 
-- [ ] **Step 1: Write failing deterministic-plan tests**
+- [x] **Step 1: Write failing deterministic-plan tests**
 
 Assert byte-identical output for identical input; owners `[passkey,burner]`; threshold 1; zero fallback/payment; setup order `setAssetPolicy*`, `setMaintenance`, Delay `enableModule(Safe)`, `setGuard`, `setModuleGuard`, Safe `enableModule(Delay)`; all inner operations `CALL`; exact expected addresses/nonces. Add Review Focus tests for sender nonce drift and partial prerequisite deployment. Prove `assertSafeCreationReady` rejects zero, one, or two deployed prerequisites, mismatched plan, nonce drift.
 
-- [ ] **Step 2: Write failing real-Safe atomicity test**
+- [x] **Step 2: Write failing real-Safe atomicity test**
 
 Deploy prerequisites at planned nonces. Invoke planned Safe factory call. Assert created Safe immediately has two owners, both guards, only Delay, zero fallback, complete policy, maintenance, Delay bindings. Mutate each inner call to revert; assert proxy creation leaves no initialized Safe at predicted address.
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
 Run: `npm run test:unit -- --grep "buildVaultPlan|call-only batch" && npm run test:integration -- --grep "atomic two-owner topology"`
 
 Expected: FAIL because production planning still throws fail-closed placeholder.
 
-- [ ] **Step 4: Implement production planner**
+- [x] **Step 4: Implement production planner**
 
 Replace placeholder with `SafeAtomicSetupHelper` setup calldata and structured unsigned plan. Re-read/compare deployment sender nonce at planner boundary. Require caller-supplied addresses match Task 3 derivation. Include decoded review records plus hashes. Include no signatures or broadcast flags. Verify deployed setup helper, guard, Delay, and maintenance after their transactions land. Require branded evidence and exact next sender nonce before exposing Safe creation transaction to submission script.
 
-- [ ] **Step 5: Run focused and topology suites and verify GREEN**
+- [x] **Step 5: Run focused and topology suites and verify GREEN**
 
 Run: `npm run test:unit -- --grep "buildVaultPlan|call-only batch" && npm run test:integration -- --grep "atomic two-owner topology|setup integration|rehearsal" && git diff --check`
 
 Expected: PASS. No test-only draft encoder remains as alternate production path.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `git add src/topology scripts/plan-deployment.ts test docs/security/call-graph.md && git commit -m "feat: plan atomic two-owner safe deployment"`
 
@@ -395,8 +395,8 @@ Run: `git add docs config deployments scripts package.json test && git commit -m
 
 ## Final Review and Pull Request
 
-- [ ] Build whole-branch review package from merge base through `HEAD`.
-- [ ] Request fresh whole-branch security review focused on Review Focus items, every ledger ruling, two-owner completeness, atomic setup, relayer non-authority.
-- [ ] Fix Critical/Important findings once. Each fix starts with failing test, ends green focused/full suites, commits separately.
-- [ ] Re-run complete repository gate and `git status --short`.
+- [x] Build whole-branch review package from merge base through `HEAD`.
+- [x] Request fresh whole-branch security review focused on Review Focus items, every ledger ruling, two-owner completeness, atomic setup, relayer non-authority.
+- [x] Fix Critical/Important findings once. Each fix starts with failing test, ends green focused/full suites, commits separately.
+- [x] Re-run complete repository gate and `git status --short`.
 - [ ] Push `codex/issue-5-atomic-deployment-transport` and open PR linked to #5. State live Sepolia rehearsal remains outstanding unless actually executed. Do not use `Closes #5` while gate open.
