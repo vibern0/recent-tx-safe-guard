@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildDeploymentPlan, sha256, type PublicDeploymentConfig } from "./plan-deployment";
 
@@ -38,10 +38,17 @@ function writeArtifact(outputDir: string, name: string, value: unknown): string 
   return path;
 }
 
+function prepareEmptyOutputDirectory(outputDir: string): void {
+  if (existsSync(outputDir) && readdirSync(outputDir).length !== 0) {
+    throw new Error("output directory must be empty before creating a public rehearsal package");
+  }
+  mkdirSync(outputDir, { recursive: true });
+}
+
 export function buildSepoliaRehearsalPackage(configPath: string, outputDir: string): PackageResult {
   const config = readJson(configPath) as PublicDeploymentConfig;
   const plan = buildDeploymentPlan(config);
-  mkdirSync(outputDir, { recursive: true });
+  prepareEmptyOutputDirectory(outputDir);
 
   const decodedReview = {
     formatVersion: 1,

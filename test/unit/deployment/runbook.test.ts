@@ -221,6 +221,18 @@ describe("Sepolia deployment runbook package", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("rejects a pre-populated output directory before writing package artifacts", () => {
+    const { buildSepoliaRehearsalPackage } = require("../../../scripts/package-sepolia-rehearsal") as { buildSepoliaRehearsalPackage: (configPath: string, outputDir: string) => unknown };
+    const dir = mkdtempSync(join(tmpdir(), "sepolia-rehearsal-package-"));
+    try {
+      writeFileSync(join(dir, "stale-signature.txt"), "RPC_URL=https://example.invalid\nBURNER PIN=123456\n", "utf8");
+      expect(() => buildSepoliaRehearsalPackage("config/sepolia.example.json", dir)).to.throw(/output directory must be empty/i);
+      expect(() => readFileSync(join(dir, "unsigned-plan.json"), "utf8")).to.throw();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("two-owner documentation", () => {
