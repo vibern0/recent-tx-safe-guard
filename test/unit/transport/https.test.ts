@@ -71,11 +71,35 @@ describe("HTTPS submission transport", () => {
     const result = await transport.submit(request());
 
     expect(result.kind).to.equal("submitted");
+    expect(Object.isFrozen(result)).to.equal(true);
     expect(calls).to.have.length(1);
     expect(calls[0].url).to.equal("https://relay.example/submit");
     expect(calls[0].init.method).to.equal("POST");
     expect(calls[0].init.redirect).to.equal("error");
     expect(calls[0].init.headers).to.deep.equal({ "content-type": "application/json" });
+  });
+
+  it("returns immutable parsed submission result variants", async () => {
+    const variants = [
+      (requestHash: Hex) => ({ kind: "submitted", requestHash, transactionHash: h(10) }),
+      (requestHash: Hex) => ({ kind: "confirmed", requestHash, transactionHash: h(11), blockNumber: "123", blockHash: h(12) }),
+      (requestHash: Hex) => ({ kind: "stale", requestHash, reason: "already superseded" }),
+    ] as const;
+
+    for (const [index, variant] of variants.entries()) {
+      const transport = createHttpsSubmissionTransport({
+        endpoint: new URL(`https://relay.example/immutable-${index}`),
+        fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body)) as { requestHash: Hex };
+          return jsonResponse(variant(body.requestHash));
+        }) as typeof globalThis.fetch,
+        timeoutMs: 1000,
+      });
+
+      const result = await transport.submit(request(h(150 + index)));
+
+      expect(Object.isFrozen(result)).to.equal(true);
+    }
   });
 
   it("rejects duplicate idempotency keys with a different canonical payload before fetching", async () => {
@@ -134,6 +158,27 @@ describe("HTTPS submission transport", () => {
       const result = await transport.submit(request(h(300 + index)));
       expect(result.kind).to.equal("transport-unavailable");
       expect(result.reason).not.to.contain(sig);
+    }
+  });
+
+  it("enforces oversized response limits using declared and encoded byte length", async () => {
+    const contentLengthTooLarge = jsonResponse(submitted(h(1)), { headers: { "content-length": "65537" } });
+    const byteLengthTooLarge = new Response(`{"kind":"submitted","requestHash":"${h(1)}","transactionHash":"${h(2)}","padding":"${"€".repeat(22000)}"}`, {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+    for (const [index, response] of [contentLengthTooLarge, byteLengthTooLarge].entries()) {
+      const transport = createHttpsSubmissionTransport({
+        endpoint: new URL(`https://relay.example/byte-limit-${index}`),
+        fetch: (async () => response) as typeof globalThis.fetch,
+        timeoutMs: 1000,
+      });
+
+      const result = await transport.submit(request(h(500 + index)));
+
+      expect(result).to.include({ kind: "transport-unavailable" });
+      expect(result.reason).to.match(/too large/i);
     }
   });
 

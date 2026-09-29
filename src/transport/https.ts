@@ -14,7 +14,7 @@ const SENSITIVE = /private|secret|mnemonic|seed|pin|credential|provider|rpc|pass
 type Options = Readonly<{ endpoint: URL; fetch: typeof globalThis.fetch; timeoutMs: number }>;
 
 function unavailable(requestHash: Hex, reason: string): SubmissionResult {
-  return { kind: "transport-unavailable", requestHash, reason: sanitize(reason) };
+  return Object.freeze({ kind: "transport-unavailable", requestHash, reason: sanitize(reason) });
 }
 
 function sanitize(reason: string): string {
@@ -66,8 +66,13 @@ function nonemptyReason(value: unknown): string {
 async function readJson(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) throw new Error("response must be JSON");
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^(0|[1-9][0-9]*)$/.test(contentLength)) throw new Error("response content length is malformed");
+    if (BigInt(contentLength) > BigInt(MAX_RESPONSE_BYTES)) throw new Error("response body too large");
+  }
   const text = await response.text();
-  if (text.length > MAX_RESPONSE_BYTES) throw new Error("response body too large");
+  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) throw new Error("response body too large");
   return JSON.parse(text) as unknown;
 }
 
@@ -79,19 +84,19 @@ function parseResult(input: unknown, expectedRequestHash: Hex): SubmissionResult
     exact(input, ["kind", "requestHash", "transactionHash"], "result");
     const requestHash = hash(input.requestHash, "requestHash");
     if (requestHash !== expectedRequestHash) throw new Error("request hash mismatch");
-    return { kind, requestHash, transactionHash: hash(input.transactionHash, "transactionHash") };
+    return Object.freeze({ kind, requestHash, transactionHash: hash(input.transactionHash, "transactionHash") });
   }
   if (kind === "confirmed") {
     exact(input, ["kind", "requestHash", "transactionHash", "blockNumber", "blockHash"], "result");
     const requestHash = hash(input.requestHash, "requestHash");
     if (requestHash !== expectedRequestHash) throw new Error("request hash mismatch");
-    return { kind, requestHash, transactionHash: hash(input.transactionHash, "transactionHash"), blockNumber: decimalBigint(input.blockNumber, "blockNumber"), blockHash: hash(input.blockHash, "blockHash") };
+    return Object.freeze({ kind, requestHash, transactionHash: hash(input.transactionHash, "transactionHash"), blockNumber: decimalBigint(input.blockNumber, "blockNumber"), blockHash: hash(input.blockHash, "blockHash") });
   }
   if (TERMINAL_KINDS.has(kind)) {
     exact(input, ["kind", "requestHash", "reason"], "result");
     const requestHash = hash(input.requestHash, "requestHash");
     if (requestHash !== expectedRequestHash) throw new Error("request hash mismatch");
-    return { kind: kind as "reverted" | "stale" | "unsupported-chain" | "rpc-inconsistent" | "transport-unavailable", requestHash, reason: nonemptyReason(input.reason) };
+    return Object.freeze({ kind: kind as "reverted" | "stale" | "unsupported-chain" | "rpc-inconsistent" | "transport-unavailable", requestHash, reason: nonemptyReason(input.reason) });
   }
   throw new Error("unsupported result kind");
 }
