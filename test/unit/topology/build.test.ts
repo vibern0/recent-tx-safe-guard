@@ -4,6 +4,7 @@ import {
   assertSafeCreationReady,
   buildVaultPlan,
   decodeSafeFactoryCall,
+  policyHash,
   verifyVaultPrerequisites,
   type VaultDeploymentPlan,
 } from "../../../src/topology/build";
@@ -188,6 +189,30 @@ describe("buildVaultPlan", () => {
 
   it("rejects a policy Safe that differs from the Safe 1.5 factory derivation", async () => {
     await expect(productionPlan(policyBase)).to.be.rejectedWith("derived Safe proxy address");
+  });
+
+  it("policy hash binds configured secondary signer drift", () => {
+    const optionB = {
+      ...policyBase,
+      secondaries: [
+        { address: a(4), role: "secondary", kind: "safe-contract", enabled: true },
+        { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+      ],
+    } satisfies VaultPolicy;
+    const baseline = policyHash(optionB);
+
+    expect(policyHash({ ...optionB, secondaries: [
+      { address: a(9), role: "secondary", kind: "safe-contract", enabled: true },
+      { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+    ] })).not.to.equal(baseline);
+    expect(policyHash({ ...optionB, secondaries: [
+      { address: a(4), role: "secondary", kind: "safe-contract", enabled: false },
+      { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+    ] as never })).not.to.equal(baseline);
+    expect(policyHash({ ...optionB, secondaries: [
+      { address: a(4), role: "secondary", kind: "ecdsa-extension", enabled: true },
+      { address: policyBase.burner, role: "secondary", kind: "safe-contract", enabled: true },
+    ] as never })).not.to.equal(baseline);
   });
 
   it("brands prerequisite evidence only after all four planned deployments and bindings match", async () => {

@@ -38,7 +38,7 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     const transfer = (amount: bigint) => encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [recipient.account.address, amount] });
     const exec = (data: Hex, signatures: Hex) => safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
     const burnerStep = async (data: Hex) => burnerEnvelope(passkey.address, await signSafeTransaction(safe, burner, token.address, data));
-    const yubiStep = () => safeContractSignatures(passkey.address, yubiKey.address);
+    const yubiStep = (primaryPayload = "0x" as Hex, secondaryPayload = "0x" as Hex) => safeContractSignatures(passkey.address, yubiKey.address, primaryPayload, secondaryPayload);
     return { burner, recipient, passkey, yubiKey, wrongYubiKey, safe, token, guard, transfer, exec, burnerStep, yubiStep };
   }
 
@@ -64,6 +64,13 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
     await expect(f.exec(f.transfer(300n), f.yubiStep())).to.be.rejected;
     await f.exec(f.transfer(300n), await f.burnerStep(f.transfer(300n)));
+  });
+
+  it("secondary signer Safe contract signatures accept non-empty ERC-1271 payloads", async () => {
+    const f = await secondarySignerFixture();
+
+    await f.exec(f.transfer(300n), f.yubiStep("0x12345678", "0xabcdef"));
+    expect((await f.guard.read.spendState([f.token.address]))[2]).to.equal(300n);
   });
 
   it("accepts the configured passkey contract signature and rejects failed execution", async () => {

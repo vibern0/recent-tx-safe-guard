@@ -18,6 +18,8 @@ import { type VerifiedComponent } from "./evidence";
 import { type UnsignedSetupCall } from "./multisend";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const SIGNER_ROLE = { primary: 0, secondary: 1 } as const;
+const SIGNER_KIND = { "safe-contract": 0, "ecdsa-extension": 1 } as const;
 
 const SAFE_ABI = [
   { name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "address[]" }, { name: "threshold", type: "uint256" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }, { name: "fallbackHandler", type: "address" }, { name: "paymentToken", type: "address" }, { name: "payment", type: "uint256" }, { name: "paymentReceiver", type: "address" }], outputs: [] },
@@ -120,7 +122,37 @@ export function isVerifiedVaultPrerequisites(value: unknown): value is VerifiedV
 
 export function policyHash(policy: VaultPolicy): Hex {
   const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
-  return keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32[]" }], [BigInt(policy.chainId), policy.safe, policy.passkey, policy.burner, policy.delay, BigInt(policy.periodSeconds), policy.periodAnchor, BigInt(policy.cooldownSeconds), BigInt(policy.expirationSeconds), assets]));
+  const secondaries = policy.secondaries ?? [{ address: policy.burner, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }];
+  const yubiKeySecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };
+  const burnerSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.burner, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true };
+  return keccak256(encodeAbiParameters(
+    [
+      { type: "uint256" },
+      { type: "address" },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "address" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "bytes32[]" },
+    ],
+    [
+      BigInt(policy.chainId),
+      policy.safe,
+      [policy.primary ?? policy.passkey, SIGNER_ROLE.primary, SIGNER_KIND["safe-contract"], true],
+      [yubiKeySecondary.address, SIGNER_KIND[yubiKeySecondary.kind], yubiKeySecondary.enabled],
+      [burnerSecondary.address, SIGNER_KIND[burnerSecondary.kind], burnerSecondary.enabled],
+      policy.delay,
+      BigInt(policy.periodSeconds),
+      policy.periodAnchor,
+      BigInt(policy.cooldownSeconds),
+      BigInt(policy.expirationSeconds),
+      assets,
+    ],
+  ));
 }
 
 export function planHash(plan: VaultDeploymentPlan): Hex {

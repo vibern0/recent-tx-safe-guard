@@ -268,7 +268,19 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             AssetPolicy memory p = assetPolicy[token];
             assets[i] = keccak256(abi.encode(token, p.basePerTransaction, p.stepUpPerTransaction, p.baseDailyLimit, p.instantDailyLimit, policyRecipients[token]));
         }
-        return keccak256(abi.encode(block.chainid, config.safe, config.passkey, config.burner, config.delay, config.periodSeconds, config.periodAnchor, IDelayPolicy(config.delay).txCooldown(), IDelayPolicy(config.delay).txExpiration(), assets));
+        return keccak256(abi.encode(
+            block.chainid,
+            config.safe,
+            primarySigner,
+            yubiKeySecondary,
+            burnerSecondary,
+            config.delay,
+            config.periodSeconds,
+            config.periodAnchor,
+            IDelayPolicy(config.delay).txCooldown(),
+            IDelayPolicy(config.delay).txExpiration(),
+            assets
+        ));
     }
 
     /// @notice Reconstructs the Safe transaction hash this guard binds signatures to.

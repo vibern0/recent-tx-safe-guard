@@ -1,8 +1,13 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { keccak256, toHex, type Address, type Hex } from "viem";
+import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "viem";
+import { fn, signSafeTransaction } from "../../helpers/safe";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 
 async function fixture() {
   const [deployer, burner, recipient] = await hre.viem.getWalletClients();
@@ -90,6 +95,32 @@ describe("TieredSpendingGuard exact signatures", () => {
     expect(burnerSecondary[0].toLowerCase()).to.equal(burner.account.address.toLowerCase());
     expect(burnerSecondary[1]).to.equal(1);
     expect(burnerSecondary[2]).to.equal(true);
+  });
+
+  it("policy hash binds configured secondary signer drift", async () => {
+    const { deployer, burner, safe, guard } = await fixture();
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const wrongYubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const ownerCall = async (to: Address, data: Hex) => {
+      const signature = await signSafeTransaction(safe, burner, to, data);
+      await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
+    };
+    const configure = (signer: Address, enabled: boolean) => ownerCall(
+      guard.address,
+      encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [signer, enabled] }),
+    );
+
+    const unset = await guard.read.policyHash();
+    await configure(yubiKey.address, true);
+    const enabled = await guard.read.policyHash();
+    await configure(wrongYubiKey.address, true);
+    const wrong = await guard.read.policyHash();
+    await configure(yubiKey.address, false);
+    const disabled = await guard.read.policyHash();
+
+    expect(enabled).not.to.equal(unset);
+    expect(wrong).not.to.equal(enabled);
+    expect(disabled).not.to.equal(enabled);
   });
 
   it("reconstructs the Safe hash with the pre-increment nonce and binds every Safe field", async () => {

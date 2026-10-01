@@ -62,9 +62,11 @@ export function passkeySignature(address: Address): Hex {
   return `0x${address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
 }
 
-export function safeContractSignatures(primary: Address, secondary: Address): Hex {
+export function safeContractSignatures(primary: Address, secondary: Address, primaryPayload: Hex = "0x", secondaryPayload: Hex = "0x"): Hex {
   const primaryPayloadOffset = 65n * 2n;
-  const secondaryPayloadOffset = primaryPayloadOffset + 32n;
+  const primaryPayloadLength = BigInt((primaryPayload.length - 2) / 2);
+  const secondaryPayloadLength = BigInt((secondaryPayload.length - 2) / 2);
+  const secondaryPayloadOffset = primaryPayloadOffset + 32n + primaryPayloadLength;
   return `0x${
     primary.slice(2).padStart(64, "0")
   }${
@@ -74,9 +76,13 @@ export function safeContractSignatures(primary: Address, secondary: Address): He
   }${
     toHex(secondaryPayloadOffset, { size: 32 }).slice(2)
   }00${
-    toHex(0n, { size: 32 }).slice(2)
+    toHex(primaryPayloadLength, { size: 32 }).slice(2)
   }${
-    toHex(0n, { size: 32 }).slice(2)
+    primaryPayload.slice(2)
+  }${
+    toHex(secondaryPayloadLength, { size: 32 }).slice(2)
+  }${
+    secondaryPayload.slice(2)
   }` as Hex;
 }
 
