@@ -99,7 +99,7 @@ Test that every authorization digest changes when any one of these changes:
 - token or policy context where applicable.
 
 Test canonical Safe signature ordering, rejection of extra signatures,
-wrong signer identities, malformed lengths, duplicate Burner extensions, and
+wrong signer identities, malformed lengths, duplicate ECDSA secondary extensions, and
 signatures over a different transaction.
 
 ### Topology and deployment plans
@@ -140,7 +140,7 @@ test addresses and reset state between cases.
 3. Deploy one Safe holding native currency and mock ERC-20 tokens.
 4. Install the TieredSpendingGuard as both guard paths atomically.
 5. Enable only the reviewed Delay module.
-6. Configure distinct primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect secondary test identities.
+6. Configure distinct primary passkey, safe-contract secondary, and ECDSA secondary test identities.
 7. Assert the topology before each behavioral test.
 
 ### Required scenarios
@@ -152,7 +152,7 @@ transactions, not call the guard directly as a substitute:
 | --- | --- |
 | Passkey transfer within remaining X | Executes and updates base/instant counters |
 | Primary transfer over X but within Y | Rejects without a configured secondary |
-| Primary + exact YubiKey or Burner secondary co-signature | Executes within Y and updates shared counter |
+| Primary + exact configured secondary co-signature | Executes within Y and updates shared counter |
 | Wrong secondary or altered transaction | Rejects |
 | Transfer over Y | Cannot execute immediately; must queue |
 | Queued transaction before cooldown | Rejects |
@@ -223,7 +223,7 @@ Provide five views:
    Delay addresses, topology verification result.
 2. **Send simulator:** asset, recipient, amount, selected signer lane, exact
    calldata, and the classifier's base/step-up/delayed/blocked result.
-3. **Approval simulator:** primary passkey, YubiKey secondary, and Burner
+3. **Approval simulator:** primary passkey, safe-contract secondary, and ECDSA
    secondary test controls that display the exact transaction digest and
    whether each signature is accepted.
 4. **Delay queue:** queued tuple, fingerprint, creation time, cooldown,
@@ -239,7 +239,7 @@ entry, production RPCs, or a mainnet network selector in the test harness.
 
 - Enter amount exactly at X, X+1, Y, and Y+1 and confirm the displayed lane.
 - Change one transaction field after signing and confirm execution fails.
-- Use the wrong Burner and confirm the failure reason is visible.
+- Use the wrong ECDSA secondary and confirm the failure reason is visible.
 - Queue, cancel, and attempt to execute the same delayed transaction.
 - Refresh the page and verify queue/activity state comes from chain/ledger,
   not only browser memory.

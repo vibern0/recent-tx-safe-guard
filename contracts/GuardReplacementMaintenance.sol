@@ -14,16 +14,16 @@ interface ISafeOwnerMaintenance {
 
 interface IGuardSignerRepair {
     /// @notice Returns the guard's configured Safe, signers, Delay, and period data.
-    function config() external view returns (address safe, address passkey, address burner, address delay, uint64 periodSeconds, uint64 periodAnchor);
+    function config() external view returns (address safe, address passkey, address ecdsaSigner, address delay, uint64 periodSeconds, uint64 periodAnchor);
 
     /// @notice Replaces one signer role inside the guard configuration.
     function repairSigner(uint8 role, address expectedOld, address replacement) external;
 
     /// @notice Returns the configured Safe-contract secondary signer.
-    function yubiKeySecondary() external view returns (address signer, uint8 kind, bool enabled);
+    function safeContractSecondary() external view returns (address signer, uint8 kind, bool enabled);
 
     /// @notice Returns the configured ECDSA secondary signer.
-    function burnerSecondary() external view returns (address signer, uint8 kind, bool enabled);
+    function ecdsaSecondary() external view returns (address signer, uint8 kind, bool enabled);
 }
 
 interface IGuardMaintenance {
@@ -44,10 +44,10 @@ contract GuardReplacementMaintenance {
     struct GuardRuntimeConfig {
         address configuredSafe;
         address passkey;
-        address yubiKey;
-        bool yubiKeyEnabled;
-        address burner;
-        bool burnerEnabled;
+        address safeContractSecondary;
+        bool safeContractSecondaryEnabled;
+        address ecdsaSecondary;
+        bool ecdsaSecondaryEnabled;
         address configuredDelay;
         uint64 periodSeconds;
         uint64 periodAnchor;
@@ -55,7 +55,7 @@ contract GuardReplacementMaintenance {
 
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x74a42af9d3b62c8a2fdb2d10f87a492581cd35943a59b9cebaf965e5596f4978;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0xf4bc84ea0c9ba4941b576e83194eaf83e853bc41184516a19822c84e68d6b31c;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
@@ -188,7 +188,7 @@ contract GuardReplacementMaintenance {
     function _configureReplacementSecondary(address current, address replacement) private returns (bool) {
         (bool ok, GuardRuntimeConfig memory currentConfig) = _readGuardConfiguration(current);
         if (!ok) return false;
-        (bool configured,) = replacement.call(abi.encodeWithSignature("configureYubiKeySecondary(address,bool)", currentConfig.yubiKey, currentConfig.yubiKeyEnabled));
+        (bool configured,) = replacement.call(abi.encodeWithSignature("configureSafeContractSecondary(address,bool)", currentConfig.safeContractSecondary, currentConfig.safeContractSecondaryEnabled));
         return configured;
     }
 
@@ -201,13 +201,13 @@ contract GuardReplacementMaintenance {
         if (!ok) return false;
         if (
             guardConfig.configuredSafe != safe || guardConfig.configuredDelay != delay || guardConfig.periodSeconds != 86400 ||
-            guardConfig.passkey == address(0) || guardConfig.yubiKey == address(0) || guardConfig.burner == address(0) ||
-            !guardConfig.burnerEnabled ||
-            guardConfig.passkey == guardConfig.burner || guardConfig.passkey == guardConfig.yubiKey || guardConfig.yubiKey == guardConfig.burner
+            guardConfig.passkey == address(0) || guardConfig.safeContractSecondary == address(0) || guardConfig.ecdsaSecondary == address(0) ||
+            !guardConfig.ecdsaSecondaryEnabled ||
+            guardConfig.passkey == guardConfig.ecdsaSecondary || guardConfig.passkey == guardConfig.safeContractSecondary || guardConfig.safeContractSecondary == guardConfig.ecdsaSecondary
         ) return false;
         if (expectedOld == address(0)) return true;
         if (role == 0) return guardConfig.passkey == expectedOld;
-        if (role == 1) return guardConfig.burner == expectedOld || guardConfig.yubiKey == expectedOld;
+        if (role == 1) return guardConfig.ecdsaSecondary == expectedOld || guardConfig.safeContractSecondary == expectedOld;
         return false;
     }
 
@@ -221,11 +221,11 @@ contract GuardReplacementMaintenance {
             currentConfig.configuredDelay != delay || replacementConfig.configuredDelay != delay ||
             currentConfig.periodSeconds != 86400 || replacementConfig.periodSeconds != currentConfig.periodSeconds ||
             replacementConfig.periodAnchor != currentConfig.periodAnchor ||
-            currentConfig.passkey == address(0) || currentConfig.yubiKey == address(0) || currentConfig.burner == address(0) ||
-            !currentConfig.burnerEnabled ||
-            currentConfig.passkey == currentConfig.burner || currentConfig.passkey == currentConfig.yubiKey || currentConfig.yubiKey == currentConfig.burner
+            currentConfig.passkey == address(0) || currentConfig.safeContractSecondary == address(0) || currentConfig.ecdsaSecondary == address(0) ||
+            !currentConfig.ecdsaSecondaryEnabled ||
+            currentConfig.passkey == currentConfig.ecdsaSecondary || currentConfig.passkey == currentConfig.safeContractSecondary || currentConfig.safeContractSecondary == currentConfig.ecdsaSecondary
         ) return false;
-        return replacementConfig.passkey == currentConfig.passkey && replacementConfig.yubiKey == currentConfig.yubiKey && replacementConfig.burner == currentConfig.burner && replacementConfig.yubiKeyEnabled == currentConfig.yubiKeyEnabled && replacementConfig.burnerEnabled == currentConfig.burnerEnabled;
+        return replacementConfig.passkey == currentConfig.passkey && replacementConfig.safeContractSecondary == currentConfig.safeContractSecondary && replacementConfig.ecdsaSecondary == currentConfig.ecdsaSecondary && replacementConfig.safeContractSecondaryEnabled == currentConfig.safeContractSecondaryEnabled && replacementConfig.ecdsaSecondaryEnabled == currentConfig.ecdsaSecondaryEnabled;
     }
 
     /// @dev Reads the guard config ABI shared by approved guard implementations.
@@ -235,28 +235,28 @@ contract GuardReplacementMaintenance {
         (
             guardConfig.configuredSafe,
             guardConfig.passkey,
-            guardConfig.burner,
+            guardConfig.ecdsaSecondary,
             guardConfig.configuredDelay,
             guardConfig.periodSeconds,
             guardConfig.periodAnchor
         ) = abi.decode(result, (address, address, address, address, uint64, uint64));
-        (bool yubiOk, bytes memory yubiResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.yubiKeySecondary.selector));
-        if (!yubiOk || yubiResult.length != 96) return (false, guardConfig);
-        (address configuredYubiKey, uint8 yubiKind, bool yubiEnabled) = abi.decode(yubiResult, (address, uint8, bool));
-        guardConfig.yubiKey = configuredYubiKey;
-        guardConfig.yubiKeyEnabled = yubiEnabled;
-        if (yubiKind != 0) return (false, guardConfig);
-        (bool burnerOk, bytes memory burnerResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.burnerSecondary.selector));
-        if (!burnerOk || burnerResult.length != 96) return (false, guardConfig);
-        (address configuredBurner, uint8 burnerKind, bool burnerEnabled) = abi.decode(burnerResult, (address, uint8, bool));
-        guardConfig.burnerEnabled = burnerEnabled;
-        if (burnerKind != 1 || configuredBurner != guardConfig.burner) return (false, guardConfig);
+        (bool safeContractOk, bytes memory safeContractResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.safeContractSecondary.selector));
+        if (!safeContractOk || safeContractResult.length != 96) return (false, guardConfig);
+        (address configuredSafeContractSecondary, uint8 safeContractKind, bool safeContractEnabled) = abi.decode(safeContractResult, (address, uint8, bool));
+        guardConfig.safeContractSecondary = configuredSafeContractSecondary;
+        guardConfig.safeContractSecondaryEnabled = safeContractEnabled;
+        if (safeContractKind != 0) return (false, guardConfig);
+        (bool ecdsaSecondaryOk, bytes memory ecdsaSecondaryResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.ecdsaSecondary.selector));
+        if (!ecdsaSecondaryOk || ecdsaSecondaryResult.length != 96) return (false, guardConfig);
+        (address configuredEcdsaSecondary, uint8 ecdsaSecondaryKind, bool ecdsaSecondaryEnabled) = abi.decode(ecdsaSecondaryResult, (address, uint8, bool));
+        guardConfig.ecdsaSecondaryEnabled = ecdsaSecondaryEnabled;
+        if (ecdsaSecondaryKind != 1 || configuredEcdsaSecondary != guardConfig.ecdsaSecondary) return (false, guardConfig);
         return (true, guardConfig);
     }
 
     function _isSafeContractSignerReplacement(address guard, address expectedOld, uint8 role) private view returns (bool) {
         if (role != 1) return false;
         (bool ok, GuardRuntimeConfig memory guardConfig) = _readGuardConfiguration(guard);
-        return ok && guardConfig.yubiKey == expectedOld;
+        return ok && guardConfig.safeContractSecondary == expectedOld;
     }
 }

@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashTypedData, type Address, type Hex } from "viem";
-import { createBurnerSigner, createBurnerWalletConnectSigner } from "../../../src/signers/eip1193";
+import { createBurnerSigner, createBurnerWalletConnectSigner, createEip1193SecondarySigner } from "../../../src/signers/eip1193";
 import * as eip1193 from "../../../src/signers/eip1193";
 import { assertVaultSignerPair, type Eip1193Provider, type SafeSignerRequest, type VaultSigner } from "../../../src/signers/types";
 
@@ -32,40 +32,42 @@ describe("EIP-1193 SafeSigner", () => {
     expect("createEip1193Signer" in eip1193).to.equal(false);
   });
 
-  it("verifies the local account and exact recovered typed-data address through the Burner adapter", async () => {
-    const signer = createBurnerSigner({ provider: provider(), account: account.address });
+  it("verifies the local account and exact recovered typed-data address through the EIP-1193 secondary adapter", async () => {
+    const signer = createEip1193SecondarySigner({ provider: provider(), account: account.address });
     const extension = await signer.sign(request);
     expect(extension).to.match(/^0x[0-9a-f]+$/);
     expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
   });
 
-  it("exposes Burner WalletConnect as a secondary ECDSA-extension VaultSigner", async () => {
-    const signer = createBurnerWalletConnectSigner({ provider: provider(), account: account.address });
+  it("exposes an EIP-1193 signer as a secondary ECDSA-extension VaultSigner", async () => {
+    const signer = createEip1193SecondarySigner({ provider: provider(), account: account.address });
     expect(signer).to.include({ address: account.address, role: "secondary", kind: "ecdsa-extension" });
     const extension = await signer.sign(request);
     expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
   });
 
-  it("keeps createBurnerSigner as the compatibility alias", async () => {
+  it("keeps Burner-named factories as compatibility aliases", async () => {
     const signer = createBurnerSigner({ provider: provider(), account: account.address });
+    const walletConnectSigner = createBurnerWalletConnectSigner({ provider: provider(), account: account.address });
     expect(signer).to.include({ address: account.address, role: "secondary", kind: "ecdsa-extension" });
+    expect(walletConnectSigner).to.include({ address: account.address, role: "secondary", kind: "ecdsa-extension" });
     expect(await signer.sign(request)).to.match(/^0x[0-9a-f]+$/);
   });
 
   it("fails closed when signer roles or kinds do not match primary-plus-secondary composition", () => {
     const primary = { address: OTHER, role: "primary", kind: "safe-contract", sign: async () => "0x" as Hex } satisfies VaultSigner;
     const secondary = { address: account.address, role: "secondary", kind: "ecdsa-extension", sign: async () => "0x" as Hex } satisfies VaultSigner;
-    const yubiKey = { ...secondary, kind: "safe-contract" } satisfies VaultSigner;
+    const safeContractSecondary = { ...secondary, kind: "safe-contract" } satisfies VaultSigner;
     expect(() => assertVaultSignerPair(primary, secondary)).not.to.throw();
-    expect(() => assertVaultSignerPair(primary, yubiKey)).not.to.throw();
+    expect(() => assertVaultSignerPair(primary, safeContractSecondary)).not.to.throw();
     expect(() => assertVaultSignerPair({ ...primary, role: "secondary" }, secondary)).to.throw("primary");
     expect(() => assertVaultSignerPair(primary, { ...secondary, role: "primary" })).to.throw("secondary");
     expect(() => assertVaultSignerPair({ ...primary, kind: "ecdsa-extension" }, secondary)).to.throw("safe-contract");
     expect(() => assertVaultSignerPair(primary, { ...secondary, kind: "unknown" as never })).to.throw("kind");
   });
 
-  it("returns the exact Burner extension and rejects duplicate append attempts", async () => {
-    const signer = createBurnerSigner({ provider: provider(), account: account.address });
+  it("returns the exact ECDSA secondary extension and rejects duplicate append attempts", async () => {
+    const signer = createEip1193SecondarySigner({ provider: provider(), account: account.address });
     const extension = await signer.sign(request);
     expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
     expect(extension.slice(2, 132)).to.have.length(130);
@@ -74,10 +76,10 @@ describe("EIP-1193 SafeSigner", () => {
 
   it("rejects wrong account, provider changes, user rejection, and extension ambiguity", async () => {
     const wrong = privateKeyToAccount("0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd");
-    await expect(createBurnerSigner({ provider: provider(), account: wrong.address }).sign(request)).to.be.rejectedWith("account");
-    await expect(createBurnerSigner({ provider: provider({ eth_accounts: [wrong.address] }), account: account.address }).sign(request)).to.be.rejectedWith("account");
-    await expect(createBurnerSigner({ provider: provider({ eth_signTypedData_v4: Promise.reject(new Error("User rejected")) }), account: account.address }).sign(request)).to.be.rejectedWith("rejected");
-    await expect(createBurnerSigner({ provider: { ...provider(), providers: [provider(), provider()] }, account: account.address }).sign(request)).to.be.rejectedWith("ambiguous");
+    await expect(createEip1193SecondarySigner({ provider: provider(), account: wrong.address }).sign(request)).to.be.rejectedWith("account");
+    await expect(createEip1193SecondarySigner({ provider: provider({ eth_accounts: [wrong.address] }), account: account.address }).sign(request)).to.be.rejectedWith("account");
+    await expect(createEip1193SecondarySigner({ provider: provider({ eth_signTypedData_v4: Promise.reject(new Error("User rejected")) }), account: account.address }).sign(request)).to.be.rejectedWith("rejected");
+    await expect(createEip1193SecondarySigner({ provider: { ...provider(), providers: [provider(), provider()] }, account: account.address }).sign(request)).to.be.rejectedWith("ambiguous");
   });
 
   it("does not expose a recovery signer factory", () => {

@@ -76,7 +76,7 @@ function validateSnapshot(value: unknown, plan: ReturnType<typeof buildDeploymen
   exact(safe, ["address", "singletonAddress", "owners", "threshold", "fallbackHandler", "transactionGuard", "moduleGuard", "enabledModules"], "snapshot.safe");
   if (address(safe.address, "snapshot.safe.address") !== plan.deployments.safe) throw new Error("Safe address mismatch");
   if (address(safe.singletonAddress, "snapshot.safe.singletonAddress") !== address(singleton.address, "snapshot.dependencies.safeSingleton.address")) throw new Error("Safe singleton topology binding mismatch");
-  const expectedOwners = [plan.deployments.passkey, plan.deployments.yubiKey, plan.deployments.burner].sort();
+  const expectedOwners = [plan.deployments.passkey, plan.deployments.safeContractSecondary, plan.deployments.ecdsaSecondary].sort();
   if (!equal(addresses(safe.owners, "snapshot.safe.owners"), expectedOwners)) throw new Error("owners mismatch");
   if (safe.threshold !== 1) throw new Error("threshold mismatch");
   if (address(safe.fallbackHandler, "snapshot.safe.fallbackHandler") !== ZERO_ADDRESS) throw new Error("fallback handler mismatch");
@@ -86,20 +86,20 @@ function validateSnapshot(value: unknown, plan: ReturnType<typeof buildDeploymen
 
   const policy = object(config.policy, "config.policy");
   const guard = object(snapshot.guard, "snapshot.guard");
-  exact(guard, ["address", "runtimeCodeHash", "config", "yubiKeySecondary", "burnerSecondary", "assets", "counters"], "snapshot.guard");
+  exact(guard, ["address", "runtimeCodeHash", "config", "safeContractSecondary", "ecdsaSecondary", "assets", "counters"], "snapshot.guard");
   if (address(guard.address, "snapshot.guard.address") !== plan.deployments.guard) throw new Error("guard address mismatch");
   if (hash(guard.runtimeCodeHash, "snapshot.guard.runtimeCodeHash") !== plan.dependencies.guardRuntimeCodeHash) throw new Error("guard bytecode hash mismatch");
   const guardConfig = object(guard.config, "snapshot.guard.config");
-  exact(guardConfig, ["safe", "passkey", "burner", "delay", "periodSeconds", "periodAnchor"], "snapshot.guard.config");
-  for (const key of ["safe", "passkey", "burner", "delay"] as const) if (address(guardConfig[key], `snapshot.guard.config.${key}`) !== plan.deployments[key]) throw new Error(`guard ${key} mismatch`);
+  exact(guardConfig, ["safe", "passkey", "ecdsaSecondary", "delay", "periodSeconds", "periodAnchor"], "snapshot.guard.config");
+  for (const key of ["safe", "passkey", "ecdsaSecondary", "delay"] as const) if (address(guardConfig[key], `snapshot.guard.config.${key}`) !== plan.deployments[key]) throw new Error(`guard ${key} mismatch`);
   numberLike(guardConfig.periodSeconds, bigintValue(policy.periodSeconds, "config.policy.periodSeconds"), "guard periodSeconds");
   numberLike(guardConfig.periodAnchor, bigintValue(policy.periodAnchor, "config.policy.periodAnchor"), "guard periodAnchor");
-  const yubiKeySecondary = object(guard.yubiKeySecondary, "snapshot.guard.yubiKeySecondary");
-  exact(yubiKeySecondary, ["signer", "kind", "enabled"], "snapshot.guard.yubiKeySecondary");
-  if (address(yubiKeySecondary.signer, "snapshot.guard.yubiKeySecondary.signer") !== plan.deployments.yubiKey || yubiKeySecondary.kind !== "safe-contract" || yubiKeySecondary.enabled !== true) throw new Error("YubiKey secondary mismatch");
-  const burnerSecondary = object(guard.burnerSecondary, "snapshot.guard.burnerSecondary");
-  exact(burnerSecondary, ["signer", "kind", "enabled"], "snapshot.guard.burnerSecondary");
-  if (address(burnerSecondary.signer, "snapshot.guard.burnerSecondary.signer") !== plan.deployments.burner || burnerSecondary.kind !== "ecdsa-extension" || burnerSecondary.enabled !== true) throw new Error("Burner secondary mismatch");
+  const safeContractSecondary = object(guard.safeContractSecondary, "snapshot.guard.safeContractSecondary");
+  exact(safeContractSecondary, ["signer", "kind", "enabled"], "snapshot.guard.safeContractSecondary");
+  if (address(safeContractSecondary.signer, "snapshot.guard.safeContractSecondary.signer") !== plan.deployments.safeContractSecondary || safeContractSecondary.kind !== "safe-contract" || safeContractSecondary.enabled !== true) throw new Error("safe-contract secondary mismatch");
+  const ecdsaSecondary = object(guard.ecdsaSecondary, "snapshot.guard.ecdsaSecondary");
+  exact(ecdsaSecondary, ["signer", "kind", "enabled"], "snapshot.guard.ecdsaSecondary");
+  if (address(ecdsaSecondary.signer, "snapshot.guard.ecdsaSecondary.signer") !== plan.deployments.ecdsaSecondary || ecdsaSecondary.kind !== "ecdsa-extension" || ecdsaSecondary.enabled !== true) throw new Error("ECDSA secondary mismatch");
 
   const configuredAssets = objectArray(policy.assets, "config.policy.assets");
   const expectedAssets = configuredAssets.map((asset, index) => ({

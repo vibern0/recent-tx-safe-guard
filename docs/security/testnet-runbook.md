@@ -2,13 +2,13 @@
 
 This runbook is for the Option B single-Safe security-core prototype on Sepolia only (`chainId 11155111`). It is security research, not a production wallet. Never use it for mainnet, production funds, or live broadcast from the planner. The examples are redacted, not deployed, and contain no secrets.
 
-The active prototype has exactly three Safe owners: the configured primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. It has no recovery owner, recovery signer adapter, fallback handler, extra module, or auxiliary custody Safe. Base transfers require the primary passkey. Step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one configured secondary signer over the exact Safe transaction. The loss of the primary or all configured secondary factors is an accepted testnet availability risk: funds may become unavailable until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed. That boundary is deliberate because an immediate recovery path would weaken the active call graph. Direct Burner NFC/libhalo support remains a future spike and is out of scope for this runbook.
+The active prototype has exactly three Safe owners: the configured primary passkey, safe-contract secondary, and ECDSA secondary. It has no recovery owner, recovery signer adapter, fallback handler, extra module, or auxiliary custody Safe. Base transfers require the primary passkey. Step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one configured secondary signer over the exact Safe transaction. The loss of the primary or all configured secondary factors is an accepted testnet availability risk: funds may become unavailable until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed. That boundary is deliberate because an immediate recovery path would weaken the active call graph. Direct Burner NFC/libhalo support remains a future spike and is out of scope for this runbook.
 
 ## Hard stop rules
 
 Stop immediately and do not sign, broadcast, deposit funds, or continue rehearsal if any read-only check differs from the reviewed plan. A mismatch in any of the following is a hard failure:
 
-- chain, Safe address, or exactly three Safe owners `[primary passkey, YubiKey secondary, Burner secondary]`;
+- chain, Safe address, or exactly three Safe owners `[primary passkey, safe-contract secondary, ECDSA secondary]`;
 - threshold, zero fallback handler, transaction guard, or module guard;
 - enabled Safe modules (Delay must be the only one);
 - guard or Delay address, runtime bytecode hash, signer identity, policy hash, or dependency hash;
@@ -53,7 +53,7 @@ Archive the unsigned plan, decoded review, public manifest, expected evidence ha
 
 Prerequisite deployment is separate from Safe creation. First deploy the reviewed setup helper, guard, Delay, and maintenance instances at the deterministic nonce sequence. Then re-read their runtime hashes and constructor/configuration bindings. Only after `assertSafeCreationReady` proves the deployer nonce is exactly `startingNonce + 4` may the official Safe proxy factory transaction be prepared.
 
-The exact Safe submission is the factory call whose initializer is `setup([primary passkey, YubiKey secondary, Burner secondary], 1, setupHelper, setupData, 0, 0, 0, 0)` after Safe-required owner sorting. The setup helper performs the atomic setup while `address(this)` is the final Safe: configure assets, configure both secondary signer slots, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Any decoded submission that omits one of the three configured owners, names an extra owner, installs a nonzero fallback handler, adds an extra module, uses an unlisted delegatecall, or has a mismatched Delay owner/avatar/target is a hard stop.
+The exact Safe submission is the factory call whose initializer is `setup([primary passkey, safe-contract secondary, ECDSA secondary], 1, setupHelper, setupData, 0, 0, 0, 0)` after Safe-required owner sorting. The setup helper performs the atomic setup while `address(this)` is the final Safe: configure assets, configure both secondary signer slots, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Any decoded submission that omits one of the three configured owners, names an extra owner, installs a nonzero fallback handler, adds an extra module, uses an unlisted delegatecall, or has a mismatched Delay owner/avatar/target is a hard stop.
 
 ## Delay execution, cancellation/freeze, and signer repair
 
@@ -72,7 +72,7 @@ Use deliberately low-value test assets and clean test accounts. Refuse chain ID 
 1. Read and record chain ID, bytecode, owners, threshold, fallback, both guard slots, the single Safe module, Delay topology, policy, counters, and notification destinations.
 2. Verify the atomic setup plan is unsigned and byte-stable across two generations. Do not broadcast it from this repository.
 3. Exercise a native/ERC-20 base transfer within per-transaction and X limits. Confirm it consumes both X and shared Y.
-4. Exercise step-up transfers requiring the configured primary passkey plus the YubiKey secondary and the primary passkey plus the Burner secondary. Confirm each consumes shared Y, emits the step-up alert, and cannot be authorized by either secondary alone or by both secondaries without the primary.
+4. Exercise step-up transfers requiring the configured primary passkey plus the safe-contract secondary and the primary passkey plus the ECDSA secondary. Confirm each consumes shared Y, emits the step-up alert, and cannot be authorized by either secondary alone or by both secondaries without the primary.
 5. Attempt unsupported calldata, approvals, Permit/Permit2, batches, delegate calls, arbitrary messages, unknown recipients, and direct owner/module bypasses. Each must fail closed.
 6. Attempt a transfer above Y directly. Confirm it cannot execute; queue the exact fingerprint through Delay with the primary passkey plus one configured secondary approval.
 7. Confirm the delayed lifecycle alert, cancel the queue item, and prove the cancelled fingerprint cannot execute. Repeat with expiry and prove stale execution fails.

@@ -24,7 +24,7 @@ const code = (n: number) => (`0x60${n.toString(16).padStart(2, "0")}`) as Hex;
 const hash = (value: Hex) => keccak256(value);
 
 const SAFE_SETUP_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "address[]" }, { name: "threshold", type: "uint256" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }, { name: "fallbackHandler", type: "address" }, { name: "paymentToken", type: "address" }, { name: "payment", type: "uint256" }, { name: "paymentReceiver", type: "address" }], outputs: [] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "yubiKey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
 
 const deployer = a(100);
@@ -39,7 +39,7 @@ const policyBase = {
   chainId: 11155111,
   safe: a(1),
   passkey: a(2),
-  burner: a(3),
+  ecdsaSecondary: a(3),
   primary: a(2),
   secondaries: [
     { address: a(4), role: "secondary", kind: "safe-contract", enabled: true },
@@ -128,14 +128,14 @@ async function derivedPolicy(): Promise<VaultPolicy> {
       delay: components.delay,
       maintenance: components.maintenance,
       passkey: policyBase.passkey,
-      yubiKey: policyBase.secondaries[0]!.address,
-      burner: policyBase.burner,
+      safeContractSecondary: policyBase.secondaries[0]!.address,
+      ecdsaSecondary: policyBase.ecdsaSecondary,
       periodSeconds: 86400n,
       periodAnchor: policyBase.periodAnchor,
       assets: policyBase.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
     }],
   });
-  const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey, policyBase.secondaries[0]!.address, policyBase.burner].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase())), 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });
+  const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey, policyBase.secondaries[0]!.address, policyBase.ecdsaSecondary].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase())), 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });
   const safe = deriveSafeProxyAddress({ factory: deployments.safeProxyFactory.address, singleton: deployments.safeSingleton.address, proxyCreationCode: code(44), initializer, saltNonce: 7n });
   return { ...policyBase, safe };
 }
@@ -151,7 +151,7 @@ describe("buildVaultPlan", () => {
     expect(first.unsigned).to.equal(true);
     expect(first.broadcast).to.equal(false);
     expect(json(first)).not.to.match(/signature|privateKey|secret|broadcast":true/i);
-    const expectedOwners = [policy.passkey, policy.secondaries![0]!.address, policy.burner].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
+    const expectedOwners = [policy.passkey, policy.secondaries![0]!.address, policy.ecdsaSecondary].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
     expect(first.review.owners).to.deep.equal(expectedOwners);
     expect(first.review.threshold).to.equal(1);
     expect(first.review.fallbackHandler).to.equal(a(0));
@@ -184,7 +184,7 @@ describe("buildVaultPlan", () => {
     expect(safeSetup.args[6]).to.equal(0n);
     expect(safeSetup.args[7]).to.equal(a(0));
     const helperSetup = decodeFunctionData({ abi: HELPER_ABI, data: safeSetup.args[3] });
-    expect(helperSetup.args[0]).to.include({ guard: components.guard, delay: components.delay, maintenance: components.maintenance, passkey: policy.passkey, yubiKey: policy.secondaries![0]!.address, burner: policy.burner, periodSeconds: 86400n, periodAnchor: policy.periodAnchor });
+    expect(helperSetup.args[0]).to.include({ guard: components.guard, delay: components.delay, maintenance: components.maintenance, passkey: policy.passkey, safeContractSecondary: policy.secondaries![0]!.address, ecdsaSecondary: policy.ecdsaSecondary, periodSeconds: 86400n, periodAnchor: policy.periodAnchor });
   });
 
   it("fails closed on fabricated infrastructure, deployer nonce drift, and wrong deterministic Delay address", async () => {
@@ -203,22 +203,22 @@ describe("buildVaultPlan", () => {
       ...policyBase,
       secondaries: [
         { address: a(4), role: "secondary", kind: "safe-contract", enabled: true },
-        { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+        { address: policyBase.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true },
       ],
     } satisfies VaultPolicy;
     const baseline = policyHash(optionB);
 
     expect(policyHash({ ...optionB, secondaries: [
       { address: a(9), role: "secondary", kind: "safe-contract", enabled: true },
-      { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+      { address: policyBase.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true },
     ] })).not.to.equal(baseline);
     expect(policyHash({ ...optionB, secondaries: [
       { address: a(4), role: "secondary", kind: "safe-contract", enabled: false },
-      { address: policyBase.burner, role: "secondary", kind: "ecdsa-extension", enabled: true },
+      { address: policyBase.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true },
     ] as never })).not.to.equal(baseline);
     expect(policyHash({ ...optionB, secondaries: [
       { address: a(4), role: "secondary", kind: "ecdsa-extension", enabled: true },
-      { address: policyBase.burner, role: "secondary", kind: "safe-contract", enabled: true },
+      { address: policyBase.ecdsaSecondary, role: "secondary", kind: "safe-contract", enabled: true },
     ] as never })).not.to.equal(baseline);
   });
 
@@ -234,9 +234,9 @@ describe("buildVaultPlan", () => {
     const client: ReadOnlyDeploymentClient = {
       async getBytecode({ address }) { return deployed.get(address); },
       async readContract({ address, functionName }) {
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.passkey, policy.burner, components.delay, 86400n, policy.periodAnchor];
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "yubiKeySecondary") return [policy.secondaries![0]!.address, 0, true];
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "burnerSecondary") return [policy.burner, 1, true];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.passkey, policy.ecdsaSecondary, components.delay, 86400n, policy.periodAnchor];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "safeContractSecondary") return [policy.secondaries![0]!.address, 0, true];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "ecdsaSecondary") return [policy.ecdsaSecondary, 1, true];
         if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "maintenance") return components.maintenance;
         if (address === plan.prerequisites.delay.expectedCreatedAddress && ["owner", "avatar", "target"].includes(functionName)) return policy.safe;
         if (address === plan.prerequisites.delay.expectedCreatedAddress && functionName === "txCooldown") return BigInt(policy.cooldownSeconds);
@@ -254,17 +254,17 @@ describe("buildVaultPlan", () => {
     await expect(verifyVaultPrerequisites({
       ...client,
       async readContract({ address, functionName }) {
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.secondaries![0]!.address, policy.burner, components.delay, 86400n, policy.periodAnchor];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.secondaries![0]!.address, policy.ecdsaSecondary, components.delay, 86400n, policy.periodAnchor];
         return client.readContract!({ address, abi: [], functionName });
       },
     }, plan)).to.be.rejectedWith("guard binding mismatch");
     await expect(verifyVaultPrerequisites({
       ...client,
       async readContract({ address, functionName }) {
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "yubiKeySecondary") return [policy.passkey, 0, true];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "safeContractSecondary") return [policy.passkey, 0, true];
         return client.readContract!({ address, abi: [], functionName });
       },
-    }, plan)).to.be.rejectedWith("YubiKey secondary binding mismatch");
+    }, plan)).to.be.rejectedWith("Safe-contract secondary binding mismatch");
 
     const evidence = await verifyVaultPrerequisites(client, plan);
     expect(() => assertSafeCreationReady(plan, evidence, startingNonce)).to.throw("nonce drift");

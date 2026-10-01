@@ -4,7 +4,7 @@
     "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L603-L623",
     "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L87-L112",
     "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L323-L326",
-    "unused-return|decodeBurnerExtension|contracts/TieredSpendingGuard.sol#L331-L334",
+    "unused-return|decodeEcdsaSecondaryExtension|contracts/TieredSpendingGuard.sol#L331-L334",
     "calls-loop|_checkedCall|contracts/SafeAtomicSetupHelper.sol#L133-L136",
     "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L544-L593",
     "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L603-L623",

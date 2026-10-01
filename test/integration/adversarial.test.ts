@@ -2,22 +2,22 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, toHex, type Address, type Hex } from "viem";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, safeContractSignatures, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, safeContractSignatures, signSafeTransaction, transferAbi } from "../helpers/safe";
 
-const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
   { name: "signer", type: "address" },
   { name: "enabled", type: "bool" },
 ]);
 
 describe("Task 10 adversarial threat-model matrix", () => {
   async function fixture() {
-    const [deployer, burner, recipient, other] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient, other] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, ecdsaSecondary.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
-    const sign = async (to: Address, data: Hex, signer = burner, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
     const exec = async (to: Address, data: Hex, signature: Hex, value = 0n, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex) => exec(to, data, await sign(to, data));
     const passkeySig = passkeySignature(passkey.address);
@@ -27,30 +27,30 @@ describe("Task 10 adversarial threat-model matrix", () => {
     ]), functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
-    const step = async (to: Address, data: Hex) => burnerEnvelope(passkey.address, await sign(to, data, burner));
-    return { deployer, burner, recipient, other, safe, passkey, token, guard, sign, exec, ownerCall, passkeySig, step, transfer };
+    const step = async (to: Address, data: Hex) => ecdsaSecondaryEnvelope(passkey.address, await sign(to, data, ecdsaSecondary));
+    return { deployer, ecdsaSecondary, recipient, other, safe, passkey, token, guard, sign, exec, ownerCall, passkeySig, step, transfer };
   }
 
   it("secondary signer adversarially rejects mixed Safe-contract and ECDSA secondaries", async () => {
-    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
-    const sign = async (to: Address, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data);
     const exec = async (to: Address, data: Hex, signature: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex) => exec(to, data, await sign(to, data));
-    await ownerCall(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
       { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
     ]), functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const data = encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [recipient.account.address, 300n] });
-    const safeSecondary = safeContractSignatures(passkey.address, yubiKey.address);
-    const burnerSignature = await sign(token.address, data, burner);
-    const mixed = `${safeSecondary}${burnerSignature.slice(2)}` as Hex;
+    const safeSecondary = safeContractSignatures(passkey.address, safeContractSecondary.address);
+    const ecdsaSecondarySignature = await sign(token.address, data, ecdsaSecondary);
+    const mixed = `${safeSecondary}${ecdsaSecondarySignature.slice(2)}` as Hex;
 
     await expect(exec(token.address, data, mixed)).to.be.rejected;
     await exec(token.address, data, safeSecondary);
@@ -81,7 +81,7 @@ describe("Task 10 adversarial threat-model matrix", () => {
 
   it("rejects wrong signer combinations, mutations, replay, and approved-hash signatures", async () => {
     const f = await fixture(); const data = f.transfer(f.recipient.account.address, 1n);
-    await expect(f.exec(f.token.address, data, await f.sign(f.token.address, data, f.burner))).to.be.rejected;
+    await expect(f.exec(f.token.address, data, await f.sign(f.token.address, data, f.ecdsaSecondary))).to.be.rejected;
     const valid = await f.step(f.token.address, data);
     await f.exec(f.token.address, data, valid);
     await expect(f.exec(f.token.address, data, valid)).to.be.rejected;
@@ -115,7 +115,7 @@ describe("Task 10 adversarial threat-model matrix", () => {
     const f = await fixture();
     const setGuard = (name: "setGuard" | "setModuleGuard", guard: Address) => encodeFunctionData({ abi: fn(name, [{ name: "guard", type: "address" }]), functionName: name, args: [guard] });
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [f.safe.address, f.safe.address, f.safe.address, 10n, 60n]);
-    const replacement = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, delay.address, 86400n, 0n]]);
+    const replacement = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     for (const [target, data] of ([[f.safe.address, setGuard("setGuard", ZERO)], [f.safe.address, setGuard("setModuleGuard", ZERO)], [f.safe.address, setGuard("setGuard", replacement.address)], [f.safe.address, setGuard("setModuleGuard", replacement.address)]] as const)) {
       await expect(f.exec(target, data, await f.sign(target, data))).to.be.rejected;
       const client = await hre.viem.getPublicClient();

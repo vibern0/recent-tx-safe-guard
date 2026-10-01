@@ -76,7 +76,7 @@ function validatePolicy(value: unknown): asserts value is Record<string, unknown
 
 export function buildDeploymentPlan(config: PublicDeploymentConfig) {
   assertPublic(config);
-  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "yubiKey", "burner", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash", "atomicSafeCreation"]);
+  exactKeys(config, ["formatVersion", "network", "chainId", "safe", "guard", "delay", "passkey", "safeContractSecondary", "ecdsaSecondary", "safeSingleton", "delayDependency", "guardRuntimeCodeHash", "policy", "expectedQueueFingerprints", "setupTransactionHashes", "expectedCounters", "setupCalls"], "config", ["policyHash", "atomicSafeCreation"]);
   if (config.atomicSafeCreation === true) {
     throw new Error("atomic Safe creation requires buildVaultPlan prerequisite evidence, expected runtime hashes, Safe proxy creation code, verified prerequisites, and assertSafeCreationReady");
   }
@@ -91,10 +91,10 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     guard: address(config.guard, "guard"),
     delay: address(config.delay, "delay"),
     passkey: address(config.passkey, "passkey"),
-    yubiKey: address(config.yubiKey, "yubiKey"),
-    burner: address(config.burner, "burner"),
+    safeContractSecondary: address(config.safeContractSecondary, "safeContractSecondary"),
+    ecdsaSecondary: address(config.ecdsaSecondary, "ecdsaSecondary"),
   };
-  const ownerSet = new Set([deployments.passkey, deployments.yubiKey, deployments.burner]);
+  const ownerSet = new Set([deployments.passkey, deployments.safeContractSecondary, deployments.ecdsaSecondary]);
   if (ownerSet.size !== 3) throw new Error("Option B owners must be distinct");
   const singleton = record(config.safeSingleton, "safeSingleton");
   const delayDependency = record(config.delayDependency, "delayDependency");

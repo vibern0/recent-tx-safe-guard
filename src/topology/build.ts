@@ -28,11 +28,11 @@ const SAFE_ABI = [
   { name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] },
 ] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "yubiKey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 const GUARD_ABI = [
-  { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
-  { name: "yubiKeySecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
-  { name: "burnerSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
+  { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
+  { name: "safeContractSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
+  { name: "ecdsaSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { name: "maintenance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 const DELAY_ABI = [
@@ -124,9 +124,9 @@ export function isVerifiedVaultPrerequisites(value: unknown): value is VerifiedV
 
 export function policyHash(policy: VaultPolicy): Hex {
   const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
-  const secondaries = policy.secondaries ?? [{ address: policy.burner, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }];
-  const yubiKeySecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };
-  const burnerSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.burner, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true };
+  const secondaries = policy.secondaries ?? [{ address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }];
+  const safeContractSecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };
+  const ecdsaSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true };
   return keccak256(encodeAbiParameters(
     [
       { type: "uint256" },
@@ -145,8 +145,8 @@ export function policyHash(policy: VaultPolicy): Hex {
       BigInt(policy.chainId),
       policy.safe,
       [policy.primary ?? policy.passkey, SIGNER_ROLE.primary, SIGNER_KIND["safe-contract"], true],
-      [yubiKeySecondary.address, SIGNER_KIND[yubiKeySecondary.kind], yubiKeySecondary.enabled],
-      [burnerSecondary.address, SIGNER_KIND[burnerSecondary.kind], burnerSecondary.enabled],
+      [safeContractSecondary.address, SIGNER_KIND[safeContractSecondary.kind], safeContractSecondary.enabled],
+      [ecdsaSecondary.address, SIGNER_KIND[ecdsaSecondary.kind], ecdsaSecondary.enabled],
       policy.delay,
       BigInt(policy.periodSeconds),
       policy.periodAnchor,
@@ -202,19 +202,19 @@ function sortedOwners(owners: readonly Address[]): readonly [Address, Address, A
   return sorted as [Address, Address, Address];
 }
 
-function plannedSetupSigners(plan: VaultDeploymentPlan): { passkey: Address; yubiKey: Address; burner: Address } {
+function plannedSetupSigners(plan: VaultDeploymentPlan): { passkey: Address; safeContractSecondary: Address; ecdsaSecondary: Address } {
   const decoded = decodeFunctionData({ abi: HELPER_ABI, data: plan.setupHelperCalldata });
   if (decoded.functionName !== "setup") throw new Error("fail closed: setup helper calldata mismatch");
   const params = decoded.args[0];
-  return { passkey: params.passkey, yubiKey: params.yubiKey, burner: params.burner };
+  return { passkey: params.passkey, safeContractSecondary: params.safeContractSecondary, ecdsaSecondary: params.ecdsaSecondary };
 }
 
-function configuredOptionBSecondaries(policy: VaultPolicy): { yubiKey: Address; burner: Address } {
-  const yubiKey = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
-  const burner = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.burner))?.address;
-  if (!yubiKey) throw new Error("fail closed: Option B requires an enabled Safe-contract secondary");
-  if (!burner) throw new Error("fail closed: Option B requires the Burner ECDSA secondary");
-  return { yubiKey, burner };
+function configuredOptionBSecondaries(policy: VaultPolicy): { safeContractSecondary: Address; ecdsaSecondary: Address } {
+  const safeContractSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
+  const ecdsaSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.ecdsaSecondary))?.address;
+  if (!safeContractSecondary) throw new Error("fail closed: Option B requires an enabled Safe-contract secondary");
+  if (!ecdsaSecondary) throw new Error("fail closed: Option B requires an enabled ECDSA secondary");
+  return { safeContractSecondary, ecdsaSecondary };
 }
 
 function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedRuntimeCodeHash: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
@@ -251,7 +251,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
   const optionB = configuredOptionBSecondaries(input.policy);
-  const owners = sortedOwners([input.policy.passkey, optionB.yubiKey, optionB.burner]);
+  const owners = sortedOwners([input.policy.passkey, optionB.safeContractSecondary, optionB.ecdsaSecondary]);
 
   const setupHelperCalldata = encodeFunctionData({
     abi: HELPER_ABI,
@@ -261,8 +261,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       delay: components.delay,
       maintenance: components.maintenance,
       passkey: input.policy.passkey,
-      yubiKey: optionB.yubiKey,
-      burner: optionB.burner,
+      safeContractSecondary: optionB.safeContractSecondary,
+      ecdsaSecondary: optionB.ecdsaSecondary,
       periodSeconds: BigInt(input.policy.periodSeconds),
       periodAnchor: input.policy.periodAnchor,
       assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
@@ -375,15 +375,15 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   const plannedSigners = plannedSetupSigners(plan);
   const guardConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "config" });
   if (!Array.isArray(guardConfig) || guardConfig.length !== 6) throw new Error("fail closed: guard config evidence malformed");
-  const [safe, passkey, burner, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
-  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plannedSigners.passkey) || !same(burner, plannedSigners.burner) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
+  const [safe, passkey, configuredEcdsaSecondary, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
+  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plannedSigners.passkey) || !same(configuredEcdsaSecondary, plannedSigners.ecdsaSecondary) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
     if (periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) throw new Error("fail closed: guard period binding mismatch");
     throw new Error("fail closed: guard binding mismatch");
   }
-  const yubiKey = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "yubiKeySecondary" });
-  const burnerSecondary = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "burnerSecondary" });
-  if (!Array.isArray(yubiKey) || yubiKey.length !== 3 || !same(yubiKey[0] as Address, plannedSigners.yubiKey) || yubiKey[1] !== 0 || yubiKey[2] !== true) throw new Error("fail closed: YubiKey secondary binding mismatch");
-  if (!Array.isArray(burnerSecondary) || burnerSecondary.length !== 3 || !same(burnerSecondary[0] as Address, burner) || burnerSecondary[1] !== 1 || burnerSecondary[2] !== true) throw new Error("fail closed: Burner secondary binding mismatch");
+  const safeContractSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "safeContractSecondary" });
+  const ecdsaSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "ecdsaSecondary" });
+  if (!Array.isArray(safeContractSecondaryConfig) || safeContractSecondaryConfig.length !== 3 || !same(safeContractSecondaryConfig[0] as Address, plannedSigners.safeContractSecondary) || safeContractSecondaryConfig[1] !== 0 || safeContractSecondaryConfig[2] !== true) throw new Error("fail closed: Safe-contract secondary binding mismatch");
+  if (!Array.isArray(ecdsaSecondaryConfig) || ecdsaSecondaryConfig.length !== 3 || !same(ecdsaSecondaryConfig[0] as Address, configuredEcdsaSecondary) || ecdsaSecondaryConfig[1] !== 1 || ecdsaSecondaryConfig[2] !== true) throw new Error("fail closed: ECDSA secondary binding mismatch");
   if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), maintenance.address)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "avatar"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay avatar mismatch");

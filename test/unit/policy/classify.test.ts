@@ -34,7 +34,7 @@ const policy: VaultPolicy = {
   chainId: 11155111,
   safe: SAFE,
   passkey: PASSKEY,
-  burner: BURNER,
+  ecdsaSecondary: BURNER,
   primary: PASSKEY,
   secondaries: [
     { address: YUBIKEY, role: "secondary", kind: "safe-contract", enabled: true },
@@ -73,10 +73,10 @@ const tokenTransfer = (value: bigint, overrides: Partial<ClassifiableAction> = {
 describe("classifyAction", () => {
   it("classifies native and ERC-20 transfers across X and Y with cumulative state", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 100n), state, 1n)).to.equal("base");
-    expect(classifyAction(policy, transfer(RECIPIENT, 101n, { burnerApproved: true }), state, 1n)).to.equal("step-up");
+    expect(classifyAction(policy, transfer(RECIPIENT, 101n, { secondaryApproved: true }), state, 1n)).to.equal("step-up");
     expect(classifyAction(policy, transfer(RECIPIENT, 2_001n), state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, tokenTransfer(100n), state, 1n)).to.equal("base");
-    expect(classifyAction(policy, tokenTransfer(101n, { burnerApproved: true }), state, 1n)).to.equal("step-up");
+    expect(classifyAction(policy, tokenTransfer(101n, { secondaryApproved: true }), state, 1n)).to.equal("step-up");
   });
 
   it("uses remaining X and shared Y, including exact boundaries and reset windows", () => {
@@ -91,7 +91,7 @@ describe("classifyAction", () => {
     expect(classifyAction(boundaryPolicy, tokenTransfer(2_001n), state, 1n, true)).to.equal("delayed");
   });
 
-  it("requires Burner for step-up and blocks per-transaction cap violations", () => {
+  it("requires secondary approval for step-up and blocks per-transaction cap violations", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 101n), state, 1n, false)).to.equal("blocked");
     expect(classifyAction(policy, transfer(RECIPIENT, 101n), state, 1n, true)).to.equal("step-up");
     expect(classifyAction(policy, transfer(RECIPIENT, 501n), state, 1n, true)).to.equal("blocked");
@@ -109,7 +109,7 @@ describe("classifyAction", () => {
   });
 
   it("delays recognized transfer, Safe configuration, and Delay actions without a recovery-only target", () => {
-    expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { burnerApproved: true }), state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { secondaryApproved: true }), state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function disableModule(address,address)"]), functionName: "disableModule", args: [ZERO, DELAY] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
@@ -142,7 +142,7 @@ describe("classifyAction", () => {
     expect(() => assertValidVaultPolicy({ ...policy, periodAnchor: 1n })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, baseDailyLimit: 0n }] })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, instantDailyLimit: 1_000n }] })).to.throw();
-    expect(() => assertValidVaultPolicy({ ...policy, burner: PASSKEY })).to.throw();
+    expect(() => assertValidVaultPolicy({ ...policy, ecdsaSecondary: PASSKEY })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, basePerTransaction: 1_001n }] })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, recovery: LEGACY_RECOVERY_TARGET } as never)).to.throw("recovery");
   });

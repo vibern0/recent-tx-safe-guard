@@ -2,9 +2,9 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
+import { deploySafeFixture, ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 
-const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
   { name: "signer", type: "address" },
   { name: "enabled", type: "bool" },
 ]);
@@ -45,148 +45,148 @@ const passkeyRepairProofHash = (chainId: bigint, safe: Address, delay: Address, 
 
 describe("Option B guard maintenance", () => {
   async function fixture() {
-    const [deployer, burner, arbitrary, recipient, replacement] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, arbitrary, recipient, replacement] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
-    const replacementYubiKey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const replacementSafeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
     const passkeySig = passkeySignature(passkey.address);
-    const sign = async (to: Address, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data);
-    const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data);
+    const envelope = (signature: Hex) => ecdsaSecondaryEnvelope(passkey.address, signature);
     const execute = (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
-    const passkeyAndBurner = async (to: Address, data: Hex) => execute(to, data, envelope(await sign(to, data, burner)));
-    const bootstrap = async (to: Address, data: Hex) => execute(to, data, await sign(to, data, burner));
+    const passkeyAndSecondary = async (to: Address, data: Hex) => execute(to, data, envelope(await sign(to, data, ecdsaSecondary)));
+    const bootstrap = async (to: Address, data: Hex) => execute(to, data, await sign(to, data, ecdsaSecondary));
     await bootstrap(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
-    await bootstrap(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
+    await bootstrap(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
     await bootstrap(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
-    return { deployer, burner, arbitrary, recipient, replacement, replacementYubiKey, safe, passkey, yubiKey, delay, guard, maintenance, owners, passkeySig, sign, envelope, execute, executeNext, passkeyAndBurner };
+    return { deployer, ecdsaSecondary, arbitrary, recipient, replacement, replacementSafeContractSecondary, safe, passkey, safeContractSecondary, delay, guard, maintenance, owners, passkeySig, sign, envelope, execute, executeNext, passkeyAndSecondary };
   }
 
-  it("sets up the Safe with primary, YubiKey secondary, and Burner secondary owners at threshold one", async () => {
+  it("sets up the Safe with primary, safe-contract secondary, and ECDSA secondary owners at threshold one", async () => {
     const f = await fixture();
     expect(await f.safe.read.getThreshold()).to.equal(1n);
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(f.owners.map((owner) => owner.toLowerCase()));
-    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.yubiKey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort());
+    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.safeContractSecondary.address, f.ecdsaSecondary.account.address].map((owner) => owner.toLowerCase()).sort());
   });
 
-  it("rejects direct queued signer repair even when primary plus Burner secondary approve the queue", async () => {
+  it("rejects direct queued signer repair even when primary plus ECDSA secondary approve the queue", async () => {
     const f = await fixture();
-    const directRepair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
+    const directRepair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.ecdsaSecondary.account.address, f.replacement.account.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, directRepair, 0] });
-    await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
+    await expect(f.passkeyAndSecondary(f.delay.address, queued)).to.be.rejected;
   });
 
-  it("rejects role 2 signer repair even when primary plus Burner secondary approve the queue", async () => {
+  it("rejects role 2 signer repair even when primary plus ECDSA secondary approve the queue", async () => {
     const f = await fixture();
     const repairRoleTwo = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [2, f.arbitrary.account.address, f.replacement.account.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repairRoleTwo, 0] });
-    await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
+    await expect(f.passkeyAndSecondary(f.delay.address, queued)).to.be.rejected;
   });
 
-  it("requires primary plus Burner secondary for the Burner maintenance path", async () => {
+  it("requires primary plus ECDSA secondary for the secondary maintenance path", async () => {
     const f = await fixture();
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.execute(f.guard.address, freeze, f.passkeySig)).to.be.rejected;
-    await f.passkeyAndBurner(f.guard.address, freeze);
+    await f.passkeyAndSecondary(f.guard.address, freeze);
     expect(await f.guard.read.frozen()).to.equal(true);
 
     const queuedRepair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, 1n, 2n, 1n, 2n, [f.recipient.account.address]] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, queuedRepair, 0] });
-    await f.passkeyAndBurner(f.delay.address, queued);
+    await f.passkeyAndSecondary(f.delay.address, queued);
     expect(await f.delay.read.queueNonce()).to.equal(1n);
 
     const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] });
     await expect(f.execute(f.delay.address, cancel, f.passkeySig)).to.be.rejected;
-    await f.passkeyAndBurner(f.delay.address, cancel);
+    await f.passkeyAndSecondary(f.delay.address, cancel);
     expect(await f.delay.read.txNonce()).to.equal(1n);
 
-    const repair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
+    const repair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.ecdsaSecondary.account.address, f.replacement.account.address] });
     await expect(f.execute(f.guard.address, repair, f.passkeySig)).to.be.rejected;
   });
 
-  it("permits immediate YubiKey secondary disabling but rejects immediate broadening", async () => {
+  it("permits immediate safe-contract secondary disabling but rejects immediate broadening", async () => {
     const f = await fixture();
-    const disable = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.yubiKey.address, false] });
-    await f.passkeyAndBurner(f.guard.address, disable);
-    expect((await f.guard.read.yubiKeySecondary())[2]).to.equal(false);
+    const disable = encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [f.safeContractSecondary.address, false] });
+    await f.passkeyAndSecondary(f.guard.address, disable);
+    expect((await f.guard.read.safeContractSecondary())[2]).to.equal(false);
 
-    const broaden = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.replacementYubiKey.address, true] });
-    await expect(f.passkeyAndBurner(f.guard.address, broaden)).to.be.rejected;
+    const broaden = encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [f.replacementSafeContractSecondary.address, true] });
+    await expect(f.passkeyAndSecondary(f.guard.address, broaden)).to.be.rejected;
   });
 
-  it("rotates the YubiKey secondary only through delayed maintenance", async () => {
+  it("rotates the safe-contract secondary only through delayed maintenance", async () => {
     const f = await fixture();
-    const yubiIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.yubiKey.address.toLowerCase());
-    const previous = (yubiIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[yubiIndex - 1]) as Address;
-    const proofHash = passkeyRepairProofHash(31337n, f.safe.address, f.delay.address, f.guard.address, f.yubiKey.address, f.replacementYubiKey.address);
+    const secondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.safeContractSecondary.address.toLowerCase());
+    const previous = (secondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[secondaryIndex - 1]) as Address;
+    const proofHash = passkeyRepairProofHash(31337n, f.safe.address, f.delay.address, f.guard.address, f.safeContractSecondary.address, f.replacementSafeContractSecondary.address);
     expect(proofHash).to.match(/^0x[0-9a-f]{64}$/);
     const proof = "0x" as Hex;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.yubiKey.address, f.replacementYubiKey.address, previous, 1n, proof] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.safeContractSecondary.address, f.replacementSafeContractSecondary.address, previous, 1n, proof] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
 
     await expect(f.execute(f.maintenance.address, repair, await f.sign(f.maintenance.address, repair))).to.be.rejected;
-    await f.passkeyAndBurner(f.delay.address, queued);
+    await f.passkeyAndSecondary(f.delay.address, queued);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
 
-    expect((await f.guard.read.yubiKeySecondary())[0].toLowerCase()).to.equal(f.replacementYubiKey.address.toLowerCase());
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementYubiKey.address.toLowerCase());
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.yubiKey.address.toLowerCase());
+    expect((await f.guard.read.safeContractSecondary())[0].toLowerCase()).to.equal(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.safeContractSecondary.address.toLowerCase());
   });
 
-  it("rotates and re-enables a disabled YubiKey secondary through delayed maintenance", async () => {
+  it("rotates and re-enables a disabled safe-contract secondary through delayed maintenance", async () => {
     const f = await fixture();
-    const disable = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.yubiKey.address, false] });
-    await f.passkeyAndBurner(f.guard.address, disable);
-    expect((await f.guard.read.yubiKeySecondary())[2]).to.equal(false);
+    const disable = encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [f.safeContractSecondary.address, false] });
+    await f.passkeyAndSecondary(f.guard.address, disable);
+    expect((await f.guard.read.safeContractSecondary())[2]).to.equal(false);
 
-    const yubiIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.yubiKey.address.toLowerCase());
-    const previous = (yubiIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[yubiIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.yubiKey.address, f.replacementYubiKey.address, previous, 1n, "0x"] });
+    const secondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.safeContractSecondary.address.toLowerCase());
+    const previous = (secondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[secondaryIndex - 1]) as Address;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.safeContractSecondary.address, f.replacementSafeContractSecondary.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
 
-    await f.passkeyAndBurner(f.delay.address, queued);
+    await f.passkeyAndSecondary(f.delay.address, queued);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
 
-    const yubiConfig = await f.guard.read.yubiKeySecondary();
-    expect(yubiConfig[0].toLowerCase()).to.equal(f.replacementYubiKey.address.toLowerCase());
-    expect(yubiConfig[2]).to.equal(true);
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementYubiKey.address.toLowerCase());
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.yubiKey.address.toLowerCase());
+    const secondaryConfig = await f.guard.read.safeContractSecondary();
+    expect(secondaryConfig[0].toLowerCase()).to.equal(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect(secondaryConfig[2]).to.equal(true);
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.safeContractSecondary.address.toLowerCase());
   });
 
-  itUnlessCoverage("replaces guards after immediate YubiKey secondary disable without re-broadening", async () => {
+  itUnlessCoverage("replaces guards after immediate safe-contract secondary disable without re-broadening", async () => {
     const f = await fixture();
-    const disable = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.yubiKey.address, false] });
-    await f.passkeyAndBurner(f.guard.address, disable);
-    expect((await f.guard.read.yubiKeySecondary())[2]).to.equal(false);
+    const disable = encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [f.safeContractSecondary.address, false] });
+    await f.passkeyAndSecondary(f.guard.address, disable);
+    expect((await f.guard.read.safeContractSecondary())[2]).to.equal(false);
 
-    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.delay.address, 86400n, 0n]]);
+    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.ecdsaSecondary.account.address, f.delay.address, 86400n, 0n]]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
 
-    await f.passkeyAndBurner(f.delay.address, queued);
+    await f.passkeyAndSecondary(f.delay.address, queued);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
 
-    expect((await replacementGuard.read.yubiKeySecondary())[0].toLowerCase()).to.equal(f.yubiKey.address.toLowerCase());
-    expect((await replacementGuard.read.yubiKeySecondary())[2]).to.equal(false);
+    expect((await replacementGuard.read.safeContractSecondary())[0].toLowerCase()).to.equal(f.safeContractSecondary.address.toLowerCase());
+    expect((await replacementGuard.read.safeContractSecondary())[2]).to.equal(false);
     expect((await replacementGuard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
   });
 
-  it("does not allow Burner-only or arbitrary EOA-only transactions through the guard", async () => {
+  it("does not allow ECDSA-secondary-only or arbitrary EOA-only transactions through the guard", async () => {
     const f = await fixture();
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
-    await expect(f.execute(f.guard.address, freeze, await f.sign(f.guard.address, freeze, f.burner))).to.be.rejected;
+    await expect(f.execute(f.guard.address, freeze, await f.sign(f.guard.address, freeze, f.ecdsaSecondary))).to.be.rejected;
     await expect(f.execute(f.recipient.account.address, "0x", await f.sign(f.recipient.account.address, "0x", f.arbitrary))).to.be.rejected;
   });
 });

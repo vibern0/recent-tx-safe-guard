@@ -55,7 +55,7 @@ export function buildSepoliaRehearsalPackage(configPath: string, outputDir: stri
     network: plan.network,
     chainId: plan.chainId,
     safe: plan.deployments.safe,
-    safeOwners: [plan.deployments.passkey, plan.deployments.yubiKey, plan.deployments.burner].sort(),
+    safeOwners: [plan.deployments.passkey, plan.deployments.safeContractSecondary, plan.deployments.ecdsaSecondary].sort(),
     threshold: 1,
     fallbackHandler: `0x${"0".repeat(40)}`,
     guards: { transactionGuard: plan.deployments.guard, moduleGuard: plan.deployments.guard },

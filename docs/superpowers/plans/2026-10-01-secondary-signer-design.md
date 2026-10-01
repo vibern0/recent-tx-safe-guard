@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the hard-coded Burner step-up role with a primary-plus-secondary signer model where either a YubiKey-style Safe passkey signer or the existing Burner ECDSA signer can satisfy the secondary approval.
+**Goal:** Replace the hard-coded product-specific step-up role with a primary-plus-secondary signer model where either a Safe-contract secondary or an ECDSA-extension secondary can satisfy the secondary approval.
 
-**Architecture:** Implement the design proposal's recommended Option B. The Vault Safe has three owners at threshold 1: primary passkey, YubiKey/passkey secondary, and Burner secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary Safe contract-signature slot, while step-up and delayed proposals require the primary plus exactly one enabled secondary of the configured kind. Direct Burner NFC support stays out of scope until a separate spike proves documented HaLo signing.
+**Architecture:** Implement the design proposal's recommended Option B. The Vault Safe has three owners at threshold 1: primary passkey, safe-contract secondary, and ECDSA secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary Safe contract-signature slot, while step-up and delayed proposals require the primary plus exactly one enabled secondary of the configured kind. Direct Burner NFC support stays out of scope until a separate spike proves documented HaLo signing.
 
 **Tech Stack:** Solidity, TypeScript, Hardhat, viem, Safe 1.5, Safe-native ERC-1271 passkey signatures, EIP-1193 typed-data signatures.
 
@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - Preserve one asset-holding Safe.
-- Use Option B: owners are `[primaryPasskey, yubikeyPasskey, burner]`, sorted for Safe setup when required by Safe signature ordering.
+- Use Option B: owners are `[primaryPasskey, safeContractSecondary, ecdsaSecondary]`, sorted for Safe setup when required by Safe signature ordering.
 - Keep Safe threshold 1; guard policy, not Safe threshold, enforces primary plus one secondary.
 - Base transfers require exactly the configured primary Safe contract-signature slot and no secondary extension.
 - Step-up transfers, delayed proposals, cancellation, freeze, and delayed maintenance require the primary plus one enabled secondary signer.
 - A secondary alone, two secondaries without primary, wrong secondary, disabled secondary, duplicate secondary, mixed-kind secondary, approved-hash signature, and arbitrary message path must fail.
-- YubiKey secondary uses a second Safe contract-signature slot validated by Safe/ERC-1271.
-- Burner secondary uses the existing terminal ECDSA extension over the exact Safe transaction hash.
+- safe-contract secondary uses a second Safe contract-signature slot validated by Safe/ERC-1271.
+- ECDSA secondary uses the existing terminal ECDSA extension over the exact Safe transaction hash.
 - Do not add `@arx-research/libhalo` or direct Burner NFC support in this plan.
 - Preserve exact authorization binding to chain, Safe, destination, value, calldata, operation, gas/refund fields, and nonce.
 - Update call graph, signer-provider evaluation, runbook/research wording, and the active implementation-plan supersession notes from Burner-specific to secondary-signer wording.
@@ -30,7 +30,7 @@
 - Safe owner ordering: topology tests must prove the configured primary and both secondaries are the only owners regardless of sort order.
 - Disabled signer state: guard tests must prove a configured but disabled secondary cannot authorize step-up or delayed work.
 - Maintenance blast radius: signer repair tests must prove adding or broadening secondary capability remains delayed, while disabling/removal is immediate only when mechanically tightening.
-- Offchain role mixups: signer tests must prove passkey and Burner adapters declare role/kind and cannot silently produce the wrong encoding for a configured role.
+- Offchain role mixups: signer tests must prove passkey and EIP-1193 secondary adapters declare role/kind and cannot silently produce the wrong encoding for a configured role.
 
 ---
 
@@ -43,7 +43,7 @@
 
 **Interfaces:**
 - Produces `VaultPolicy.primary`, `VaultPolicy.secondaries`, `SignerRole`, and `SignerKind`.
-- Keeps compatibility aliases `passkey` and `burner` only where needed by existing transport fixtures until later tasks migrate callers.
+- Keeps compatibility aliases only where needed by existing transport fixtures until later tasks migrate callers.
 
 - [ ] **Step 1: Write failing policy validation tests**
 
@@ -52,7 +52,7 @@ Add cases for duplicate primary/secondary signers, zero secondaries, unsupported
 - [ ] **Step 2: Run policy tests to verify failure**
 
 Run: `npm run test:unit -- --grep "secondary signer policy"`
-Expected: FAIL because the policy model still exposes only `passkey` and `burner`.
+Expected: FAIL because the policy model still exposes only the old product-specific signer fields.
 
 - [ ] **Step 3: Implement role-neutral policy types and validation**
 
@@ -75,17 +75,17 @@ Commit: `docs: plan secondary signer implementation`.
 - Modify: `test/integration/adversarial.test.ts`
 
 **Interfaces:**
-- Produces Solidity `SignerRole`, `SignerKind`, `SignerConfig`, `SecondarySignerConfig`, and config view fields for primary, YubiKey secondary, Burner secondary, Delay, period.
-- Keeps Burner ECDSA envelope format unchanged for ECDSA secondary approvals.
+- Produces Solidity `SignerRole`, `SignerKind`, `SignerConfig`, `SecondarySignerConfig`, and config view fields for primary, safe-contract secondary, ECDSA secondary, Delay, period.
+- Keeps the terminal ECDSA envelope format unchanged for ECDSA secondary approvals.
 
 - [ ] **Step 1: Write failing guard signature tests**
 
-Test primary-only base succeeds; primary-only step-up fails; YubiKey secondary alone fails; Burner secondary alone fails; YubiKey plus Burner without primary fails; primary plus YubiKey succeeds; primary plus Burner succeeds; wrong/disabled/duplicate/mixed-kind secondaries fail.
+Test primary-only base succeeds; primary-only step-up fails; safe-contract secondary alone fails; ECDSA secondary alone fails; two secondaries without primary fails; primary plus safe-contract secondary succeeds; primary plus ECDSA secondary succeeds; wrong/disabled/duplicate/mixed-kind secondaries fail.
 
 - [ ] **Step 2: Run guard tests to verify failure**
 
 Run: `npm run test:unit -- --grep "secondary signer"` and `npm run test:integration -- --grep "secondary signer"`
-Expected: FAIL because the guard accepts only the configured Burner extension.
+Expected: FAIL because the guard accepts only the configured ECDSA secondary extension.
 
 - [ ] **Step 3: Implement bounded secondary signature parsing**
 
@@ -114,7 +114,7 @@ Commit: `feat: support configured secondary guard signers`.
 
 **Interfaces:**
 - Consumes guard primary/secondary config from Task 2.
-- Produces deterministic Option B setup with owners `[primaryPasskey, yubikeyPasskey, burner]`, threshold 1, and verifier checks for both secondary paths.
+- Produces deterministic Option B setup with owners `[primaryPasskey, safeContractSecondary, ecdsaSecondary]`, threshold 1, and verifier checks for both secondary paths.
 
 - [ ] **Step 1: Write failing topology and maintenance tests**
 
@@ -147,11 +147,11 @@ Commit: `feat: build option b secondary signer topology`.
 
 **Interfaces:**
 - Produces `VaultSigner` with `address`, `role`, `kind`, and `sign(request)`.
-- Produces `createBurnerWalletConnectSigner` as the public Burner adapter name, with `createBurnerSigner` kept as a deprecated compatibility alias inside this PR.
+- Produces `createEip1193SecondarySigner` as the public ECDSA secondary adapter name, with Burner-named factories kept as deprecated compatibility aliases inside this PR.
 
 - [ ] **Step 1: Write failing signer adapter tests**
 
-Assert passkey signer can be configured as primary or secondary safe-contract, Burner WalletConnect signer is secondary ecdsa-extension, role/kind mismatches fail in composition, and duplicate hash/user rejection/provider mutation behavior remains hard-fail.
+Assert passkey signer can be configured as primary or secondary safe-contract, EIP-1193 secondary signer is secondary ecdsa-extension, role/kind mismatches fail in composition, and duplicate hash/user rejection/provider mutation behavior remains hard-fail.
 
 - [ ] **Step 2: Run signer tests to verify failure**
 
@@ -184,7 +184,7 @@ Commit: `feat: make signer adapters role neutral`.
 
 - [ ] **Step 1: Write/update documentation assertions**
 
-Update invariant and runbook tests where present so stale two-owner/Burner-only wording fails.
+Update invariant and runbook tests where present so stale two-owner/product-specific secondary wording fails.
 
 - [ ] **Step 2: Run documentation/invariant tests to verify failure**
 
@@ -193,7 +193,7 @@ Expected: FAIL until docs and examples match Option B.
 
 - [ ] **Step 3: Update docs and examples**
 
-Describe primary plus YubiKey-or-Burner secondary, direct Burner NFC as future spike, three-owner Safe topology, and no production/audit claim.
+Describe primary plus safe-contract secondary-or-ECDSA secondary, direct Burner NFC as future spike, three-owner Safe topology, and no production/audit claim.
 
 - [ ] **Step 4: Final verification and commit**
 

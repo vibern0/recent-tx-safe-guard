@@ -6,9 +6,9 @@
 
 ## 2026-10-01 supersession: Option B secondary-signer prototype
 
-The active secondary-signer design supersedes the earlier recovery-owner and Burner-specific topology for code, configuration, deployment examples, and verification. The prototype now uses exactly three Safe owners, ordered by Safe rules from the configured primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary passkey, while step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one enabled configured secondary signer over the exact Safe transaction.
+The active secondary-signer design supersedes the earlier recovery-owner and Burner-specific topology for code, configuration, deployment examples, and verification. The prototype now uses exactly three Safe owners, ordered by Safe rules from the configured primary passkey, safe-contract secondary, and ECDSA secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary passkey, while step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one enabled configured secondary signer over the exact Safe transaction.
 
-The two supported secondary forms are a YubiKey-backed Safe-native passkey signer and a Burner WalletConnect ECDSA extension. Direct Burner NFC/libhalo signing remains a future spike and is out of scope until documented HaLo signing proves the exact Safe transaction can be signed, recovered, and accepted without changing the custody graph. The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing the primary passkey or all configured secondary factors is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the active call graph.
+The two supported secondary forms are a Safe-native contract-signature secondary and an ECDSA-extension secondary. A YubiKey-backed passkey or Burner WalletConnect signer are examples of those forms, not role names. Direct Burner NFC/libhalo signing remains a future spike and is out of scope until documented HaLo signing proves the exact Safe transaction can be signed, recovered, and accepted without changing the custody graph. The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing the primary passkey or all configured secondary factors is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the active call graph.
 
 Historical analysis in this document is left intact as evidence and product direction. Where it conflicts with this supersession note, the active Option B secondary-signer baseline controls implementation.
 
@@ -28,7 +28,7 @@ No currently available general-purpose consumer wallet found in this research pa
 
 - A Safe-based vault
 - A passkey as the convenient daily signer
-- A configured secondary signer, initially either a YubiKey-backed Safe passkey or Burner WalletConnect signer, as a step-up signer
+- A configured secondary signer, either Safe-contract or ECDSA-extension, as a step-up signer
 - Per-transaction and daily limits
 - Mandatory post-approval delays for larger transfers
 - Independent alerts and cancellation
@@ -56,7 +56,7 @@ The product should satisfy these properties:
 5. **Independent cancellation:** A queued action produces an alert on a separate channel and can be cancelled or paused before execution.
 6. **Delayed weakening:** Increasing limits, shortening delays, adding signers or modules, expanding permissions, or disabling enforcement is itself delayed.
 7. **Safe recovery:** Recovery restores control without becoming an immediate withdrawal path.
-8. **Understandable operation:** The interface expresses policy in user terms: “primary passkey up to X today,” “approve with YubiKey or Burner up to Y today,” “available after this time,” and “cancel this transfer.”
+8. **Understandable operation:** The interface expresses policy in user terms: “primary passkey up to X today,” “approve with a secondary signer up to Y today,” “available after this time,” and “cancel this transfer.”
 9. **Fail-closed behavior:** Unknown calls and unsupported assets do not fall through an empty fallback or permissive default.
 10. **Recoverability without a backdoor:** No vendor, relayer, or hosted service can unilaterally spend. Loss of one user factor does not permanently lock the account.
 
@@ -71,7 +71,7 @@ The product should satisfy these properties:
 - Malicious token approvals or signed messages
 - Incorrect or malicious module configuration
 - Front-end or dependency supply-chain compromise
-- Loss of a phone, primary passkey, YubiKey secondary, or Burner card
+- Loss of a phone, primary passkey, safe-contract secondary, or ECDSA secondary device/account
 - An attacker attempting to weaken policy before withdrawing
 - A legitimate user making an irreversible mistake
 - Coercion or duress where the attacker has access to the daily signer but not every independent recovery/cancellation factor
@@ -190,7 +190,7 @@ The implementation should therefore expose a small signer boundary first:
 
 ```text
 Primary passkey ──────────────────────────────────────┐
-YubiKey secondary or Burner secondary ────────────────┤
+safe-contract secondary or ECDSA secondary ────────────────┤
                                                        v
                                               Single Vault Safe
                                                        │
@@ -207,7 +207,7 @@ YubiKey secondary or Burner secondary ──────────────
 Independent service ── step-up execution + delayed lifecycle alerts
 ```
 
-Historical note: the original recovery-owner wording in this section is superseded by the active secondary-signer design. The active prototype deploys exactly one Safe with exactly the primary passkey signer contract, YubiKey Safe-contract secondary signer, and Burner ECDSA secondary signer as owners at threshold 1; it has no recovery owner, recovery signer adapter, or active recovery selector. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires exactly one configured secondary approval when the tier demands it. Secondary-only transactions are rejected by the guard.
+Historical note: the original recovery-owner wording in this section is superseded by the active secondary-signer design. The active prototype deploys exactly one Safe with exactly the primary passkey signer contract, safe-contract secondary, and ECDSA secondary as owners at threshold 1; it has no recovery owner, recovery signer adapter, or active recovery selector. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires exactly one configured secondary approval when the tier demands it. Secondary-only transactions are rejected by the guard.
 
 The guard is installed as both the Safe transaction guard and Safe 1.5 module guard. Exactly one execution module is enabled: a reviewed Zodiac Delay instance whose owner, avatar, and target are the Safe. The Safe itself is the only Delay proposer. Owner transactions may queue through Delay only when the guard validates the inner action and required signers; Delay is the only module allowed to execute against the Safe. Every other owner or module path is denied.
 
@@ -232,7 +232,7 @@ The contract is testnet research until its code, configured call graph, deployme
 
 For transfers, the Safe-validated threshold signature must include the configured primary passkey contract signature; pre-approved-hash signatures are rejected. The guard recognizes signer identity from the canonical Safe signature encoding after Safe has validated it.
 
-Step-up and delayed proposals carry exactly one configured secondary approval. A YubiKey secondary is another Safe-validated contract-signature slot. A Burner secondary is the versioned WalletConnect ECDSA terminal extension over the exact Safe transaction hash recomputed by the guard. The secondary approval is not trusted merely because it appears in the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
+Step-up and delayed proposals carry exactly one configured secondary approval. A safe-contract secondary is another Safe-validated contract-signature slot. A ECDSA secondary is the versioned WalletConnect ECDSA terminal extension over the exact Safe transaction hash recomputed by the guard. The secondary approval is not trusted merely because it appears in the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
 
 Historical note: the recovery-owner rule above is superseded for the active prototype. There is no recovery owner. Cancellation, freeze, queued signer repair, and queued policy repair require the configured primary passkey plus exactly one enabled secondary signer. Loss of the primary or all configured secondary factors is an accepted testnet availability risk until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed.
 
@@ -331,7 +331,7 @@ The interface presents one Safe and its three authorization tiers. Modules and g
 ### Onboarding
 
 1. Create or select a passkey.
-2. Connect a configured secondary signer: YubiKey Safe passkey, Burner through WalletConnect, or both for the active Option B testnet profile.
+2. Connect a configured secondary signer: safe-contract secondary, ECDSA secondary through WalletConnect, or both for the active Option B testnet profile.
 3. Confirm no independent recovery signer is active in the security-core prototype.
 4. Choose conservative per-token base daily limits X, shared immediate daily limits Y, and per-transaction caps, with `0 < X < Y`.
 5. Choose the delay period Z and alert channel.
@@ -463,7 +463,7 @@ The primary differentiation is the complete consumer workflow:
 The first security-core prototype should include:
 
 - One EVM test network
-- One Safe holding assets, with exactly the primary passkey signer contract, YubiKey Safe-contract secondary signer, and Burner WalletConnect ECDSA secondary signer as owners at threshold 1, and no recovery owner
+- One Safe holding assets, with exactly the primary passkey signer contract, safe-contract secondary, and ECDSA secondary as owners at threshold 1, and no recovery owner
 - One non-upgradeable `TieredSpendingGuard` installed as transaction guard and module guard
 - One reviewed Zodiac Delay as the only enabled execution module
 - One native asset and selected ERC-20 assets

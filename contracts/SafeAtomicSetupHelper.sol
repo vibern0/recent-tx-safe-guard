@@ -9,9 +9,9 @@ interface ISafeAtomicSelfSetup {
 }
 
 interface IAtomicGuardSetup {
-    function config() external view returns (address safe, address passkey, address burner, address delay, uint64 periodSeconds, uint64 periodAnchor);
-    function configureYubiKeySecondary(address signer, bool enabled) external;
-    function yubiKeySecondary() external view returns (address signer, uint8 kind, bool enabled);
+    function config() external view returns (address safe, address passkey, address ecdsaSecondary, address delay, uint64 periodSeconds, uint64 periodAnchor);
+    function configureSafeContractSecondary(address signer, bool enabled) external;
+    function safeContractSecondary() external view returns (address signer, uint8 kind, bool enabled);
     function setAssetPolicy(
         address token,
         uint256 basePerTransaction,
@@ -50,8 +50,8 @@ contract SafeAtomicSetupHelper {
         address delay;
         address maintenance;
         address passkey;
-        address yubiKey;
-        address burner;
+        address safeContractSecondary;
+        address ecdsaSecondary;
         uint64 periodSeconds;
         uint64 periodAnchor;
         AssetPolicyInit[] assets;
@@ -77,17 +77,17 @@ contract SafeAtomicSetupHelper {
         _requireCode(params.delay);
         _requireCode(params.maintenance);
 
-        (address configuredSafe, address configuredPasskey, address configuredBurner, address configuredDelay, uint64 configuredPeriodSeconds, uint64 configuredPeriodAnchor) =
+        (address configuredSafe, address configuredPasskey, address configuredEcdsaSecondary, address configuredDelay, uint64 configuredPeriodSeconds, uint64 configuredPeriodAnchor) =
             IAtomicGuardSetup(params.guard).config();
         if (
             configuredSafe != safe ||
             configuredPasskey != params.passkey ||
-            configuredBurner != params.burner ||
+            configuredEcdsaSecondary != params.ecdsaSecondary ||
             configuredDelay != params.delay ||
             configuredPeriodSeconds != params.periodSeconds ||
             configuredPeriodAnchor != params.periodAnchor
         ) revert InvalidBinding();
-        if (params.yubiKey == address(0) || params.yubiKey == params.passkey || params.yubiKey == params.burner) revert InvalidBinding();
+        if (params.safeContractSecondary == address(0) || params.safeContractSecondary == params.passkey || params.safeContractSecondary == params.ecdsaSecondary) revert InvalidBinding();
         if (
             IAtomicDelaySetup(params.delay).owner() != safe ||
             IAtomicDelaySetup(params.delay).avatar() != safe ||
@@ -111,7 +111,7 @@ contract SafeAtomicSetupHelper {
             );
         }
 
-        _checkedCall(params.guard, abi.encodeWithSelector(IAtomicGuardSetup.configureYubiKeySecondary.selector, params.yubiKey, true), IAtomicGuardSetup.configureYubiKeySecondary.selector);
+        _checkedCall(params.guard, abi.encodeWithSelector(IAtomicGuardSetup.configureSafeContractSecondary.selector, params.safeContractSecondary, true), IAtomicGuardSetup.configureSafeContractSecondary.selector);
         _checkedCall(params.guard, abi.encodeWithSelector(SET_MAINTENANCE_SELECTOR, params.maintenance), SET_MAINTENANCE_SELECTOR);
         _checkedCall(params.delay, abi.encodeWithSelector(DELAY_ENABLE_MODULE_SELECTOR, safe), DELAY_ENABLE_MODULE_SELECTOR);
         _checkedCall(safe, abi.encodeWithSelector(SAFE_SET_GUARD_SELECTOR, params.guard), SAFE_SET_GUARD_SELECTOR);
@@ -120,7 +120,7 @@ contract SafeAtomicSetupHelper {
 
         if (
             IAtomicGuardSetup(params.guard).maintenance() != params.maintenance ||
-            !_isConfiguredYubiKey(params.guard, params.yubiKey) ||
+            !_isConfiguredSafeContractSecondary(params.guard, params.safeContractSecondary) ||
             !IAtomicDelaySetup(params.delay).isModuleEnabled(safe) ||
             !ISafeAtomicSelfSetup(safe).isModuleEnabled(params.delay)
         ) revert InvalidBinding();
@@ -135,8 +135,8 @@ contract SafeAtomicSetupHelper {
         if (!ok) revert SetupCallFailed(selector);
     }
 
-    function _isConfiguredYubiKey(address guard, address expectedYubiKey) private view returns (bool) {
-        (address signer, uint8 kind, bool enabled) = IAtomicGuardSetup(guard).yubiKeySecondary();
-        return signer == expectedYubiKey && kind == 0 && enabled;
+    function _isConfiguredSafeContractSecondary(address guard, address expectedSecondary) private view returns (bool) {
+        (address signer, uint8 kind, bool enabled) = IAtomicGuardSetup(guard).safeContractSecondary();
+        return signer == expectedSecondary && kind == 0 && enabled;
     }
 }

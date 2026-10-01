@@ -16,8 +16,8 @@ const config = {
   guard: address(2),
   delay: address(3),
   passkey: address(4),
-  yubiKey: address(6),
-  burner: address(5),
+  safeContractSecondary: address(6),
+  ecdsaSecondary: address(5),
   safeSingleton: { address: address(7), runtimeCodeHash: hash(7) },
   delayDependency: { address: address(3), runtimeCodeHash: hash(3) },
   guardRuntimeCodeHash: hash(2),
@@ -39,7 +39,7 @@ const observed = {
   policyHash: buildDeploymentPlan(config).policyHash,
   dependencies: { safeSingleton: { address: address(7), runtimeCodeHash: hash(7) }, delay: { address: address(3), runtimeCodeHash: hash(3) } },
   safe: { address: address(1), singletonAddress: address(7), owners: [address(4), address(5), address(6)].sort(), threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
-  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, yubiKeySecondary: { signer: address(6), kind: "safe-contract", enabled: true }, burnerSecondary: { signer: address(5), kind: "ecdsa-extension", enabled: true }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
+  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), ecdsaSecondary: address(5), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, safeContractSecondary: { signer: address(6), kind: "safe-contract", enabled: true }, ecdsaSecondary: { signer: address(5), kind: "ecdsa-extension", enabled: true }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
   delay: { address: address(3), dependencyAddress: address(3), runtimeCodeHash: hash(3), owner: address(1), avatar: address(1), target: address(1), enabledUpstreamModules: [address(1)], cooldownSeconds: 86400, expirationSeconds: 172800 },
   queueFingerprints: [hash(10)],
   setupTransactionHashes: [hash(11)],
@@ -186,7 +186,7 @@ describe("Sepolia deployment runbook package", () => {
     }
   }
 
-  it("writes only unsigned public artifacts with owners exactly primary, YubiKey secondary, and Burner secondary", () => {
+  it("writes only unsigned public artifacts with owners exactly primary, safe-contract secondary, and ECDSA secondary", () => {
     const { buildSepoliaRehearsalPackage } = require("../../../scripts/package-sepolia-rehearsal") as { buildSepoliaRehearsalPackage: (configPath: string, outputDir: string) => { files: string[] } };
     const dir = mkdtempSync(join(tmpdir(), "sepolia-rehearsal-package-"));
     try {
@@ -201,7 +201,7 @@ describe("Sepolia deployment runbook package", () => {
       const hashes = artifacts["expected-evidence-hashes.json"];
       expect(plan.unsigned).to.equal(true);
       expect(plan.broadcast).to.equal(false);
-      expect(review.safeOwners).to.deep.equal([(plan.deployments as Record<string, string>).passkey, (plan.deployments as Record<string, string>).yubiKey, (plan.deployments as Record<string, string>).burner].sort());
+      expect(review.safeOwners).to.deep.equal([(plan.deployments as Record<string, string>).passkey, (plan.deployments as Record<string, string>).safeContractSecondary, (plan.deployments as Record<string, string>).ecdsaSecondary].sort());
       expect(manifest.status).to.equal("EXAMPLE_NOT_DEPLOYED");
       expect(hashes.policyHash).to.equal(plan.policyHash);
       expect(hashes.setupTransactionHashes).to.deep.equal(plan.setupTransactionHashes);
@@ -245,12 +245,12 @@ describe("Option B documentation", () => {
 
     for (const [name, text] of Object.entries({ runbook, callGraph, research, securityPlan })) {
       expect(text, name).to.match(/primary passkey/i);
-      expect(text, name).to.match(/one configured secondary signer|configured secondary|YubiKey.*Burner|Burner.*YubiKey/i);
+      expect(text, name).to.match(/one configured secondary signer|configured secondary|safe-contract secondary|ECDSA secondary/i);
       expect(text, name).not.to.match(/two-owner|two owner|\[passkey, Burner\]|passkey\/Burner/i);
       expect(text, name).not.to.match(/passkey(?: and| plus|, ) Burner(?! as a supported secondary kind)/i);
     }
     expect(runbook).to.contain("three Safe owners");
-    expect(runbook).to.contain("[primary passkey, YubiKey secondary, Burner secondary]");
+    expect(runbook).to.contain("[primary passkey, safe-contract secondary, ECDSA secondary]");
     expect(runbook).to.contain("loss of the primary or all configured secondary factors");
     expect(runbook).to.contain("future delayed recovery design");
     expect(runbook).to.contain("atomic setup");

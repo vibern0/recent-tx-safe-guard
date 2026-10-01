@@ -63,7 +63,7 @@ describe("HTTPS submission transport", () => {
       expect(body.request.kind).to.equal("safe-execution");
       expect(body.request.transaction).to.include({ value: "12", nonce: "3" });
       expect(String(init?.body)).not.to.contain("12n");
-      expect(String(init?.body)).not.to.match(/privateKey|passkeyMaterial|burnerPin|rpc|providerCredentials/i);
+      expect(String(init?.body)).not.to.match(/privateKey|passkeyMaterial|ecdsaSecondaryPin|rpc|providerCredentials/i);
       return jsonResponse(submitted(body.requestHash));
     };
     const transport = createHttpsSubmissionTransport({ endpoint: new URL("https://relay.example/submit"), fetch: fetcher as typeof globalThis.fetch, timeoutMs: 1000 });
@@ -201,7 +201,7 @@ describe("HTTPS submission transport", () => {
       const result = await transport.submit(request(h(400 + index)));
       expect(result.kind).to.equal("transport-unavailable");
       expect(result.reason).not.to.contain(sig);
-      expect(result.reason).not.to.match(/signature|privateKey|passkey|burner/i);
+      expect(result.reason).not.to.match(/signature|privateKey|passkey|ecdsaSecondary/i);
     }
   });
 });

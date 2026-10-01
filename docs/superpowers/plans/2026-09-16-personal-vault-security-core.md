@@ -4,9 +4,9 @@
 
 **Goal:** Build and prove a testnet-only Safe security core where one Safe permits primary-passkey-only spending up to daily X, requires one configured secondary signer up to shared daily Y, and requires a cancellable delay Z above Y.
 
-**Architecture:** One Safe holds all assets and has the primary passkey signer contract plus the configured secondary signer contracts/accounts as Safe owners at Safe threshold 1. In the active Option B prototype those owners are primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
+**Architecture:** One Safe holds all assets and has the primary passkey signer contract plus the configured secondary signer contracts/accounts as Safe owners at Safe threshold 1. In the active Option B prototype those owners are primary passkey, safe-contract secondary, and ECDSA secondary. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
 
-> **2026-10-01 supersession:** The secondary-signer design supersedes this plan's recovery-owner topology and the later Burner-specific transport boundary for current code, tests, deployment examples, and verification. The active Option B interface uses exactly three Safe owners: primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. The guard requires the primary plus exactly one enabled configured secondary for step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of the primary or all configured secondary factors is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use older recovery-owner or Burner-specific sections below as implementation requirements.
+> **2026-10-01 supersession:** The secondary-signer design supersedes this plan's recovery-owner topology and the later Burner-specific transport boundary for current code, tests, deployment examples, and verification. The active Option B interface uses exactly three Safe owners: primary passkey, safe-contract secondary, and ECDSA secondary. The guard requires the primary plus exactly one enabled configured secondary for step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of the primary or all configured secondary factors is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use older recovery-owner or Burner-specific sections below as implementation requirements.
 
 > **2026-10-01 Task 5 package gate:** The Sepolia runbook and rehearsal package now follow the active Option B primary-plus-secondary boundary. `npm run package:sepolia-rehearsal` emits only public unsigned artifacts for human review: unsigned plan, decoded review, public manifest, and expected evidence hashes. The live low-value Sepolia rehearsal remains outstanding until separately reviewed, signed, executed, and recorded; this branch does not mark issue #5 complete. Direct Burner NFC/libhalo remains out of scope until a separate spike proves documented HaLo signing for the exact Safe transaction.
 
@@ -18,7 +18,7 @@
 
 - This is security research and a testnet prototype, not a mainnet-ready wallet.
 - The product deploys exactly one Safe; no Daily, Step-up, Control, or other auxiliary Safe is introduced.
-- The active Safe owners are exactly the configured primary passkey signer contract, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. The Safe threshold is 1, while the guard enforces the stronger tier-specific signer policy.
+- The active Safe owners are exactly the configured primary passkey signer contract, safe-contract secondary, and ECDSA secondary. The Safe threshold is 1, while the guard enforces the stronger tier-specific signer policy.
 - The guard must be installed as both transaction guard and Safe 1.5 module guard in the same atomic setup.
 - Zodiac Delay is the only module enabled on the Safe. The Safe is Delay's owner, avatar, target, and only enabled upstream module/proposer.
 - X and Y are cumulative per-token limits over one shared 86,400-second period with one anchor and `0 < X < Y`.
@@ -61,7 +61,7 @@ src/topology/verify.ts                          Read-only deployed invariant ver
 src/queue/delay.ts                              Queue, cancel, expire, and execute builders
 src/signers/types.ts                            Provider-neutral Safe signer boundary
 src/signers/passkey.ts                          Safe passkey adapter
-src/signers/eip1193.ts                          Burner WalletConnect EIP-1193 secondary adapter
+src/signers/eip1193.ts                          Generic EIP-1193 ECDSA secondary adapter
 src/monitoring/guard-events.ts                  Step-up authorization event decoder
 src/monitoring/delay-events.ts                  Delayed lifecycle decoder
 src/monitoring/notifier.ts                      Non-authorizing notification port
@@ -238,8 +238,8 @@ enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
 struct GuardConfig {
     address safe;
     address primary;
-    address yubiKeySecondary;
-    address burnerSecondary;
+    address safeContractSecondary;
+    address ecdsaSecondary;
     address delay;
     uint64 periodSeconds;
     uint64 periodAnchor;
@@ -270,7 +270,7 @@ Require a validated `v == 0` contract-signature slot naming the configured prima
 
 - [x] **Step 3: Define and test the ECDSA secondary extension**
 
-Use a typed terminal envelope `[secondarySignature][uint256 length][bytes32 typeHash]` for the Burner WalletConnect ECDSA secondary. Verify the configured ECDSA secondary with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
+Use a typed terminal envelope `[secondarySignature][uint256 length][bytes32 typeHash]` for the ECDSA secondary. Verify the configured ECDSA secondary with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
 
 - [x] **Step 4: Implement atomic guard mechanics**
 
@@ -367,7 +367,7 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 
 - [x] **Step 1: Write deterministic plan snapshots**
 
-Assert one Safe address, owners `[primary passkey, YubiKey secondary, Burner secondary]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
+Assert one Safe address, owners `[primary passkey, safe-contract secondary, ECDSA secondary]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
 
 - [x] **Step 2: Implement atomic planning**
 
@@ -398,7 +398,7 @@ Run deterministic planning twice for byte-identical output, assert fail-closed b
 - Create: `test/integration/signer-flow.test.ts`
 - Modify: `docs/security/signer-provider-evaluation.md`
 
-**Interfaces:** A role-neutral `VaultSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; the YubiKey secondary returns a Safe-contract signature and the Burner WalletConnect adapter returns the exact ECDSA guard extension.
+**Interfaces:** A role-neutral `VaultSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; the safe-contract secondary returns a Safe-contract signature and the EIP-1193 secondary adapter returns the exact ECDSA guard extension.
 
 - [x] **Step 1: Write provider-neutral conformance tests**
 
@@ -410,7 +410,7 @@ Use the reviewed Safe passkey contracts and verify the configured signer contrac
 
 - [x] **Step 3: Implement configured secondary adapters**
 
-Use Safe-native passkey signing for the YubiKey secondary and `eth_signTypedData_v4` through generic EIP-1193/WalletConnect for Burner. Verify recovered addresses locally. Do not invoke undocumented NFC/libhalo commands or bypass Burner PIN/connection behavior.
+Use Safe-native passkey signing for the safe-contract secondary and `eth_signTypedData_v4` through generic EIP-1193/WalletConnect for the ECDSA secondary. Verify recovered addresses locally. Do not invoke undocumented NFC/libhalo commands or bypass provider confirmation/PIN behavior.
 
 - [x] **Step 4: Prove the complete signer matrix**
 

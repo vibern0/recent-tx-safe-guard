@@ -4,13 +4,13 @@ import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "vi
 import { fn, signSafeTransaction } from "../../helpers/safe";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
   { name: "signer", type: "address" },
   { name: "enabled", type: "bool" },
 ]);
 
 async function fixture() {
-  const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+  const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
   const singleton = await hre.viem.deployContract("Safe");
   const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
   const safe = await hre.viem.getContractAt("Safe", proxy.address);
@@ -19,12 +19,12 @@ async function fixture() {
   const guard = await hre.viem.deployContract("TieredSpendingGuard", [[
     safe.address,
     passkey.address,
-    burner.account.address,
+    ecdsaSecondary.account.address,
     delay.address,
     86400n,
     0n,
   ]]);
-  const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const owners = [passkey.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   await safe.write.setup([
     owners,
     1n,
@@ -35,17 +35,17 @@ async function fixture() {
     0n,
     ZERO,
   ], { account: deployer.account });
-  return { deployer, burner, recipient, safe, passkey, guard };
+  return { deployer, ecdsaSecondary, recipient, safe, passkey, guard };
 }
 
 describe("TieredSpendingGuard exact signatures", () => {
-  it("compatibility config exposes only safe, passkey, Burner, Delay, and period fields", async () => {
+  it("compatibility config exposes only safe, passkey, ECDSA secondary, Delay, and period fields", async () => {
     const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");
     const constructorAbi = artifact.abi.find((entry) => entry.type === "constructor");
     const constructorFields = constructorAbi?.inputs[0].components.map((component) => component.name);
-    expect(constructorFields).to.deep.equal(["safe", "passkey", "burner", "delay", "periodSeconds", "periodAnchor"]);
+    expect(constructorFields).to.deep.equal(["safe", "passkey", "ecdsaSecondary", "delay", "periodSeconds", "periodAnchor"]);
 
-    const [deployer, burner] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary] = await hre.viem.getWalletClients();
     const singleton = await hre.viem.deployContract("Safe");
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
@@ -54,12 +54,12 @@ describe("TieredSpendingGuard exact signatures", () => {
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[
       safe.address,
       passkey.address,
-      burner.account.address,
+      ecdsaSecondary.account.address,
       delay.address,
       86400n,
       0n,
     ]]);
-    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const owners = [passkey.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([
       owners,
       1n,
@@ -77,8 +77,8 @@ describe("TieredSpendingGuard exact signatures", () => {
     expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
   });
 
-  it("secondary signer config exposes primary, YubiKey, and Burner roles", async () => {
-    const { guard, passkey, burner } = await fixture();
+  it("secondary signer config exposes primary, safe-contract secondary, and ECDSA secondary roles", async () => {
+    const { guard, passkey, ecdsaSecondary } = await fixture();
 
     const primary = await guard.read.primarySigner();
     expect(primary[0].toLowerCase()).to.equal(passkey.address.toLowerCase());
@@ -86,36 +86,36 @@ describe("TieredSpendingGuard exact signatures", () => {
     expect(primary[2]).to.equal(0);
     expect(primary[3]).to.equal(true);
 
-    const yubiKey = await guard.read.yubiKeySecondary();
-    expect(yubiKey[0]).to.equal(ZERO);
-    expect(yubiKey[1]).to.equal(0);
-    expect(yubiKey[2]).to.equal(false);
+    const safeContractSecondary = await guard.read.safeContractSecondary();
+    expect(safeContractSecondary[0]).to.equal(ZERO);
+    expect(safeContractSecondary[1]).to.equal(0);
+    expect(safeContractSecondary[2]).to.equal(false);
 
-    const burnerSecondary = await guard.read.burnerSecondary();
-    expect(burnerSecondary[0].toLowerCase()).to.equal(burner.account.address.toLowerCase());
-    expect(burnerSecondary[1]).to.equal(1);
-    expect(burnerSecondary[2]).to.equal(true);
+    const ecdsaSecondaryConfig = await guard.read.ecdsaSecondary();
+    expect(ecdsaSecondaryConfig[0].toLowerCase()).to.equal(ecdsaSecondary.account.address.toLowerCase());
+    expect(ecdsaSecondaryConfig[1]).to.equal(1);
+    expect(ecdsaSecondaryConfig[2]).to.equal(true);
   });
 
   it("policy hash binds configured secondary signer drift", async () => {
-    const { deployer, burner, safe, guard } = await fixture();
-    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
-    const wrongYubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const { deployer, ecdsaSecondary, safe, guard } = await fixture();
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const wrongSafeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
     const ownerCall = async (to: Address, data: Hex) => {
-      const signature = await signSafeTransaction(safe, burner, to, data);
+      const signature = await signSafeTransaction(safe, ecdsaSecondary, to, data);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     const configure = (signer: Address, enabled: boolean) => ownerCall(
       guard.address,
-      encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [signer, enabled] }),
+      encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [signer, enabled] }),
     );
 
     const unset = await guard.read.policyHash();
-    await configure(yubiKey.address, true);
+    await configure(safeContractSecondary.address, true);
     const enabled = await guard.read.policyHash();
-    await configure(wrongYubiKey.address, true);
+    await configure(wrongSafeContractSecondary.address, true);
     const wrong = await guard.read.policyHash();
-    await configure(yubiKey.address, false);
+    await configure(safeContractSecondary.address, false);
     const disabled = await guard.read.policyHash();
 
     expect(enabled).not.to.equal(unset);
@@ -156,14 +156,14 @@ describe("TieredSpendingGuard exact signatures", () => {
     await expect(guard.read.decodePasskeySignature([nonCanonical])).to.be.rejected;
   });
 
-  it("uses a terminal typed envelope for the Burner signature", async () => {
-    const { guard, passkey, burner } = await fixture();
+  it("uses a terminal typed envelope for the ECDSA secondary signature", async () => {
+    const { guard, passkey, ecdsaSecondary } = await fixture();
     const safeSignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
-    const burnerSignature = `0x${"11".repeat(64)}` as Hex;
-    const typeHash = await guard.read.BURNER_SIGNATURE_TYPE_HASH();
-    const extension = `0x${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${typeHash.slice(2)}` as Hex;
-    expect(await guard.read.decodeBurnerExtension([`${safeSignature}${extension.slice(2)}` as Hex])).to.equal(burnerSignature);
-    await expect(guard.read.decodeBurnerExtension([safeSignature])).to.be.rejectedWith("Missing");
-    await expect(guard.read.decodeBurnerExtension([`${safeSignature}${extension.slice(2)}${extension.slice(2)}` as Hex])).to.be.rejected;
+    const ecdsaSecondarySignature = `0x${"11".repeat(64)}` as Hex;
+    const typeHash = await guard.read.ECDSA_SECONDARY_SIGNATURE_TYPE_HASH();
+    const extension = `0x${ecdsaSecondarySignature.slice(2)}${toHex((ecdsaSecondarySignature.length - 2) / 2, { size: 32 }).slice(2)}${typeHash.slice(2)}` as Hex;
+    expect(await guard.read.decodeEcdsaSecondaryExtension([`${safeSignature}${extension.slice(2)}` as Hex])).to.equal(ecdsaSecondarySignature);
+    await expect(guard.read.decodeEcdsaSecondaryExtension([safeSignature])).to.be.rejectedWith("Missing");
+    await expect(guard.read.decodeEcdsaSecondaryExtension([`${safeSignature}${extension.slice(2)}${extension.slice(2)}` as Hex])).to.be.rejected;
   });
 });

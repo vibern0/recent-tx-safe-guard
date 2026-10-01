@@ -1,8 +1,8 @@
 import { hashTypedData, keccak256, recoverTypedDataAddress, toHex, type Address, type Hex } from "viem";
 import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest, type VaultSigner } from "./types";
 
-// Keep the extension type hash identical to TieredSpendingGuard.BURNER_SIGNATURE_TYPE_HASH.
-export const BURNER_SIGNATURE_TYPE_HASH = keccak256(toHex("TieredSpendingGuard.BurnerSignature.v1"));
+// Keep the extension type hash identical to TieredSpendingGuard.ECDSA_SECONDARY_SIGNATURE_TYPE_HASH.
+export const ECDSA_SECONDARY_SIGNATURE_TYPE_HASH = keccak256(toHex("TieredSpendingGuard.EcdsaSecondarySignature.v1"));
 
 function providerIsUnambiguous(provider: Eip1193Provider): void {
   if (provider.providers && provider.providers.length !== 1) throw new Error("ambiguous EIP-1193 provider");
@@ -68,15 +68,19 @@ function createEip1193Signer(options: Eip1193SignerOptions): VaultSigner {
   });
 }
 
-export type BurnerWalletConnectSigner = VaultSigner & Readonly<{ typeHash: Hex }>;
+export type Eip1193SecondarySigner = VaultSigner & Readonly<{ typeHash: Hex }>;
 
-export function createBurnerWalletConnectSigner(options: Eip1193SignerOptions): BurnerWalletConnectSigner {
+export function createEip1193SecondarySigner(options: Eip1193SignerOptions): Eip1193SecondarySigner {
   const base = createEip1193Signer(options);
-  return Object.freeze({ ...base, typeHash: BURNER_SIGNATURE_TYPE_HASH, sign: async (request) => {
+  return Object.freeze({ ...base, typeHash: ECDSA_SECONDARY_SIGNATURE_TYPE_HASH, sign: async (request) => {
     const signature = await base.sign(request);
-    return `${signature}${toHex(65n, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
+    return `${signature}${toHex(65n, { size: 32 }).slice(2)}${ECDSA_SECONDARY_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
   }});
 }
 
-/** @deprecated use createBurnerWalletConnectSigner. */
-export const createBurnerSigner = createBurnerWalletConnectSigner;
+/** @deprecated use Eip1193SecondarySigner. */
+export type BurnerWalletConnectSigner = Eip1193SecondarySigner;
+/** @deprecated use createEip1193SecondarySigner. */
+export const createBurnerWalletConnectSigner = createEip1193SecondarySigner;
+/** @deprecated use createEip1193SecondarySigner. */
+export const createBurnerSigner = createEip1193SecondarySigner;
