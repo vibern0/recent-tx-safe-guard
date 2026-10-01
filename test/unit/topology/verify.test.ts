@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { keccak256, type Address, type Hex } from "viem";
+import { encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { brandVerifiedDeploymentInfrastructureForTestsOnly, type DeploymentInfrastructure } from "../../../src/config/deployments";
 import { policyHash, verifyVaultPrerequisites, type VaultDeploymentPlan, type VerifiedVaultPrerequisites } from "../../../src/topology/build";
 import { verifyTopology, type TopologyInput } from "../../../src/topology/verify";
@@ -54,6 +54,7 @@ const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.fre
 } satisfies DeploymentInfrastructure));
 const expectedOwners = [a(2), a(4), a(3)].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
 const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: expectedOwners, getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], yubiKeySecondary: [a(4), 0, true], burnerSecondary: [a(3), 1, true], maintenance: a(7), getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel], safe: a(1), delay: a(5) };
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "yubiKey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 
 function plan(): VaultDeploymentPlan {
   const tx = (expectedCreatedAddress: Address) => ({ description: "test", nonce: 0n, to: zero, value: 0n, operation: 0 as const, data: code, expectedCreatedAddress, creationCodeHash: runtimeHash, expectedRuntimeCodeHash: runtimeHash });
@@ -67,7 +68,11 @@ function plan(): VaultDeploymentPlan {
     prerequisites: { setupHelper: tx(a(4)), guard: tx(a(6)), delay: tx(a(5)), maintenance: tx(a(7)) },
     safeProxyDeployment: { ...tx(a(1)), to: deployments.safeProxyFactory.address },
     safeInitializer: "0x",
-    setupHelperCalldata: "0x",
+    setupHelperCalldata: encodeFunctionData({
+      abi: HELPER_ABI,
+      functionName: "setup",
+      args: [{ guard: a(6), delay: a(5), maintenance: a(7), passkey: a(2), yubiKey: a(4), burner: a(3), periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }],
+    }),
     review: { owners: expectedOwners as readonly [Address, Address, Address], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
   };
 }

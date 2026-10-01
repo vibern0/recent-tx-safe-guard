@@ -202,6 +202,13 @@ function sortedOwners(owners: readonly Address[]): readonly [Address, Address, A
   return sorted as [Address, Address, Address];
 }
 
+function plannedSetupSigners(plan: VaultDeploymentPlan): { passkey: Address; yubiKey: Address; burner: Address } {
+  const decoded = decodeFunctionData({ abi: HELPER_ABI, data: plan.setupHelperCalldata });
+  if (decoded.functionName !== "setup") throw new Error("fail closed: setup helper calldata mismatch");
+  const params = decoded.args[0];
+  return { passkey: params.passkey, yubiKey: params.yubiKey, burner: params.burner };
+}
+
 function configuredOptionBSecondaries(policy: VaultPolicy): { yubiKey: Address; burner: Address } {
   const yubiKey = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
   const burner = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.burner))?.address;
@@ -365,16 +372,17 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   const maintenance = await verifyCode(client, "maintenance", plan.prerequisites.maintenance.expectedCreatedAddress, plan.prerequisites.maintenance.creationCodeHash, plan.prerequisites.maintenance.expectedRuntimeCodeHash);
 
   if (typeof client.readContract !== "function") throw new Error("fail closed: prerequisite binding reader is required");
+  const plannedSigners = plannedSetupSigners(plan);
   const guardConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "config" });
   if (!Array.isArray(guardConfig) || guardConfig.length !== 6) throw new Error("fail closed: guard config evidence malformed");
   const [safe, passkey, burner, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
-  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !plan.review.owners.some((owner) => same(owner, passkey)) || !plan.review.owners.some((owner) => same(owner, burner)) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
+  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plannedSigners.passkey) || !same(burner, plannedSigners.burner) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
     if (periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) throw new Error("fail closed: guard period binding mismatch");
     throw new Error("fail closed: guard binding mismatch");
   }
   const yubiKey = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "yubiKeySecondary" });
   const burnerSecondary = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "burnerSecondary" });
-  if (!Array.isArray(yubiKey) || yubiKey.length !== 3 || !plan.review.owners.some((owner) => same(owner, yubiKey[0] as Address)) || yubiKey[1] !== 0 || yubiKey[2] !== true) throw new Error("fail closed: YubiKey secondary binding mismatch");
+  if (!Array.isArray(yubiKey) || yubiKey.length !== 3 || !same(yubiKey[0] as Address, plannedSigners.yubiKey) || yubiKey[1] !== 0 || yubiKey[2] !== true) throw new Error("fail closed: YubiKey secondary binding mismatch");
   if (!Array.isArray(burnerSecondary) || burnerSecondary.length !== 3 || !same(burnerSecondary[0] as Address, burner) || burnerSecondary[1] !== 1 || burnerSecondary[2] !== true) throw new Error("fail closed: Burner secondary binding mismatch");
   if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), maintenance.address)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");

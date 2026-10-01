@@ -450,18 +450,23 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         }
 
         if (firstPayloadOffset != 130) revert InvalidPasskeySignature();
-        (address passkeySigner, uint256 firstOffset, uint256 firstEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 0, 2);
-        (address secondarySigner, uint256 secondOffset, uint256 secondEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 1, 2);
-        if (passkeySigner != config.passkey) revert InvalidPasskeySignature();
+        (address firstSigner, uint256 firstOffset, uint256 firstEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 0, 2);
+        (address secondSigner, uint256 secondOffset, uint256 secondEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 1, 2);
+        if (firstSigner == secondSigner) revert DuplicateSecondarySignature();
+        bool firstIsPrimary = firstSigner == config.passkey;
+        bool secondIsPrimary = secondSigner == config.passkey;
+        if (firstIsPrimary == secondIsPrimary) revert InvalidPasskeySignature();
+        address secondarySigner = firstIsPrimary ? secondSigner : firstSigner;
         if (secondarySigner != yubiKeySecondary.signer || !yubiKeySecondary.enabled || yubiKeySecondary.kind != SignerKind.SafeContractSignature) revert InvalidSecondarySignature();
-        if (secondarySigner == passkeySigner || secondarySigner == config.burner) revert DuplicateSecondarySignature();
-        if (secondOffset != firstEnd) revert InvalidSecondarySignature();
-        uint256 safeSignaturesEnd = secondEnd > firstEnd ? secondEnd : firstEnd;
-        SafeSignatureDecoder.requireNoTrailingData(signatures, safeSignaturesEnd);
+        if (secondarySigner == config.burner) revert DuplicateSecondarySignature();
+        (uint256 lowerOffset, uint256 lowerEnd, uint256 upperOffset, uint256 upperEnd) =
+            firstOffset < secondOffset ? (firstOffset, firstEnd, secondOffset, secondEnd) : (secondOffset, secondEnd, firstOffset, firstEnd);
+        if (lowerOffset != 130 || upperOffset != lowerEnd) revert InvalidSecondarySignature();
+        SafeSignatureDecoder.requireNoTrailingData(signatures, upperEnd);
 
-        bytes memory primaryPayload = _contractSignaturePayload(signatures, firstOffset, firstEnd);
-        bytes memory secondaryPayload = _contractSignaturePayload(signatures, secondOffset, secondEnd);
-        bytes memory safeSignatures = _orderedContractSignatures(passkeySigner, primaryPayload, secondarySigner, secondaryPayload);
+        bytes memory primaryPayload = firstIsPrimary ? _contractSignaturePayload(signatures, firstOffset, firstEnd) : _contractSignaturePayload(signatures, secondOffset, secondEnd);
+        bytes memory secondaryPayload = firstIsPrimary ? _contractSignaturePayload(signatures, secondOffset, secondEnd) : _contractSignaturePayload(signatures, firstOffset, firstEnd);
+        bytes memory safeSignatures = _orderedContractSignatures(config.passkey, primaryPayload, yubiKeySecondary.signer, secondaryPayload);
         try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, safeSignatures, 2) {} catch { revert InvalidSecondarySignature(); }
         return true;
     }

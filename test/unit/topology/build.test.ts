@@ -251,6 +251,20 @@ describe("buildVaultPlan", () => {
     missing.delete(plan.prerequisites.delay.expectedCreatedAddress);
     await expect(verifyVaultPrerequisites({ ...client, async getBytecode({ address }) { return missing.get(address); } }, plan)).to.be.rejectedWith("delay is not deployed");
     await expect(verifyVaultPrerequisites({ ...client, async getBytecode({ address }) { return address === plan.prerequisites.guard.expectedCreatedAddress ? code(99) : deployed.get(address); } }, plan)).to.be.rejectedWith("guard runtime code hash mismatch");
+    await expect(verifyVaultPrerequisites({
+      ...client,
+      async readContract({ address, functionName }) {
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.secondaries![0]!.address, policy.burner, components.delay, 86400n, policy.periodAnchor];
+        return client.readContract!({ address, abi: [], functionName });
+      },
+    }, plan)).to.be.rejectedWith("guard binding mismatch");
+    await expect(verifyVaultPrerequisites({
+      ...client,
+      async readContract({ address, functionName }) {
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "yubiKeySecondary") return [policy.passkey, 0, true];
+        return client.readContract!({ address, abi: [], functionName });
+      },
+    }, plan)).to.be.rejectedWith("YubiKey secondary binding mismatch");
 
     const evidence = await verifyVaultPrerequisites(client, plan);
     expect(() => assertSafeCreationReady(plan, evidence, startingNonce)).to.throw("nonce drift");
