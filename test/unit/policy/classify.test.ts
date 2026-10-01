@@ -14,6 +14,7 @@ const PASSKEY = "0x0000000000000000000000000000000000000002" as Address;
 const BURNER = "0x0000000000000000000000000000000000000003" as Address;
 const LEGACY_RECOVERY_TARGET = "0x0000000000000000000000000000000000004" as Address;
 const DELAY = "0x0000000000000000000000000000000000000005" as Address;
+const YUBIKEY = "0x0000000000000000000000000000000000000006" as Address;
 const TOKEN = "0x0000000000000000000000000000000000000010" as Address;
 const RECIPIENT = "0x0000000000000000000000000000000000000020" as Address;
 const OTHER = "0x0000000000000000000000000000000000000021" as Address;
@@ -34,6 +35,11 @@ const policy: VaultPolicy = {
   safe: SAFE,
   passkey: PASSKEY,
   burner: BURNER,
+  primary: PASSKEY,
+  secondaries: [
+    { address: YUBIKEY, role: "secondary", kind: "safe-contract", enabled: true },
+    { address: BURNER, role: "secondary", kind: "ecdsa-extension", enabled: true },
+  ],
   delay: DELAY,
   periodSeconds: 86_400,
   periodAnchor: 0n,
@@ -139,5 +145,15 @@ describe("classifyAction", () => {
     expect(() => assertValidVaultPolicy({ ...policy, burner: PASSKEY })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, basePerTransaction: 1_001n }] })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, recovery: LEGACY_RECOVERY_TARGET } as never)).to.throw("recovery");
+  });
+
+  it("validates the Option B primary plus configured secondary signer policy", () => {
+    expect(() => assertValidVaultPolicy(policy)).to.not.throw();
+    expect(() => assertValidVaultPolicy({ ...policy, primary: BURNER })).to.throw("primary");
+    expect(() => assertValidVaultPolicy({ ...policy, secondaries: [] })).to.throw("secondary");
+    expect(() => assertValidVaultPolicy({ ...policy, secondaries: [{ address: PASSKEY, role: "secondary", kind: "safe-contract", enabled: true }] })).to.throw("distinct");
+    expect(() => assertValidVaultPolicy({ ...policy, secondaries: [{ address: YUBIKEY, role: "primary", kind: "safe-contract", enabled: true }] })).to.throw("role");
+    expect(() => assertValidVaultPolicy({ ...policy, secondaries: [{ address: YUBIKEY, role: "secondary", kind: "unknown", enabled: true } as never] })).to.throw("kind");
+    expect(() => assertValidVaultPolicy({ ...policy, secondaries: [{ address: YUBIKEY, role: "secondary", kind: "safe-contract", enabled: false }] })).to.throw("enabled");
   });
 });
