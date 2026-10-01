@@ -49,6 +49,7 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 ## Working practices
 
 - Follow the implementation plan task by task and keep its checkboxes current.
+- When using `superpowers:writing-plans`, write plan prose in `caveman ultra` style while preserving required Superpowers headers, checkboxes, code blocks, exact commands, paths, signatures, and security wording.
 - Use test-driven development for policy, encoding, topology, queue, signer, and monitoring behavior.
 - Every new execution path requires a corresponding update to `docs/security/call-graph.md` and adversarial tests.
 - Every security dependency change requires an update to `docs/security/dependency-review.md`.
