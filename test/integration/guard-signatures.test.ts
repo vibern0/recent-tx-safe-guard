@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, safeTxTypes, signSafeTransaction } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, safeContractSignatures, safeTxTypes, signSafeTransaction, transferAbi } from "../helpers/safe";
 
 const setGuardAbi = fn("setGuard", [{ name: "guard", type: "address" }]);
 const setModuleGuardAbi = fn("setModuleGuard", [{ name: "guard", type: "address" }]);
@@ -12,9 +12,60 @@ const setAssetPolicyAbi = fn("setAssetPolicy", [
   { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" },
   { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
 ]);
+const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
+  async function secondarySignerFixture(yubiEnabled = true) {
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const wrongYubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
+    const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const ownerCall = async (to: Address, data: Hex) => {
+      const signature = await signSafeTransaction(safe, burner, to, data);
+      await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
+    };
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, yubiEnabled] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: setAssetPolicyAbi, functionName: "setAssetPolicy", args: [token.address, 100n, 300n, 100n, 1_000n, [recipient.account.address]] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: setGuardAbi, functionName: "setGuard", args: [guard.address] }));
+    const transfer = (amount: bigint) => encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [recipient.account.address, amount] });
+    const exec = (data: Hex, signatures: Hex) => safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
+    const burnerStep = async (data: Hex) => burnerEnvelope(passkey.address, await signSafeTransaction(safe, burner, token.address, data));
+    const yubiStep = () => safeContractSignatures(passkey.address, yubiKey.address);
+    return { burner, recipient, passkey, yubiKey, wrongYubiKey, safe, token, guard, transfer, exec, burnerStep, yubiStep };
+  }
+
+  it("secondary signer matrix allows primary plus exactly one configured secondary", async () => {
+    const f = await secondarySignerFixture();
+
+    await f.exec(f.transfer(60n), passkeySignature(f.passkey.address));
+    await expect(f.exec(f.transfer(50n), passkeySignature(f.passkey.address))).to.be.rejected;
+    await expect(f.exec(f.transfer(1n), passkeySignature(f.yubiKey.address))).to.be.rejected;
+    await expect(f.exec(f.transfer(1n), await signSafeTransaction(f.safe, f.burner, f.token.address, f.transfer(1n)))).to.be.rejected;
+    await expect(f.exec(f.transfer(1n), burnerEnvelope(f.yubiKey.address, await signSafeTransaction(f.safe, f.burner, f.token.address, f.transfer(1n))))).to.be.rejected;
+
+    await f.exec(f.transfer(300n), f.yubiStep());
+    await f.exec(f.transfer(300n), await f.burnerStep(f.transfer(300n)));
+
+    await expect(f.exec(f.transfer(300n), safeContractSignatures(f.passkey.address, f.wrongYubiKey.address))).to.be.rejected;
+    const mixed = `${f.yubiStep()}${(await signSafeTransaction(f.safe, f.burner, f.token.address, f.transfer(300n))).slice(2)}` as Hex;
+    await expect(f.exec(f.transfer(300n), mixed)).to.be.rejected;
+  });
+
+  it("secondary signer rejects disabled YubiKey contract signatures while keeping Burner available", async () => {
+    const f = await secondarySignerFixture(false);
+
+    await expect(f.exec(f.transfer(300n), f.yubiStep())).to.be.rejected;
+    await f.exec(f.transfer(300n), await f.burnerStep(f.transfer(300n)));
+  });
+
   it("accepts the configured passkey contract signature and rejects failed execution", async () => {
     const [deployer, burner, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");

@@ -62,6 +62,24 @@ export function passkeySignature(address: Address): Hex {
   return `0x${address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
 }
 
+export function safeContractSignatures(primary: Address, secondary: Address): Hex {
+  const primaryPayloadOffset = 65n * 2n;
+  const secondaryPayloadOffset = primaryPayloadOffset + 32n;
+  return `0x${
+    primary.slice(2).padStart(64, "0")
+  }${
+    toHex(primaryPayloadOffset, { size: 32 }).slice(2)
+  }00${
+    secondary.slice(2).padStart(64, "0")
+  }${
+    toHex(secondaryPayloadOffset, { size: 32 }).slice(2)
+  }00${
+    toHex(0n, { size: 32 }).slice(2)
+  }${
+    toHex(0n, { size: 32 }).slice(2)
+  }` as Hex;
+}
+
 export function burnerEnvelope(passkey: Address, burnerSignature: Hex): Hex {
   return `${passkeySignature(passkey)}${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
 }

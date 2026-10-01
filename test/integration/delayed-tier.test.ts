@@ -3,13 +3,17 @@ import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, safeContractSignatures, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 const replaceGuardsAbi = fn("replaceGuards", [{ name: "expectedGuard", type: "address" }, { name: "replacement", type: "address" }]);
 const setCooldownAbi = fn("setTxCooldown", [{ name: "cooldown", type: "uint256" }]);
 const setExpirationAbi = fn("setTxExpiration", [{ name: "expiration", type: "uint256" }]);
+const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 const repairPolicyAbi = fn("repairPolicy", [
   { name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" },
   { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" },
@@ -50,6 +54,35 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
     return { deployer, burner, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, passkeyAndBurner, execute, executeNext };
   }
+
+  it("secondary signer Safe contract approval can queue an exact delayed action", async () => {
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    await deployer.sendTransaction({ to: safe.address, value: 500n });
+    const ownerCall = async (to: Address, data: Hex) => {
+      const signature = await signSafeTransaction(safe, burner, to, data);
+      await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
+    };
+    await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ]), functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
+
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [recipient.account.address, 150n, "0x", 0] });
+    await safe.write.execTransaction([delay.address, 0n, queued, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(passkey.address, yubiKey.address)], { account: deployer.account });
+    expect(await delay.read.queueNonce()).to.equal(1n);
+    await time.increase(10);
+    await delay.write.executeNextTx([recipient.account.address, 150n, "0x", 0], { account: deployer.account });
+    expect(await delay.read.txNonce()).to.equal(1n);
+  });
 
   it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
     const [deployer, burner, recipient] = await hre.viem.getWalletClients();

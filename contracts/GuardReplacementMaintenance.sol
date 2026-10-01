@@ -46,7 +46,7 @@ contract GuardReplacementMaintenance {
 
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0xb10dd9585e36df855e33653ac258f6716f635cfcbf499e6029d7721cbcba4039;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x0b3a5ed65fb5d77f48e5ed64d34b178cca9e7cd3de2b87317d8f83c3c1d18f6a;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;

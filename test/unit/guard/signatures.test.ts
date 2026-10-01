@@ -72,6 +72,26 @@ describe("TieredSpendingGuard exact signatures", () => {
     expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
   });
 
+  it("secondary signer config exposes primary, YubiKey, and Burner roles", async () => {
+    const { guard, passkey, burner } = await fixture();
+
+    const primary = await guard.read.primarySigner();
+    expect(primary[0].toLowerCase()).to.equal(passkey.address.toLowerCase());
+    expect(primary[1]).to.equal(0);
+    expect(primary[2]).to.equal(0);
+    expect(primary[3]).to.equal(true);
+
+    const yubiKey = await guard.read.yubiKeySecondary();
+    expect(yubiKey[0]).to.equal(ZERO);
+    expect(yubiKey[1]).to.equal(0);
+    expect(yubiKey[2]).to.equal(false);
+
+    const burnerSecondary = await guard.read.burnerSecondary();
+    expect(burnerSecondary[0].toLowerCase()).to.equal(burner.account.address.toLowerCase());
+    expect(burnerSecondary[1]).to.equal(1);
+    expect(burnerSecondary[2]).to.equal(true);
+  });
+
   it("reconstructs the Safe hash with the pre-increment nonce and binds every Safe field", async () => {
     const { safe, guard, recipient } = await fixture();
     const data = "0x12345678" as Hex;

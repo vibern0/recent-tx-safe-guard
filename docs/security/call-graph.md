@@ -59,12 +59,14 @@ The following is the complete ABI surface of the repository security contracts. 
 | `TieredSpendingGuard.allowedRecipient` | view state |
 | `TieredSpendingGuard.assetPolicy` | view state |
 | `TieredSpendingGuard.burnerAuthorizationUsed` | view state |
+| `TieredSpendingGuard.burnerSecondary` | view state |
 | `TieredSpendingGuard.checkAfterExecution` | state-changing, Safe-only callback |
 | `TieredSpendingGuard.checkAfterModuleExecution` | state-changing, Safe-only callback |
 | `TieredSpendingGuard.checkModuleTransaction` | state-changing, Safe-only callback |
 | `TieredSpendingGuard.checkTransaction` | state-changing, Safe-only callback |
 | `TieredSpendingGuard.computeSafeTransactionHash` | view pure computation |
 | `TieredSpendingGuard.config` | view state |
+| `TieredSpendingGuard.configureYubiKeySecondary` | state-changing, Safe-only setup |
 | `TieredSpendingGuard.decodeBurnerExtension` | view decoder |
 | `TieredSpendingGuard.decodePasskeySignature` | view decoder |
 | `TieredSpendingGuard.freeze` | state-changing, Safe-only emergency action |
@@ -73,12 +75,14 @@ The following is the complete ABI surface of the repository security contracts. 
 | `TieredSpendingGuard.getPolicyRecipients` | view inventory |
 | `TieredSpendingGuard.maintenance` | view state |
 | `TieredSpendingGuard.policyHash` | view inventory |
+| `TieredSpendingGuard.primarySigner` | view state |
 | `TieredSpendingGuard.repairPolicy` | state-changing, Safe-only delayed repair |
 | `TieredSpendingGuard.repairSigner` | state-changing, Safe-only delayed repair |
 | `TieredSpendingGuard.setAssetPolicy` | state-changing, Safe-only monotonic policy action |
 | `TieredSpendingGuard.setMaintenance` | state-changing, Safe-only one-time setup |
 | `TieredSpendingGuard.spendState` | view state |
 | `TieredSpendingGuard.supportsInterface` | pure interface probe |
+| `TieredSpendingGuard.yubiKeySecondary` | view state |
 | `GuardReplacementMaintenance.delay` | view immutable configuration |
 | `GuardReplacementMaintenance.replaceGuards` | state-changing, configured Delay-only maintenance |
 | `GuardReplacementMaintenance.replaceSigner` | state-changing, configured Delay-only maintenance |

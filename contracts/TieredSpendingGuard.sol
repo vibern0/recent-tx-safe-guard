@@ -24,6 +24,8 @@ interface IDelayPolicy {
 ///      which signer and transaction shape are acceptable for each policy tier.
 contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
+    enum SignerRole { Primary, Secondary }
+    enum SignerKind { SafeContractSignature, EcdsaExtension }
 
     struct GuardConfig {
         address safe;
@@ -32,6 +34,19 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         address delay;
         uint64 periodSeconds;
         uint64 periodAnchor;
+    }
+
+    struct SignerConfig {
+        address signer;
+        SignerRole role;
+        SignerKind kind;
+        bool enabled;
+    }
+
+    struct SecondarySignerConfig {
+        address signer;
+        SignerKind kind;
+        bool enabled;
     }
 
     struct AssetPolicy {
@@ -96,6 +111,9 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     error Frozen();
     error MaintenanceAlreadySet();
     error InvalidRepair();
+    error InvalidSecondarySigner();
+    error InvalidSecondarySignature();
+    error DuplicateSecondarySignature();
 
     event TransferAuthorized(
         AuthorizationTier tier,
@@ -107,6 +125,10 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         uint256 window
     );
 
+    SignerConfig public primarySigner;
+    SecondarySignerConfig public yubiKeySecondary;
+    SecondarySignerConfig public burnerSecondary;
+
     /// @param initialConfig Core Safe, signer, Delay, and spending-window settings.
     constructor(GuardConfig memory initialConfig) {
         if (
@@ -114,6 +136,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
             initialConfig.delay == address(0) || initialConfig.passkey == initialConfig.burner || initialConfig.periodSeconds != 86400
         ) revert InvalidConfig();
         config = initialConfig;
+        primarySigner = SignerConfig(initialConfig.passkey, SignerRole.Primary, SignerKind.SafeContractSignature, true);
+        burnerSecondary = SecondarySignerConfig(initialConfig.burner, SignerKind.EcdsaExtension, true);
     }
 
     /// @notice Sets or tightens the spending policy for one token.
@@ -166,6 +190,16 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         maintenance = replacementMaintenance;
     }
 
+    /// @notice Configures the Safe-contract secondary signer used for YubiKey-backed step-up approvals.
+    /// @dev Intended for atomic setup before the guard is installed, or future delayed maintenance.
+    /// @param signer Safe owner contract that must validate through Safe's contract-signature path.
+    /// @param enabled Whether this secondary approval path may satisfy step-up and delayed authorization.
+    function configureYubiKeySecondary(address signer, bool enabled) external onlySafe {
+        if (signer != address(0) && (signer == config.passkey || signer == config.burner)) revert InvalidSecondarySigner();
+        if (enabled && signer == address(0)) revert InvalidSecondarySigner();
+        yubiKeySecondary = SecondarySignerConfig(signer, SignerKind.SafeContractSignature, enabled);
+    }
+
     /// @notice Freezes immediate transfer execution.
     /// @dev Passkey plus Burner can invoke this as an emergency action. The delayed repair
     ///      paths remain available so the Safe is not permanently bricked.
@@ -181,8 +215,13 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (replacement == address(0) || expectedOld == address(0) || replacement == config.passkey || replacement == config.burner || role > 1) revert InvalidRepair();
         address current = role == 0 ? config.passkey : config.burner;
         if (current != expectedOld) revert InvalidRepair();
-        if (role == 0) config.passkey = replacement;
-        else config.burner = replacement;
+        if (role == 0) {
+            config.passkey = replacement;
+            primarySigner = SignerConfig(replacement, SignerRole.Primary, SignerKind.SafeContractSignature, true);
+        } else {
+            config.burner = replacement;
+            burnerSecondary = SecondarySignerConfig(replacement, SignerKind.EcdsaExtension, true);
+        }
     }
 
     /// @notice Replaces one asset policy through the delayed repair path.
@@ -312,31 +351,18 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (currentNonce == 0) revert InvalidPasskeySignature();
         bytes32 txHash = PolicyDigest.safeTransactionHash(config.safe, to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, currentNonce - 1);
         bool emergencyAction = _isEmergencyAction(to, value, data, operation);
-        (, uint256 ownerEnd, bool isContractSignature) = SafeSignatureDecoder.decode(signatures, txHash, false);
-        (address passkeySigner,,) = SafeSignatureDecoder.decode(signatures, txHash, false);
-        if (passkeySigner != config.passkey || !isContractSignature) revert InvalidPasskeySignature();
-        try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, signatures, 1) {} catch { revert InvalidPasskeySignature(); }
-
-        bool burnerApproved = false;
-        if (signatures.length > ownerEnd) {
-            bytes calldata burnerSignature = _burnerExtension(signatures, ownerEnd);
-            if (!SignatureChecker.isValidSignatureNow(config.burner, txHash, burnerSignature)) revert InvalidBurnerSignature();
-            bytes32 authorization = keccak256(abi.encode(txHash, keccak256(burnerSignature)));
-            if (burnerAuthorizationUsed[authorization]) revert InvalidBurnerSignature();
-            burnerAuthorizationUsed[authorization] = true;
-            burnerApproved = true;
-        }
+        bool secondaryApproved = _validateConfiguredSignatures(signatures, txHash, executor);
 
         if (emergencyAction) {
-            if (!burnerApproved) revert MissingBurnerExtension();
+            if (!secondaryApproved) revert MissingBurnerExtension();
         } else if (_isImmediateDelayTightening(to, value, data, operation)) {
-            if (burnerApproved) revert InvalidDelayedAction();
+            if (secondaryApproved) revert InvalidDelayedAction();
         } else if (_isExactSetAssetPolicy(data) && to == address(this) && value == 0 && operation == Enum.Operation.Call) {
-            if (burnerApproved) revert InvalidDelayedAction();
+            if (secondaryApproved) revert InvalidDelayedAction();
         } else if (_isQueueProposal(to, value, data, operation)) {
-            _authorizeQueueProposal(data, burnerApproved);
+            _authorizeQueueProposal(data, secondaryApproved);
         } else {
-            _authorizeTransfer(to, value, data, operation, burnerApproved);
+            _authorizeTransfer(to, value, data, operation, secondaryApproved);
         }
     }
 
@@ -384,6 +410,87 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (!checking) revert NoPendingCheck();
         if (!success) revert ExecutionFailed();
         checking = false;
+    }
+
+    /// @dev Validates the primary Safe contract signature and at most one configured secondary.
+    /// @param signatures Safe signatures bytes with an optional typed Burner extension.
+    /// @param txHash Exact Safe transaction hash reconstructed by the guard.
+    /// @param executor Safe executor forwarded to Safe signature validation.
+    /// @return secondaryApproved True when one enabled configured secondary approved the exact transaction.
+    function _validateConfiguredSignatures(bytes calldata signatures, bytes32 txHash, address executor) internal returns (bool secondaryApproved) {
+        uint256 firstPayloadOffset = _contractSignaturePayloadOffset(signatures, 0);
+        if (firstPayloadOffset == 65) {
+            (address primary, uint256 ownerEnd, bool isContractSignature) = SafeSignatureDecoder.decode(signatures, txHash, false);
+            if (primary != config.passkey || !isContractSignature) revert InvalidPasskeySignature();
+            bytes memory primaryOnly = signatures[:ownerEnd];
+            try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, primaryOnly, 1) {} catch { revert InvalidPasskeySignature(); }
+            if (signatures.length == ownerEnd) return false;
+            return _validateBurnerExtension(signatures, ownerEnd, txHash);
+        }
+
+        if (firstPayloadOffset != 130) revert InvalidPasskeySignature();
+        (address passkeySigner, uint256 firstOffset, uint256 firstEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 0, 2);
+        (address secondarySigner, uint256 secondOffset, uint256 secondEnd) = SafeSignatureDecoder.decodeContractSignatureAt(signatures, 1, 2);
+        if (passkeySigner != config.passkey) revert InvalidPasskeySignature();
+        if (secondarySigner != yubiKeySecondary.signer || !yubiKeySecondary.enabled || yubiKeySecondary.kind != SignerKind.SafeContractSignature) revert InvalidSecondarySignature();
+        if (secondarySigner == passkeySigner || secondarySigner == config.burner) revert DuplicateSecondarySignature();
+        if (secondOffset != firstEnd) revert InvalidSecondarySignature();
+        uint256 safeSignaturesEnd = secondEnd > firstEnd ? secondEnd : firstEnd;
+        SafeSignatureDecoder.requireNoTrailingData(signatures, safeSignaturesEnd);
+
+        bytes memory primaryPayload = _contractSignaturePayload(signatures, firstOffset, firstEnd);
+        bytes memory secondaryPayload = _contractSignaturePayload(signatures, secondOffset, secondEnd);
+        bytes memory safeSignatures = _orderedContractSignatures(passkeySigner, primaryPayload, secondarySigner, secondaryPayload);
+        try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, safeSignatures, 2) {} catch { revert InvalidSecondarySignature(); }
+        return true;
+    }
+
+    /// @dev Validates the existing terminal Burner ECDSA extension.
+    function _validateBurnerExtension(bytes calldata signatures, uint256 ownerEnd, bytes32 txHash) internal returns (bool) {
+        if (!burnerSecondary.enabled || burnerSecondary.kind != SignerKind.EcdsaExtension || burnerSecondary.signer != config.burner) revert InvalidSecondarySigner();
+        bytes calldata burnerSignature = _burnerExtension(signatures, ownerEnd);
+        if (!SignatureChecker.isValidSignatureNow(config.burner, txHash, burnerSignature)) revert InvalidBurnerSignature();
+        bytes32 authorization = keccak256(abi.encode(txHash, keccak256(burnerSignature)));
+        if (burnerAuthorizationUsed[authorization]) revert InvalidBurnerSignature();
+        burnerAuthorizationUsed[authorization] = true;
+        return true;
+    }
+
+    /// @dev Reads the dynamic payload offset from one Safe signature slot.
+    function _contractSignaturePayloadOffset(bytes calldata signatures, uint256 slotIndex) internal pure returns (uint256) {
+        uint256 slotOffset = slotIndex * 65;
+        if (signatures.length < slotOffset + 65 || uint8(signatures[slotOffset + 64]) != 0) revert InvalidPasskeySignature();
+        return uint256(bytes32(signatures[slotOffset + 32:slotOffset + 64]));
+    }
+
+    /// @dev Copies one Safe contract signature payload from calldata.
+    function _contractSignaturePayload(bytes calldata signatures, uint256 payloadOffset, uint256 payloadEnd) internal pure returns (bytes memory) {
+        return signatures[payloadOffset + 32:payloadEnd];
+    }
+
+    /// @dev Rebuilds two contract signatures in Safe's required owner-address order.
+    function _orderedContractSignatures(address firstSigner, bytes memory firstPayload, address secondSigner, bytes memory secondPayload) internal pure returns (bytes memory) {
+        if (firstSigner == secondSigner) revert DuplicateSecondarySignature();
+        if (firstSigner < secondSigner) return _packContractSignatures(firstSigner, firstPayload, secondSigner, secondPayload);
+        return _packContractSignatures(secondSigner, secondPayload, firstSigner, firstPayload);
+    }
+
+    /// @dev Packs two Safe contract signatures with canonical dynamic offsets.
+    function _packContractSignatures(address firstSigner, bytes memory firstPayload, address secondSigner, bytes memory secondPayload) internal pure returns (bytes memory) {
+        uint256 firstOffset = 130;
+        uint256 secondOffset = firstOffset + 32 + firstPayload.length;
+        return abi.encodePacked(
+            bytes32(uint256(uint160(firstSigner))),
+            bytes32(firstOffset),
+            bytes1(0),
+            bytes32(uint256(uint160(secondSigner))),
+            bytes32(secondOffset),
+            bytes1(0),
+            bytes32(firstPayload.length),
+            firstPayload,
+            bytes32(secondPayload.length),
+            secondPayload
+        );
     }
 
     /// @dev Extracts the typed Burner signature envelope after the Safe owner slot.
