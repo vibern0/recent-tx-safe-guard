@@ -5,7 +5,7 @@ import { buildVaultPlanDraft, type TopologyDeploymentEvidence } from "../fixture
 
 const a = (n: number) => (`0x${n.toString(16).padStart(40, "0")}`) as Address;
 const ev = (address: Address, version: string): any => ({ address, version, runtimeCodeHash: keccak256("0x6001"), source: "official-test-evidence", evidence: "verified" });
-const policy = { chainId: 31337, safe: a(1), passkey: a(2), burner: a(3), delay: a(5), periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: 3600, expirationSeconds: 86400, assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }] };
+const policy = { chainId: 31337, safe: a(1), primary: a(2), passkey: a(2), burner: a(3), secondaries: [{ address: a(8), role: "secondary" as const, kind: "safe-contract" as const, enabled: true }, { address: a(3), role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }], delay: a(5), periodSeconds: 86400 as const, periodAnchor: 0n, cooldownSeconds: 3600, expirationSeconds: 86400, assets: [{ token: a(10), basePerTransaction: 10n, stepUpPerTransaction: 100n, baseDailyLimit: 100n, instantDailyLimit: 1000n, recipients: [a(20)] }] };
 const deployments: TopologyDeploymentEvidence = { safeSingleton: { ...ev(a(30), "1.5.0"), supportsModuleGuards: true }, safeProxyFactory: ev(a(31), "1.5.0"), setupHelper: ev(a(4), "task4-reviewed"), guard: ev(a(6), "task7-reviewed"), delay: ev(a(5), "1.1.1"), maintenance: ev(a(7), "task1-reviewed") };
 
 describe("one-Safe setup integration gate", () => {
@@ -14,6 +14,15 @@ describe("one-Safe setup integration gate", () => {
   });
   it("keeps the deterministic draft encoder test-only and unsigned", () => {
     const plan = buildVaultPlanDraft({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments });
-    expect(plan.safeProxyDeployment.value).to.equal(0n); expect(plan.setup.every((call) => call.value === 0n && call.operation === 0)).to.equal(true); expect(plan.extraAccounts).to.deep.equal([]); expect(JSON.stringify(plan, (_, value) => typeof value === "bigint" ? value.toString() : value)).not.to.contain("signature");
+    expect(plan.safeProxyDeployment.value).to.equal(0n);
+    expect(plan.safe.owners).to.deep.equal([a(2), a(8), a(3)].sort());
+    expect(plan.setup.some((call) => call.to === deployments.guard.address && call.data.startsWith("0x18e6a1c1"))).to.equal(true);
+    expect(plan.setup.every((call) => call.value === 0n && call.operation === 0)).to.equal(true);
+    expect(plan.extraAccounts).to.deep.equal([]);
+    expect(JSON.stringify(plan, (_, value) => typeof value === "bigint" ? value.toString() : value)).not.to.contain("signature");
+  });
+  it("fails closed when the draft policy omits the Option B Safe-contract secondary", () => {
+    const stalePolicy = { ...policy, secondaries: [{ address: a(3), role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }] };
+    expect(() => buildVaultPlanDraft({ policy: stalePolicy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments })).to.throw("Option B");
   });
 });

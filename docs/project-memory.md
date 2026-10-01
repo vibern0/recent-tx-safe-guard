@@ -91,7 +91,7 @@ src/
   policy/                       fail-closed transaction classification
   topology/                     deterministic build and read-only verification
   queue/                        Delay queue/cancel/execute builders
-  signers/                      passkey, Burner, recovery adapter boundaries
+  signers/                      primary passkey and configured secondary boundaries
   monitoring/                   event decoders, ledger, non-authorizing notifier
 scripts/
   rehearse.ts                   safe local rehearsal inputs

@@ -51,7 +51,7 @@
   "expectedQueueFingerprints": [],
   "setupCalls": [
     {
-      "description": "Replace with decoded Option B atomic Safe setup calls after independently reviewed deployment",
+      "description": "Replace with decoded Option B atomic Safe setup calls for primary passkey, YubiKey secondary, and Burner secondary after independently reviewed deployment",
       "to": "0x0000000000000000000000000000000000000001",
       "value": "0",
       "data": "0x"
@@ -61,5 +61,5 @@
   "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "verificationReportHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "liveSepoliaRehearsal": "OUTSTANDING_UNTIL_HUMAN_REVIEW_AND_LOW_VALUE_EXECUTION",
-  "redaction": "Public manifest only: no secrets, seed phrases, passkey material, Burner PINs, provider tokens, private RPC credentials, broadcast instructions, or recovery fields"
+  "redaction": "Public manifest only: no secrets, seed phrases, passkey material, Burner PINs, direct NFC/libhalo secrets, provider tokens, private RPC credentials, broadcast instructions, or recovery fields"
 }

@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { readFileSync } from "node:fs";
 import hre from "hardhat";
 
-describe("call-graph security invariant", () => {
+describe("call graph security invariant", () => {
   const source = readFileSync("contracts/TieredSpendingGuard.sol", "utf8");
   const graph = readFileSync("docs/security/call-graph.md", "utf8");
   const mutabilityPatterns: Record<string, RegExp> = {
@@ -42,9 +42,11 @@ describe("call-graph security invariant", () => {
     expect(source).to.contain("if (frozen || operation != Enum.Operation.Call)");
   });
 
-  it("has explicit fail-closed branches for signature, queue, call, and two-owner repair validation", () => {
+  it("has explicit fail-closed branches for signature, queue, call, and secondary-signer repair validation", () => {
     for (const marker of ["InvalidPasskeySignature", "MissingBurnerExtension", "InvalidBurnerSignature", "InvalidDelayedAction", "UnsupportedTransfer", "role > 1", "_isExactPolicyRepair", "_authorizeQueueProposal"]) {
       expect(source, marker).to.contain(marker);
     }
+    expect(graph).to.contain("primary plus exactly one configured secondary");
+    expect(graph).to.not.match(/two-owner|two owner|passkey\/Burner|\[passkey, Burner\]/i);
   });
 });

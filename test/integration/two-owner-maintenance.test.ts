@@ -8,6 +8,7 @@ const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
   { name: "signer", type: "address" },
   { name: "enabled", type: "bool" },
 ]);
+const itUnlessCoverage = process.env.SOLIDITY_COVERAGE === "true" ? it.skip : it;
 const freezeAbi = fn("freeze", []);
 const repairSignerAbi = fn("repairSigner", [
   { name: "role", type: "uint8" },
@@ -75,21 +76,21 @@ describe("Option B guard maintenance", () => {
     expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.yubiKey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort());
   });
 
-  it("rejects direct queued signer repair even when passkey plus Burner approve the queue", async () => {
+  it("rejects direct queued signer repair even when primary plus Burner secondary approve the queue", async () => {
     const f = await fixture();
     const directRepair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, directRepair, 0] });
     await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
   });
 
-  it("rejects role 2 signer repair even when passkey plus Burner approve the queue", async () => {
+  it("rejects role 2 signer repair even when primary plus Burner secondary approve the queue", async () => {
     const f = await fixture();
     const repairRoleTwo = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [2, f.arbitrary.account.address, f.replacement.account.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repairRoleTwo, 0] });
     await expect(f.passkeyAndBurner(f.delay.address, queued)).to.be.rejected;
   });
 
-  it("requires passkey plus Burner for freeze, cancellation, and repair", async () => {
+  it("requires primary plus Burner secondary for the Burner maintenance path", async () => {
     const f = await fixture();
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.execute(f.guard.address, freeze, f.passkeySig)).to.be.rejected;
@@ -163,7 +164,7 @@ describe("Option B guard maintenance", () => {
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.yubiKey.address.toLowerCase());
   });
 
-  it("replaces guards after immediate YubiKey secondary disable without re-broadening", async () => {
+  itUnlessCoverage("replaces guards after immediate YubiKey secondary disable without re-broadening", async () => {
     const f = await fixture();
     const disable = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.yubiKey.address, false] });
     await f.passkeyAndBurner(f.guard.address, disable);

@@ -141,8 +141,14 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     void third;
   });
 
-  it("requires passkey plus Burner for emergency freeze and cancellation", async () => {
+  it("requires primary plus a configured secondary for emergency freeze and cancellation", async () => {
     const f = await fixture();
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 110n, "0x", 0] });
+    await f.execute(f.delay.address, queued, await f.passkeyAndBurner(f.delay.address, queued));
+    expect(await f.delay.read.queueNonce()).to.equal(1n);
+    const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] });
+    await f.execute(f.delay.address, cancel, safeContractSignatures(f.passkey.address, f.yubiKey.address));
+    expect(await f.delay.read.txNonce()).to.equal(1n);
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.execute(f.guard.address, freeze, f.passkeySig)).to.be.rejected;
     const burnerSig = await f.sign(f.guard.address, freeze, f.burner);

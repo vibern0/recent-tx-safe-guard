@@ -39,7 +39,7 @@ async function fixture() {
 }
 
 describe("TieredSpendingGuard exact signatures", () => {
-  it("two-owner config exposes only safe, passkey, Burner, Delay, and period fields", async () => {
+  it("compatibility config exposes only safe, passkey, Burner, Delay, and period fields", async () => {
     const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");
     const constructorAbi = artifact.abi.find((entry) => entry.type === "constructor");
     const constructorFields = constructorAbi?.inputs[0].components.map((component) => component.name);

@@ -4,20 +4,20 @@
 **Date:** 2026-09-16
 **Repository:** `recent-tx-safe-guard`
 
-## 2026-09-28 supersession: two-owner security-core prototype
+## 2026-10-01 supersession: Option B secondary-signer prototype
 
-The active Task 2 baseline for the atomic deployment transport work supersedes the earlier three-owner recovery topology for code, configuration, deployment examples, and verification. The prototype now uses exactly two Safe owners, ordered `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, and `periodAnchor`.
+The active secondary-signer design supersedes the earlier recovery-owner and Burner-specific topology for code, configuration, deployment examples, and verification. The prototype now uses exactly three Safe owners, ordered by Safe rules from the configured primary passkey, YubiKey Safe-contract secondary, and Burner WalletConnect ECDSA secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary passkey, while step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one enabled configured secondary signer over the exact Safe transaction.
 
-The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing either the passkey or Burner is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the two-owner call graph.
+The two supported secondary forms are a YubiKey-backed Safe-native passkey signer and a Burner WalletConnect ECDSA extension. Direct Burner NFC/libhalo signing remains a future spike and is out of scope until documented HaLo signing proves the exact Safe transaction can be signed, recovered, and accepted without changing the custody graph. The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing the primary passkey or all configured secondary factors is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the active call graph.
 
-Historical analysis in this document is left intact as evidence and product direction. Where it conflicts with this supersession note, the active two-owner Task 2 baseline controls implementation.
+Historical analysis in this document is left intact as evidence and product direction. Where it conflicts with this supersession note, the active Option B secondary-signer baseline controls implementation.
 
 ## Executive summary
 
 The original project idea remains valuable, but it should no longer be framed as only a recent-transaction guard. The stronger product is a single-Safe personal vault with three authorization tiers:
 
 1. A base instant tier for ordinary payments. A passkey may authorize multiple transactions while their cumulative amount stays within the token's daily limit X.
-2. A step-up instant tier. A named passkey and Burner card must both approve, and all base plus step-up transactions share a cumulative daily ceiling Y.
+2. A step-up instant tier. The primary passkey and one configured secondary signer must both approve, and all base plus step-up transactions share a cumulative daily ceiling Y.
 3. A delayed tier for transfers above Y and for unusual or security-weakening actions. The guard-required signer set approves first, then the exact action remains cancellable during a mandatory delay Z.
 
 The two instant tiers are enforced onchain through per-transaction, per-period, per-token, destination, function, and signer restrictions. X and Y are cumulative daily ceilings, not single-transfer thresholds, and must satisfy `0 < X < Y`. Base transactions consume both the X allowance and the shared Y allowance; step-up transactions consume the shared Y allowance. This prevents an attacker from spending X on one path and then another full Y on the other path.
@@ -28,7 +28,7 @@ No currently available general-purpose consumer wallet found in this research pa
 
 - A Safe-based vault
 - A passkey as the convenient daily signer
-- A Burner NFC card as a step-up signer
+- A configured secondary signer, initially either a YubiKey-backed Safe passkey or Burner WalletConnect signer, as a step-up signer
 - Per-transaction and daily limits
 - Mandatory post-approval delays for larger transfers
 - Independent alerts and cancellation
@@ -56,7 +56,7 @@ The product should satisfy these properties:
 5. **Independent cancellation:** A queued action produces an alert on a separate channel and can be cancelled or paused before execution.
 6. **Delayed weakening:** Increasing limits, shortening delays, adding signers or modules, expanding permissions, or disabling enforcement is itself delayed.
 7. **Safe recovery:** Recovery restores control without becoming an immediate withdrawal path.
-8. **Understandable operation:** The interface expresses policy in user terms: “passkey up to X today,” “tap Burner up to Y today,” “available after this time,” and “cancel this transfer.”
+8. **Understandable operation:** The interface expresses policy in user terms: “primary passkey up to X today,” “approve with YubiKey or Burner up to Y today,” “available after this time,” and “cancel this transfer.”
 9. **Fail-closed behavior:** Unknown calls and unsupported assets do not fall through an empty fallback or permissive default.
 10. **Recoverability without a backdoor:** No vendor, relayer, or hosted service can unilaterally spend. Loss of one user factor does not permanently lock the account.
 
@@ -71,7 +71,7 @@ The product should satisfy these properties:
 - Malicious token approvals or signed messages
 - Incorrect or malicious module configuration
 - Front-end or dependency supply-chain compromise
-- Loss of a phone, passkey, or Burner card
+- Loss of a phone, primary passkey, YubiKey secondary, or Burner card
 - An attacker attempting to weaken policy before withdrawing
 - A legitimate user making an irreversible mistake
 - Coercion or duress where the attacker has access to the daily signer but not every independent recovery/cancellation factor
@@ -189,16 +189,15 @@ The implementation should therefore expose a small signer boundary first:
 ### Account topology
 
 ```text
-Passkey ───────────────────────────────────────────────┐
-Burner co-signature ──────────────────────────────────┤
-Recovery signature ──────────────────────────────────┤
+Primary passkey ──────────────────────────────────────┐
+YubiKey secondary or Burner secondary ────────────────┤
                                                        v
                                               Single Vault Safe
                                                        │
                          TieredSpendingGuard on owner + module paths
                              │              │                 │
                        base <= X/day   step-up <= Y/day   queue above Y
-                         passkey        passkey+Burner    passkey+Burner
+                    primary passkey    primary+secondary primary+secondary
                              │              │                 │
                              └──── immediate ┘          Zodiac Delay
                                                             │ delay Z
@@ -208,7 +207,7 @@ Recovery signature ────────────────────�
 Independent service ── step-up execution + delayed lifecycle alerts
 ```
 
-Historical note: the following diagram and the original recovery-owner wording in this section are superseded by the two-owner amendment in `docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md`. The active prototype deploys exactly one Safe with exactly the passkey signer contract and Burner signer as owners at threshold 1; it has no recovery owner, recovery signer adapter, or active recovery selector. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires additional self-authenticating Burner signatures when the tier demands them. Burner-only transactions are rejected by the guard.
+Historical note: the original recovery-owner wording in this section is superseded by the active secondary-signer design. The active prototype deploys exactly one Safe with exactly the primary passkey signer contract, YubiKey Safe-contract secondary signer, and Burner ECDSA secondary signer as owners at threshold 1; it has no recovery owner, recovery signer adapter, or active recovery selector. The low Safe threshold is not the security policy: the mandatory `TieredSpendingGuard` validates which named signer authorized each operation and requires exactly one configured secondary approval when the tier demands it. Secondary-only transactions are rejected by the guard.
 
 The guard is installed as both the Safe transaction guard and Safe 1.5 module guard. Exactly one execution module is enabled: a reviewed Zodiac Delay instance whose owner, avatar, and target are the Safe. The Safe itself is the only Delay proposer. Owner transactions may queue through Delay only when the guard validates the inner action and required signers; Delay is the only module allowed to execute against the Safe. Every other owner or module path is denied.
 
@@ -231,11 +230,11 @@ The contract is testnet research until its code, configured call graph, deployme
 
 ### Signer rules
 
-For transfers, the Safe-validated threshold signature must be the configured passkey contract signature; pre-approved-hash signatures are rejected. The guard recognizes the signer identity from the canonical Safe signature encoding after Safe has validated it.
+For transfers, the Safe-validated threshold signature must include the configured primary passkey contract signature; pre-approved-hash signatures are rejected. The guard recognizes signer identity from the canonical Safe signature encoding after Safe has validated it.
 
-Step-up and delayed proposals carry a Burner co-signature in a typed signature extension. The Burner signs the exact Safe transaction hash recomputed by the guard. The extension is not trusted merely because it is appended to the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
+Step-up and delayed proposals carry exactly one configured secondary approval. A YubiKey secondary is another Safe-validated contract-signature slot. A Burner secondary is the versioned WalletConnect ECDSA terminal extension over the exact Safe transaction hash recomputed by the guard. The secondary approval is not trusted merely because it appears in the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
 
-Historical note: the recovery-owner rule above is superseded for the active prototype. There is no recovery owner. Cancellation, freeze, queued signer repair, and queued policy repair require the configured passkey plus Burner path described in the two-owner plan. Loss of either factor is an accepted testnet availability risk until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed.
+Historical note: the recovery-owner rule above is superseded for the active prototype. There is no recovery owner. Cancellation, freeze, queued signer repair, and queued policy repair require the configured primary passkey plus exactly one enabled secondary signer. Loss of the primary or all configured secondary factors is an accepted testnet availability risk until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed.
 
 For the highest assurance, the root passkey should be device-bound or held on a hardware security key. A synced passkey is still materially stronger than SMS or a reusable password, but its cloud-account recovery domain must be included in the threat model.
 
@@ -258,13 +257,13 @@ A successful base transfer consumes both the base X counter and shared instant Y
 
 ### Step-up instant tier
 
-When a transfer does not fit the remaining base X allowance but remains within shared Y, the guard requires both the Safe-validated passkey signature and a valid Burner signature extension over the exact Safe transaction hash. The same token, recipient, selector, operation, and per-transaction restrictions apply. Every successful step-up transfer consumes the shared Y counter but not the base X counter. A transfer may use the stronger step-up tier before X is exhausted, but doing so still reduces the remaining Y capacity. Across every ordering and number of base and step-up transactions, immediate outflow for an asset cannot exceed Y during the daily period.
+When a transfer does not fit the remaining base X allowance but remains within shared Y, the guard requires both the Safe-validated primary passkey signature and exactly one valid configured secondary approval over the exact Safe transaction hash. The same token, recipient, selector, operation, and per-transaction restrictions apply. Every successful step-up transfer consumes the shared Y counter but not the base X counter. A transfer may use the stronger step-up tier before X is exhausted, but doing so still reduces the remaining Y capacity. Across every ordering and number of base and step-up transactions, immediate outflow for an asset cannot exceed Y during the daily period.
 
 The first MVP should use token-denominated limits. USD-denominated aggregate limits require price oracles, staleness handling, manipulation resistance, and failure behavior that do not belong in the initial security core.
 
 ### Delayed tier
 
-When a recognized transfer would make shared daily spending exceed Y, the guard rejects direct execution and permits only a call from the Safe to queue that exact transfer in Delay. The queue transaction requires the passkey Safe signature plus the Burner signature extension. Security-weakening configuration changes and signer repair use the same delayed two-owner path; no recovery owner may queue repair in the active prototype. Approval does not immediately execute the action. The queue record must bind:
+When a recognized transfer would make shared daily spending exceed Y, the guard rejects direct execution and permits only a call from the Safe to queue that exact transfer in Delay. The queue transaction requires the primary passkey Safe signature plus exactly one configured secondary approval. Security-weakening configuration changes and signer repair use the same delayed primary-plus-secondary path; no recovery owner may queue repair in the active prototype. Approval does not immediately execute the action. The queue record must bind:
 
 - Chain ID
 - Safe address
@@ -284,11 +283,11 @@ Anyone may execute a valid queued transaction after cooldown; execution should n
 
 A delay is useful only if the owner learns about queued actions and can respond. Every delayed-tier `TransactionAdded` event must be monitored. Alerts should include decoded human-readable details and a canonical transaction fingerprint.
 
-Every confirmed step-up execution must also produce an independent notification containing the asset, amount, recipient, chain, Safe, transaction hash, and resulting daily Y usage. The guard emits the tier and post-authorization counters; the service verifies those values against the transaction and onchain state before notifying. This notification is observational and normally arrives after the immediate transaction executes. It is not a substitute for the Burner approval or the onchain Y limit. Base-tier transactions do not require service notifications.
+Every confirmed step-up execution must also produce an independent notification containing the asset, amount, recipient, chain, Safe, transaction hash, and resulting daily Y usage. The guard emits the tier and post-authorization counters; the service verifies those values against the transaction and onchain state before notifying. This notification is observational and normally arrives after the immediate transaction executes. It is not a substitute for the configured secondary approval or the onchain Y limit. Base-tier transactions do not require service notifications.
 
 At least one notification channel must be independent from the proposing browser session. Examples include a second-device push notification, email with no signing capability, or an operator-selected webhook. Notification compromise must not authorize spending.
 
-In the active two-owner prototype, the passkey-plus-Burner pair may invalidate queued items and freeze both instant tiers through exact guard allowlists. There is no recovery owner. Because Zodiac Delay is ordered, advancing its transaction nonce may invalidate earlier queued items; the cancellation builder and UI must enumerate every affected nonce before approval.
+In the active Option B prototype, the primary passkey plus exactly one configured secondary signer may invalidate queued items and freeze both instant tiers through exact guard allowlists. There is no recovery owner. Because Zodiac Delay is ordered, advancing its transaction nonce may invalidate earlier queued items; the cancellation builder and UI must enumerate every affected nonce before approval.
 
 ### Policy and recovery changes
 
@@ -332,8 +331,8 @@ The interface presents one Safe and its three authorization tiers. Modules and g
 ### Onboarding
 
 1. Create or select a passkey.
-2. Connect a Burner card.
-3. Register an independent recovery signer.
+2. Connect a configured secondary signer: YubiKey Safe passkey, Burner through WalletConnect, or both for the active Option B testnet profile.
+3. Confirm no independent recovery signer is active in the security-core prototype.
 4. Choose conservative per-token base daily limits X, shared immediate daily limits Y, and per-transaction caps, with `0 < X < Y`.
 5. Choose the delay period Z and alert channel.
 6. Deploy one Safe plus its TieredSpendingGuard and Delay module, then configure them atomically.
@@ -344,9 +343,9 @@ The interface presents one Safe and its three authorization tiers. Modules and g
 
 The send screen classifies an action before signature:
 
-- **Passkey:** the transfer fits within the remaining base X and shared Y daily allowances.
-- **Passkey + Burner:** the transfer exceeds the remaining base allowance but fits within the remaining shared Y allowance.
-- **Delayed:** the transfer exceeds the remaining shared Y allowance, requires passkey plus Burner approval, and shows the exact execution time after delay Z.
+- **Primary passkey:** the transfer fits within the remaining base X and shared Y daily allowances.
+- **Primary + secondary:** the transfer exceeds the remaining base allowance but fits within the remaining shared Y allowance.
+- **Delayed:** the transfer exceeds the remaining shared Y allowance, requires primary passkey plus one configured secondary approval, and shows the exact execution time after delay Z.
 - **Unsupported:** cannot be represented safely by the current policy.
 
 The UI’s classification is advisory. The onchain TieredSpendingGuard and Delay contracts are authoritative.
@@ -366,7 +365,7 @@ The queue must show:
 
 ### Recovery
 
-Historical note: recovery-owner rehearsal guidance is superseded for the active two-owner prototype. The product should remind the owner to verify the backup Burner factor without moving funds or exposing secrets, but it must not describe, collect, or rely on an offline recovery signer until a separate delayed recovery design is written, reviewed, implemented, and tested.
+Historical note: recovery-owner rehearsal guidance is superseded for the active Option B prototype. The product should remind the owner to verify each configured secondary factor without moving funds or exposing secrets, but it must not describe, collect, or rely on an offline recovery signer until a separate delayed recovery design is written, reviewed, implemented, and tested.
 
 ## Assessment of the existing repository
 
@@ -464,18 +463,18 @@ The primary differentiation is the complete consumer workflow:
 The first security-core prototype should include:
 
 - One EVM test network
-- One Safe holding assets, with exactly the passkey signer contract and Burner signer as owners at threshold 1, and no recovery owner
+- One Safe holding assets, with exactly the primary passkey signer contract, YubiKey Safe-contract secondary signer, and Burner WalletConnect ECDSA secondary signer as owners at threshold 1, and no recovery owner
 - One non-upgradeable `TieredSpendingGuard` installed as transaction guard and module guard
 - One reviewed Zodiac Delay as the only enabled execution module
 - One native asset and selected ERC-20 assets
 - Per-transaction limits, a passkey-only daily X allowance, and a shared immediate daily Y allowance per token
 - Onchain proof that base transactions consume X and Y while step-up transactions consume Y, so all immediate spending remains at or below Y
-- Exact passkey Safe-signature enforcement and Burner co-signature verification over the full Safe transaction hash
+- Exact primary passkey Safe-signature enforcement and one configured secondary approval over the full Safe transaction hash
 - Explicit recipient/function permissions
 - A delayed tier with a default 24-hour cooldown and finite expiration
 - Queue listing, execution, and cancellation
 - Passkey and generic EIP-1193 hardware-wallet signer adapters
-- Burner through its supported WalletConnect path
+- Burner through its supported WalletConnect path; direct Burner NFC/libhalo remains a future spike outside this prototype
 - No default embedded-wallet SDK dependency; Cometh and similar providers are evaluated later through the signer-adapter boundary
 - Independent notifications for confirmed step-up executions and the delayed queue lifecycle
 - Full topology/configuration verification

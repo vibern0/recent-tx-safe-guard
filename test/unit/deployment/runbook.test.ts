@@ -236,19 +236,22 @@ describe("Sepolia deployment runbook package", () => {
   });
 });
 
-describe("two-owner documentation", () => {
-  it("keeps the active runbook, call graph, research amendment, and Task 7 plan on the same two-owner boundary", () => {
+describe("Option B documentation", () => {
+  it("keeps the active runbook, call graph, research amendment, and security-core plan on the same primary-plus-secondary boundary", () => {
     const runbook = readFileSync("docs/security/testnet-runbook.md", "utf8");
     const callGraph = readFileSync("docs/security/call-graph.md", "utf8");
     const research = readFileSync("docs/research/2026-09-16-personal-vault-research.md", "utf8");
     const securityPlan = readFileSync("docs/superpowers/plans/2026-09-16-personal-vault-security-core.md", "utf8");
-    const transportPlan = readFileSync("docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md", "utf8");
 
-    for (const [name, text] of Object.entries({ runbook, callGraph, research, securityPlan, transportPlan })) {
-      expect(text, name).to.contain("two-owner");
-      expect(text, name).to.match(/passkey(?: and| plus|, ) Burner|passkey\/Burner|\[passkey, Burner\]/i);
+    for (const [name, text] of Object.entries({ runbook, callGraph, research, securityPlan })) {
+      expect(text, name).to.match(/primary passkey/i);
+      expect(text, name).to.match(/one configured secondary signer|configured secondary|YubiKey.*Burner|Burner.*YubiKey/i);
+      expect(text, name).not.to.match(/two-owner|two owner|\[passkey, Burner\]|passkey\/Burner/i);
+      expect(text, name).not.to.match(/passkey(?: and| plus|, ) Burner(?! as a supported secondary kind)/i);
     }
-    expect(runbook).to.contain("loss of either factor");
+    expect(runbook).to.contain("three Safe owners");
+    expect(runbook).to.contain("[primary passkey, YubiKey secondary, Burner secondary]");
+    expect(runbook).to.contain("loss of the primary or all configured secondary factors");
     expect(runbook).to.contain("future delayed recovery design");
     expect(runbook).to.contain("atomic setup");
     expect(runbook).to.contain("exact Safe submission");
@@ -256,10 +259,10 @@ describe("two-owner documentation", () => {
     expect(runbook).to.contain("cancellation/freeze");
     expect(runbook).to.contain("signer repair");
     expect(runbook).to.contain("Forbidden paths");
-    expect(runbook).not.to.contain("three owners");
+    expect(runbook).to.contain("Direct Burner NFC/libhalo support remains a future spike");
     expect(runbook).not.to.contain("[passkey, Burner, recovery]");
     expect(runbook).not.to.match(/Recovery may|recovery cannot withdraw/i);
-    expect(securityPlan).to.contain("Loss of either factor is an accepted testnet denial-of-service risk");
-    expect(transportPlan).to.contain("Do not fabricate transaction hashes or mark issue #5 complete");
+    expect(securityPlan).to.contain("one configured secondary signer");
+    expect(securityPlan).to.contain("Direct Burner NFC/libhalo remains out of scope");
   });
 });
