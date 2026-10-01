@@ -18,6 +18,12 @@ interface IGuardSignerRepair {
 
     /// @notice Replaces one signer role inside the guard configuration.
     function repairSigner(uint8 role, address expectedOld, address replacement) external;
+
+    /// @notice Returns the configured Safe-contract secondary signer.
+    function yubiKeySecondary() external view returns (address signer, uint8 kind, bool enabled);
+
+    /// @notice Returns the configured ECDSA secondary signer.
+    function burnerSecondary() external view returns (address signer, uint8 kind, bool enabled);
 }
 
 interface IGuardMaintenance {
@@ -38,7 +44,10 @@ contract GuardReplacementMaintenance {
     struct GuardRuntimeConfig {
         address configuredSafe;
         address passkey;
+        address yubiKey;
+        bool yubiKeyEnabled;
         address burner;
+        bool burnerEnabled;
         address configuredDelay;
         uint64 periodSeconds;
         uint64 periodAnchor;
@@ -46,7 +55,7 @@ contract GuardReplacementMaintenance {
 
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0xe4c0f28bbad770a671cb2adcd9ff5828b9176686e69efc9177c4cd50171d92d0;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x3939e4d4c20b5b51a23fc202a4351b44dd9818f0d6292dd2cead4c3b306ec0c3;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
@@ -92,6 +101,7 @@ contract GuardReplacementMaintenance {
         if (expectedGuard == address(0) || replacement == address(0) || currentGuard != expectedGuard || currentModuleGuard != expectedGuard) revert InvalidReplacement();
         if (!_isApprovedGuardImplementation(replacement)) revert InvalidReplacement();
         if (!_supports(replacement, type(ITransactionGuard).interfaceId) || !_supports(replacement, type(IModuleGuard).interfaceId)) revert InvalidReplacement();
+        if (!_configureReplacementSecondary(expectedGuard, replacement)) revert InvalidReplacement();
         if (!_matchesReplacementGuardConfiguration(expectedGuard, replacement)) revert InvalidReplacement();
 
         (bool first,) = address(this).call(abi.encodeWithSignature("setGuard(address)", replacement));
@@ -103,9 +113,9 @@ contract GuardReplacementMaintenance {
 
     /// @notice Atomically updates the guard signer and Safe owner list.
     /// @dev Used by delayed signer repair so Safe ownership and guard policy do
-    ///      not diverge. Role 0 replacements must provide ERC-1271 evidence.
+    ///      not diverge. Primary and Safe-contract secondary replacements must provide ERC-1271 evidence.
     /// @param guard Current guard installed in both Safe guard slots.
-    /// @param role Signer role: 0 passkey, 1 Burner.
+    /// @param role Signer role: 0 primary passkey, 1 secondary signer.
     /// @param expectedOld Current signer that must be present in guard config.
     /// @param replacement New signer for both guard config and Safe owners.
     /// @param previousOwner Previous Safe linked-list owner before expectedOld.
@@ -129,7 +139,8 @@ contract GuardReplacementMaintenance {
             currentModuleGuard := sload(MODULE_GUARD_SLOT)
         }
         if (currentGuard != guard || currentModuleGuard != guard || !_matchesGuardConfiguration(guard, expectedOld, role)) revert InvalidReplacement();
-        if (role == 0) {
+        bool replacingSafeContractSigner = _isSafeContractSignerReplacement(guard, expectedOld, role);
+        if (role == 0 || replacingSafeContractSigner) {
             if (!_hasContract1271Evidence(replacement, guard, expectedOld, replacementProof)) revert InvalidReplacement();
         } else if (replacementProof.length != 0) revert InvalidReplacement();
         (bool repaired,) = guard.call(abi.encodeWithSelector(IGuardSignerRepair.repairSigner.selector, role, expectedOld, replacement));
@@ -173,6 +184,14 @@ contract GuardReplacementMaintenance {
         return ok && result.length == 32 && abi.decode(result, (address)) == self;
     }
 
+    /// @dev Binds a reviewed replacement guard to the current Safe-contract secondary before comparing configs.
+    function _configureReplacementSecondary(address current, address replacement) private returns (bool) {
+        (bool ok, GuardRuntimeConfig memory currentConfig) = _readGuardConfiguration(current);
+        if (!ok) return false;
+        (bool configured,) = replacement.call(abi.encodeWithSignature("configureYubiKeySecondary(address,bool)", currentConfig.yubiKey, currentConfig.yubiKeyEnabled));
+        return configured;
+    }
+
     /// @dev Checks the candidate guard still targets this Safe, Delay, and signer set.
     /// @param candidate Guard whose config is being checked.
     /// @param expectedOld Optional signer expected for the selected role.
@@ -182,12 +201,14 @@ contract GuardReplacementMaintenance {
         if (!ok) return false;
         if (
             guardConfig.configuredSafe != safe || guardConfig.configuredDelay != delay || guardConfig.periodSeconds != 86400 ||
-            guardConfig.passkey == address(0) || guardConfig.burner == address(0) ||
-            guardConfig.passkey == guardConfig.burner
+            guardConfig.passkey == address(0) || guardConfig.yubiKey == address(0) || guardConfig.burner == address(0) ||
+            !guardConfig.yubiKeyEnabled || !guardConfig.burnerEnabled ||
+            guardConfig.passkey == guardConfig.burner || guardConfig.passkey == guardConfig.yubiKey || guardConfig.yubiKey == guardConfig.burner
         ) return false;
         if (expectedOld == address(0)) return true;
-        address configuredSigner = role == 0 ? guardConfig.passkey : role == 1 ? guardConfig.burner : address(0);
-        return configuredSigner == expectedOld;
+        if (role == 0) return guardConfig.passkey == expectedOld;
+        if (role == 1) return guardConfig.burner == expectedOld || guardConfig.yubiKey == expectedOld;
+        return false;
     }
 
     /// @dev Confirms replacement guards preserve current Safe, Delay, signer, and period binding.
@@ -200,10 +221,11 @@ contract GuardReplacementMaintenance {
             currentConfig.configuredDelay != delay || replacementConfig.configuredDelay != delay ||
             currentConfig.periodSeconds != 86400 || replacementConfig.periodSeconds != currentConfig.periodSeconds ||
             replacementConfig.periodAnchor != currentConfig.periodAnchor ||
-            currentConfig.passkey == address(0) || currentConfig.burner == address(0) ||
-            currentConfig.passkey == currentConfig.burner
+            currentConfig.passkey == address(0) || currentConfig.yubiKey == address(0) || currentConfig.burner == address(0) ||
+            !currentConfig.yubiKeyEnabled || !currentConfig.burnerEnabled ||
+            currentConfig.passkey == currentConfig.burner || currentConfig.passkey == currentConfig.yubiKey || currentConfig.yubiKey == currentConfig.burner
         ) return false;
-        return replacementConfig.passkey == currentConfig.passkey && replacementConfig.burner == currentConfig.burner;
+        return replacementConfig.passkey == currentConfig.passkey && replacementConfig.yubiKey == currentConfig.yubiKey && replacementConfig.burner == currentConfig.burner && replacementConfig.yubiKeyEnabled == currentConfig.yubiKeyEnabled && replacementConfig.burnerEnabled == currentConfig.burnerEnabled;
     }
 
     /// @dev Reads the guard config ABI shared by approved guard implementations.
@@ -218,6 +240,23 @@ contract GuardReplacementMaintenance {
             guardConfig.periodSeconds,
             guardConfig.periodAnchor
         ) = abi.decode(result, (address, address, address, address, uint64, uint64));
+        (bool yubiOk, bytes memory yubiResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.yubiKeySecondary.selector));
+        if (!yubiOk || yubiResult.length != 96) return (false, guardConfig);
+        (address configuredYubiKey, uint8 yubiKind, bool yubiEnabled) = abi.decode(yubiResult, (address, uint8, bool));
+        guardConfig.yubiKey = configuredYubiKey;
+        guardConfig.yubiKeyEnabled = yubiEnabled;
+        if (yubiKind != 0) return (false, guardConfig);
+        (bool burnerOk, bytes memory burnerResult) = candidate.staticcall(abi.encodeWithSelector(IGuardSignerRepair.burnerSecondary.selector));
+        if (!burnerOk || burnerResult.length != 96) return (false, guardConfig);
+        (address configuredBurner, uint8 burnerKind, bool burnerEnabled) = abi.decode(burnerResult, (address, uint8, bool));
+        guardConfig.burnerEnabled = burnerEnabled;
+        if (burnerKind != 1 || configuredBurner != guardConfig.burner) return (false, guardConfig);
         return (true, guardConfig);
+    }
+
+    function _isSafeContractSignerReplacement(address guard, address expectedOld, uint8 role) private view returns (bool) {
+        if (role != 1) return false;
+        (bool ok, GuardRuntimeConfig memory guardConfig) = _readGuardConfiguration(guard);
+        return ok && guardConfig.yubiKey == expectedOld;
     }
 }

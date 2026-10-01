@@ -69,6 +69,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     bytes4 private constant FREEZE_SELECTOR = bytes4(keccak256("freeze()"));
     bytes4 private constant REPLACE_GUARDS_SELECTOR = 0x7ec60d4f;
     bytes4 private constant REPLACE_SIGNER_SELECTOR = bytes4(keccak256("replaceSigner(address,uint8,address,address,address,uint256,bytes)"));
+    bytes4 private constant CONFIGURE_YUBIKEY_SELECTOR = bytes4(keccak256("configureYubiKeySecondary(address,bool)"));
+    bytes4 private constant SAFE_REMOVE_OWNER_SELECTOR = bytes4(keccak256("removeOwner(address,address,uint256)"));
     bytes4 private constant REPAIR_POLICY_SELECTOR = bytes4(keccak256("repairPolicy(address,uint256,uint256,uint256,uint256,address[])"));
     bytes4 private constant SET_ASSET_POLICY_SELECTOR = bytes4(keccak256("setAssetPolicy(address,uint256,uint256,uint256,uint256,address[])"));
 
@@ -208,19 +210,24 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     }
 
     /// @notice Repairs one configured signer after the delayed path approves it.
-    /// @param role Signer role: 0 passkey, 1 Burner.
+    /// @param role Signer role: 0 primary passkey, 1 secondary signer.
     /// @param expectedOld Current signer that must still match guard config.
     /// @param replacement New signer address for the role.
     function repairSigner(uint8 role, address expectedOld, address replacement) external onlySafe {
-        if (replacement == address(0) || expectedOld == address(0) || replacement == config.passkey || replacement == config.burner || role > 1) revert InvalidRepair();
-        address current = role == 0 ? config.passkey : config.burner;
-        if (current != expectedOld) revert InvalidRepair();
+        if (replacement == address(0) || expectedOld == address(0) || role > 1 || replacement == expectedOld) revert InvalidRepair();
         if (role == 0) {
+            if (config.passkey != expectedOld || replacement == config.burner || replacement == yubiKeySecondary.signer) revert InvalidRepair();
             config.passkey = replacement;
             primarySigner = SignerConfig(replacement, SignerRole.Primary, SignerKind.SafeContractSignature, true);
-        } else {
+        } else if (config.burner == expectedOld) {
+            if (replacement == config.passkey || replacement == yubiKeySecondary.signer) revert InvalidRepair();
             config.burner = replacement;
             burnerSecondary = SecondarySignerConfig(replacement, SignerKind.EcdsaExtension, true);
+        } else if (yubiKeySecondary.signer == expectedOld && yubiKeySecondary.kind == SignerKind.SafeContractSignature) {
+            if (replacement == config.passkey || replacement == config.burner) revert InvalidRepair();
+            yubiKeySecondary = SecondarySignerConfig(replacement, SignerKind.SafeContractSignature, true);
+        } else {
+            revert InvalidRepair();
         }
     }
 
@@ -366,6 +373,8 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         bool secondaryApproved = _validateConfiguredSignatures(signatures, txHash, executor);
 
         if (emergencyAction) {
+            if (!secondaryApproved) revert MissingBurnerExtension();
+        } else if (_isImmediateSecondaryTightening(to, value, data, operation)) {
             if (!secondaryApproved) revert MissingBurnerExtension();
         } else if (_isImmediateDelayTightening(to, value, data, operation)) {
             if (secondaryApproved) revert InvalidDelayedAction();
@@ -680,6 +689,21 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (data.length < 4 + 32 * 8 || bytes4(data) != REPLACE_SIGNER_SELECTOR) return false;
         (address guard, uint8 role, address expectedOld, address replacement, address previousOwner, uint256 threshold, bytes memory proof) = abi.decode(_copy(data, 4), (address, uint8, address, address, address, uint256, bytes));
         return keccak256(data) == keccak256(abi.encodeWithSelector(REPLACE_SIGNER_SELECTOR, guard, role, expectedOld, replacement, previousOwner, threshold, proof));
+    }
+
+    /// @dev Allows immediate YubiKey secondary disabling and post-disable Safe owner removal only.
+    function _isImmediateSecondaryTightening(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
+        if (value != 0 || operation != Enum.Operation.Call || data.length < 4) return false;
+        bytes4 selector = bytes4(data[:4]);
+        if (to == address(this) && selector == CONFIGURE_YUBIKEY_SELECTOR && data.length == 68) {
+            (address signer, bool enabled) = abi.decode(data[4:], (address, bool));
+            return !enabled && yubiKeySecondary.signer != address(0) && (signer == yubiKeySecondary.signer || signer == address(0));
+        }
+        if (to == config.safe && selector == SAFE_REMOVE_OWNER_SELECTOR && data.length == 100) {
+            (, address owner, uint256 threshold) = abi.decode(data[4:], (address, address, uint256));
+            return threshold == 1 && owner == yubiKeySecondary.signer && yubiKeySecondary.signer != address(0) && !yubiKeySecondary.enabled;
+        }
+        return false;
     }
 
     /// @dev Allows immediate Delay changes only when cooldown/expiration tighten.

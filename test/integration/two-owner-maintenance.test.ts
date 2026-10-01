@@ -1,8 +1,13 @@
 import { expect } from "chai";
 import hre from "hardhat";
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 
+const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 const freezeAbi = fn("freeze", []);
 const repairSignerAbi = fn("repairSigner", [
   { name: "role", type: "uint8" },
@@ -18,14 +23,31 @@ const repairPolicyAbi = fn("repairPolicy", [
   { name: "instantDaily", type: "uint256" },
   { name: "recipients", type: "address[]" },
 ]);
+const replaceSignerAbi = fn("replaceSigner", [
+  { name: "guard", type: "address" },
+  { name: "role", type: "uint8" },
+  { name: "expectedOld", type: "address" },
+  { name: "replacement", type: "address" },
+  { name: "previousOwner", type: "address" },
+  { name: "threshold", type: "uint256" },
+  { name: "replacementProof", type: "bytes" },
+]);
+const passkeyRepairProofHash = (chainId: bigint, safe: Address, delay: Address, guard: Address, expectedOld: Address, replacement: Address): Hex =>
+  keccak256(encodeAbiParameters(
+    [{ type: "string" }, { type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }],
+    ["RecentTxSafeGuard.passkeyReplacement.v1", chainId, safe, delay, guard, expectedOld, replacement],
+  ));
 
-describe("two-owner guard maintenance", () => {
+describe("Option B guard maintenance", () => {
   async function fixture() {
     const [deployer, burner, arbitrary, recipient, replacement] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const replacementYubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
     const passkeySig = passkeySignature(passkey.address);
     const sign = async (to: Address, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data);
     const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
@@ -34,16 +56,19 @@ describe("two-owner guard maintenance", () => {
     const bootstrap = async (to: Address, data: Hex) => execute(to, data, await sign(to, data, burner));
     await bootstrap(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await bootstrap(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
+    await bootstrap(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
-    return { deployer, burner, arbitrary, recipient, replacement, safe, passkey, delay, guard, owners, passkeySig, sign, envelope, execute, passkeyAndBurner };
+    const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
+    return { deployer, burner, arbitrary, recipient, replacement, replacementYubiKey, safe, passkey, yubiKey, delay, guard, maintenance, owners, passkeySig, sign, envelope, execute, executeNext, passkeyAndBurner };
   }
 
-  it("sets up the Safe with exactly passkey and Burner owners at threshold one", async () => {
+  it("sets up the Safe with primary, YubiKey secondary, and Burner secondary owners at threshold one", async () => {
     const f = await fixture();
     expect(await f.safe.read.getThreshold()).to.equal(1n);
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(f.owners.map((owner) => owner.toLowerCase()));
-    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort());
+    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.yubiKey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort());
   });
 
   it("rejects direct queued signer repair even when passkey plus Burner approve the queue", async () => {
@@ -79,6 +104,37 @@ describe("two-owner guard maintenance", () => {
 
     const repair = encodeFunctionData({ abi: repairSignerAbi, functionName: "repairSigner", args: [1, f.burner.account.address, f.replacement.account.address] });
     await expect(f.execute(f.guard.address, repair, f.passkeySig)).to.be.rejected;
+  });
+
+  it("permits immediate YubiKey secondary disabling but rejects immediate broadening", async () => {
+    const f = await fixture();
+    const disable = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.yubiKey.address, false] });
+    await f.passkeyAndBurner(f.guard.address, disable);
+    expect((await f.guard.read.yubiKeySecondary())[2]).to.equal(false);
+
+    const broaden = encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [f.replacementYubiKey.address, true] });
+    await expect(f.passkeyAndBurner(f.guard.address, broaden)).to.be.rejected;
+  });
+
+  it("rotates the YubiKey secondary only through delayed maintenance", async () => {
+    const f = await fixture();
+    const yubiIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.yubiKey.address.toLowerCase());
+    const previous = (yubiIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[yubiIndex - 1]) as Address;
+    const proofHash = passkeyRepairProofHash(31337n, f.safe.address, f.delay.address, f.guard.address, f.yubiKey.address, f.replacementYubiKey.address);
+    expect(proofHash).to.match(/^0x[0-9a-f]{64}$/);
+    const proof = "0x" as Hex;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.yubiKey.address, f.replacementYubiKey.address, previous, 1n, proof] });
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+
+    await expect(f.execute(f.maintenance.address, repair, await f.sign(f.maintenance.address, repair))).to.be.rejected;
+    await f.passkeyAndBurner(f.delay.address, queued);
+    await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
+    await time.increase(10);
+    await f.executeNext(f.maintenance.address, 0n, repair, 1);
+
+    expect((await f.guard.read.yubiKeySecondary())[0].toLowerCase()).to.equal(f.replacementYubiKey.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementYubiKey.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.yubiKey.address.toLowerCase());
   });
 
   it("does not allow Burner-only or arbitrary EOA-only transactions through the guard", async () => {

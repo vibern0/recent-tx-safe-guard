@@ -31,7 +31,8 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
     const [deployer, burner, recipient, replacement, replacement2] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, yubiKey.address, burner.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
@@ -42,6 +43,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     };
     await ownerTx(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerTx(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
     await ownerTx(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerTx(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
@@ -52,7 +54,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const passkeyAndBurner = async (to: Address, data: Hex) => envelope(await sign(to, data, burner));
     const execute = async (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
     const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
-    return { deployer, burner, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, passkeyAndBurner, execute, executeNext };
+    return { deployer, burner, recipient, replacement, replacement2, safe, passkey, yubiKey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, passkeyAndBurner, execute, executeNext };
   }
 
   it("secondary signer Safe contract approval can queue an exact delayed action", async () => {

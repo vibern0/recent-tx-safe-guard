@@ -28,9 +28,11 @@ const SAFE_ABI = [
   { name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] },
 ] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "yubiKey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 const GUARD_ABI = [
   { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
+  { name: "yubiKeySecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
+  { name: "burnerSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { name: "maintenance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 const DELAY_ABI = [
@@ -89,7 +91,7 @@ export type VaultDeploymentPlan = Readonly<{
   safeInitializer: Hex;
   setupHelperCalldata: Hex;
   review: Readonly<{
-    owners: readonly [Address, Address];
+    owners: readonly [Address, Address, Address];
     threshold: 1;
     fallbackHandler: Address;
     paymentToken: Address;
@@ -194,6 +196,20 @@ function same(left: Address, right: Address): boolean {
   return isAddressEqual(left, right);
 }
 
+function sortedOwners(owners: readonly Address[]): readonly [Address, Address, Address] {
+  const sorted = [...owners].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
+  if (sorted.length !== 3) throw new Error("fail closed: Option B requires exactly three Safe owners");
+  return sorted as [Address, Address, Address];
+}
+
+function configuredOptionBSecondaries(policy: VaultPolicy): { yubiKey: Address; burner: Address } {
+  const yubiKey = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
+  const burner = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.burner))?.address;
+  if (!yubiKey) throw new Error("fail closed: Option B requires an enabled Safe-contract secondary");
+  if (!burner) throw new Error("fail closed: Option B requires the Burner ECDSA secondary");
+  return { yubiKey, burner };
+}
+
 function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedRuntimeCodeHash: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
   return {
     description,
@@ -227,6 +243,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
 
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
+  const optionB = configuredOptionBSecondaries(input.policy);
+  const owners = sortedOwners([input.policy.passkey, optionB.yubiKey, optionB.burner]);
 
   const setupHelperCalldata = encodeFunctionData({
     abi: HELPER_ABI,
@@ -236,7 +254,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       delay: components.delay,
       maintenance: components.maintenance,
       passkey: input.policy.passkey,
-      burner: input.policy.burner,
+      yubiKey: optionB.yubiKey,
+      burner: optionB.burner,
       periodSeconds: BigInt(input.policy.periodSeconds),
       periodAnchor: input.policy.periodAnchor,
       assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
@@ -245,7 +264,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   const safeInitializer = encodeFunctionData({
     abi: SAFE_ABI,
     functionName: "setup",
-    args: [[input.policy.passkey, input.policy.burner], 1n, components.setupHelper, setupHelperCalldata, ZERO, ZERO, 0n, ZERO],
+    args: [owners, 1n, components.setupHelper, setupHelperCalldata, ZERO, ZERO, 0n, ZERO],
   });
   const factoryCall = encodeFunctionData({
     abi: FACTORY_ABI,
@@ -288,7 +307,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     safeInitializer,
     setupHelperCalldata,
     review: {
-      owners: [input.policy.passkey, input.policy.burner],
+      owners,
       threshold: 1,
       fallbackHandler: ZERO,
       paymentToken: ZERO,
@@ -349,10 +368,14 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   const guardConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "config" });
   if (!Array.isArray(guardConfig) || guardConfig.length !== 6) throw new Error("fail closed: guard config evidence malformed");
   const [safe, passkey, burner, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
-  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plan.review.owners[0]) || !same(burner, plan.review.owners[1]) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
+  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !plan.review.owners.some((owner) => same(owner, passkey)) || !plan.review.owners.some((owner) => same(owner, burner)) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
     if (periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) throw new Error("fail closed: guard period binding mismatch");
     throw new Error("fail closed: guard binding mismatch");
   }
+  const yubiKey = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "yubiKeySecondary" });
+  const burnerSecondary = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "burnerSecondary" });
+  if (!Array.isArray(yubiKey) || yubiKey.length !== 3 || !plan.review.owners.some((owner) => same(owner, yubiKey[0] as Address)) || yubiKey[1] !== 0 || yubiKey[2] !== true) throw new Error("fail closed: YubiKey secondary binding mismatch");
+  if (!Array.isArray(burnerSecondary) || burnerSecondary.length !== 3 || !same(burnerSecondary[0] as Address, burner) || burnerSecondary[1] !== 1 || burnerSecondary[2] !== true) throw new Error("fail closed: Burner secondary binding mismatch");
   if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), maintenance.address)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "avatar"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay avatar mismatch");

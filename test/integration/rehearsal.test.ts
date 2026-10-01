@@ -4,10 +4,14 @@ import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
+const configureYubiKeyAbi = fn("configureYubiKeySecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 
 describe("local time-controlled security rehearsal", () => {
-  it("proves real X/Y spending, delayed cancellation/expiry/execution, and delayed two-owner repair", async () => {
+  it("proves real X/Y spending, delayed cancellation/expiry/execution, and delayed Option B repair", async () => {
     const publicClient = await hre.viem.getPublicClient();
     const network = await publicClient.getChainId();
     expect(network).to.equal(31337);
@@ -16,10 +20,11 @@ describe("local time-controlled security rehearsal", () => {
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const yubiKey = await hre.viem.deployContract("Mock1271Signer");
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
-    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const owners = [passkey.address, yubiKey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
     await deployer.sendTransaction({ to: safe.address, value: 500n });
@@ -33,6 +38,7 @@ describe("local time-controlled security rehearsal", () => {
 
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureYubiKeyAbi, functionName: "configureYubiKeySecondary", args: [yubiKey.address, true] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 25n, 100n, 50n, 100n, [recipient.account.address]] }));

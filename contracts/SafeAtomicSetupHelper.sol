@@ -10,6 +10,8 @@ interface ISafeAtomicSelfSetup {
 
 interface IAtomicGuardSetup {
     function config() external view returns (address safe, address passkey, address burner, address delay, uint64 periodSeconds, uint64 periodAnchor);
+    function configureYubiKeySecondary(address signer, bool enabled) external;
+    function yubiKeySecondary() external view returns (address signer, uint8 kind, bool enabled);
     function setAssetPolicy(
         address token,
         uint256 basePerTransaction,
@@ -30,7 +32,7 @@ interface IAtomicDelaySetup {
     function isModuleEnabled(address module) external view returns (bool);
 }
 
-/// @notice Safe setup delegatecall helper for the two-owner atomic vault.
+/// @notice Safe setup delegatecall helper for the Option B atomic vault.
 /// @dev This contract is intentionally stateless. Safe setup executes it by
 ///      delegatecall, making `address(this)` the final Safe proxy address.
 contract SafeAtomicSetupHelper {
@@ -48,6 +50,7 @@ contract SafeAtomicSetupHelper {
         address delay;
         address maintenance;
         address passkey;
+        address yubiKey;
         address burner;
         uint64 periodSeconds;
         uint64 periodAnchor;
@@ -84,6 +87,7 @@ contract SafeAtomicSetupHelper {
             configuredPeriodSeconds != params.periodSeconds ||
             configuredPeriodAnchor != params.periodAnchor
         ) revert InvalidBinding();
+        if (params.yubiKey == address(0) || params.yubiKey == params.passkey || params.yubiKey == params.burner) revert InvalidBinding();
         if (
             IAtomicDelaySetup(params.delay).owner() != safe ||
             IAtomicDelaySetup(params.delay).avatar() != safe ||
@@ -107,6 +111,7 @@ contract SafeAtomicSetupHelper {
             );
         }
 
+        _checkedCall(params.guard, abi.encodeWithSelector(IAtomicGuardSetup.configureYubiKeySecondary.selector, params.yubiKey, true), IAtomicGuardSetup.configureYubiKeySecondary.selector);
         _checkedCall(params.guard, abi.encodeWithSelector(SET_MAINTENANCE_SELECTOR, params.maintenance), SET_MAINTENANCE_SELECTOR);
         _checkedCall(params.delay, abi.encodeWithSelector(DELAY_ENABLE_MODULE_SELECTOR, safe), DELAY_ENABLE_MODULE_SELECTOR);
         _checkedCall(safe, abi.encodeWithSelector(SAFE_SET_GUARD_SELECTOR, params.guard), SAFE_SET_GUARD_SELECTOR);
@@ -115,6 +120,7 @@ contract SafeAtomicSetupHelper {
 
         if (
             IAtomicGuardSetup(params.guard).maintenance() != params.maintenance ||
+            !_isConfiguredYubiKey(params.guard, params.yubiKey) ||
             !IAtomicDelaySetup(params.delay).isModuleEnabled(safe) ||
             !ISafeAtomicSelfSetup(safe).isModuleEnabled(params.delay)
         ) revert InvalidBinding();
@@ -127,5 +133,10 @@ contract SafeAtomicSetupHelper {
     function _checkedCall(address target, bytes memory data, bytes4 selector) private {
         (bool ok,) = target.call(data);
         if (!ok) revert SetupCallFailed(selector);
+    }
+
+    function _isConfiguredYubiKey(address guard, address expectedYubiKey) private view returns (bool) {
+        (address signer, uint8 kind, bool enabled) = IAtomicGuardSetup(guard).yubiKeySecondary();
+        return signer == expectedYubiKey && kind == 0 && enabled;
     }
 }

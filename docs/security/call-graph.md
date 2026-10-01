@@ -1,10 +1,10 @@
 # Security-core call graph
 
-This document records the complete two-owner Task 7 topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
+This document records the complete Option B topology and execution paths. The repository remains a testnet security prototype; the planner is unsigned and the verifier must pass before funds are deposited.
 
 ## Topology authority
 
-One asset-holding Safe has exactly two owners: configured passkey and Burner, with threshold 1 and no fallback handler. The same TieredSpendingGuard occupies both Safe transaction-guard and module-guard slots. Zodiac Delay is the only Safe module. Delay has the Safe as owner, avatar, and target, and the Safe is its only upstream module. No second Safe, recovery signer, module, or custody account is created.
+One asset-holding Safe has exactly three owners: the configured primary passkey, YubiKey Safe-contract secondary, and Burner ECDSA secondary, with threshold 1 and no fallback handler. The same TieredSpendingGuard occupies both Safe transaction-guard and module-guard slots. Zodiac Delay is the only Safe module. Delay has the Safe as owner, avatar, and target, and the Safe is its only upstream module. No second Safe, recovery signer, module, or custody account is created.
 
 `buildVaultPlan` never signs, broadcasts, invents registry addresses, or accepts unverified infrastructure evidence. It requires a resolver-branded deployment infrastructure object, the exact observed deployer nonce, expected runtime code hashes for the four prerequisites, Safe proxy creation code, the deterministic four-prerequisite CREATE sequence, and a policy Delay address that matches that sequence. The selected atomic path uses `SafeAtomicSetupHelper` as the one Safe setup delegatecall target; the helper is stateless and derives the final Safe as `address(this)` so the initializer does not embed the Safe address. The production plan derives the Safe proxy address from the Safe factory, singleton, proxy creation code, initializer, and salt, and rejects a policy Safe that differs. The production plan emits unsigned transactions only: setup helper, guard, Delay, maintenance, then Safe proxy factory creation.
 
@@ -13,8 +13,8 @@ Before the Safe factory transaction is ready for submission, `verifyVaultPrerequ
 ## Task 7 setup sequence
 
 1. Resolve verified deployment infrastructure and compare every runtime hash from RPC; absent evidence is a hard stop.
-2. Plan and deploy setup helper, guard, Delay, and maintenance instances at the four contiguous deployer nonces, verify their runtime/binding evidence, then call the official Proxy Factory with `setup([passkey, Burner], 1, setupHelper, setupData, 0, 0, 0, 0)` only when the deployer nonce is exactly `startingNonce + 4`.
-3. In the helper's fixed Safe-originated sequence, configure every asset, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Delay owner/avatar/target are the Safe.
+2. Plan and deploy setup helper, guard, Delay, and maintenance instances at the four contiguous deployer nonces, verify their runtime/binding evidence, then call the official Proxy Factory with sorted `setup([primary passkey, YubiKey secondary, Burner secondary], 1, setupHelper, setupData, 0, 0, 0, 0)` only when the deployer nonce is exactly `startingNonce + 4`.
+3. In the helper's fixed Safe-originated sequence, configure every asset, configure the YubiKey secondary before guard installation, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Delay owner/avatar/target are the Safe.
 4. Re-run `verifyTopology`; do not fund until it passes.
 
 ## Instant owner path
@@ -39,7 +39,7 @@ Immediate `setAssetPolicy` is accepted only for an unset token or a numeric decr
 
 ## Atomic dual-guard replacement
 
-`Delay` → Safe module execution with `DELEGATECALL` → `GuardReplacementMaintenance.replaceGuards(address,address)` (`0x7ec60d4f`) or `replaceSigner(address,uint8,address,address,address,uint256,bytes)` (`0x2d72b26a`). `replaceGuards` accepts only deployed code whose runtime hash is the reviewed `TieredSpendingGuard` artifact hash `0xb10dd9585e36df855e33653ac258f6716f635cfcbf499e6029d7721cbcba4039`; it also checks both guard slots and requires the replacement guard to preserve the current Safe, Delay, 24-hour period, passkey, and Burner bindings before installation.
+`Delay` → Safe module execution with `DELEGATECALL` → `GuardReplacementMaintenance.replaceGuards(address,address)` (`0x7ec60d4f`) or `replaceSigner(address,uint8,address,address,address,uint256,bytes)` (`0x2d72b26a`). `replaceGuards` accepts only deployed code whose runtime hash is the reviewed `TieredSpendingGuard` artifact hash `0x3939e4d4c20b5b51a23fc202a4351b44dd9818f0d6292dd2cead4c3b306ec0c3`; it also checks both guard slots and requires the replacement guard to preserve the current Safe, Delay, 24-hour period, primary passkey, YubiKey secondary, and Burner secondary bindings before installation.
 
 The module guard permits this one target, selector, and operation only when the caller module is the configured Delay. In Safe storage, the maintenance code verifies both current guard slots, verifies both interfaces on the replacement, sets a reentrancy lock, and performs exactly two Safe self-calls: `setGuard` and `setModuleGuard`. Any failure reverts the complete operation. No arbitrary target list, calldata batch, or general delegatecall is exposed.
 
