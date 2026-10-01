@@ -9,17 +9,15 @@ contract FakeReplacementGuard is ITransactionGuard, IModuleGuard {
     address public immutable safe;
     address public immutable passkey;
     address public immutable burner;
-    address public immutable recovery;
     address public immutable delay;
     uint64 public immutable periodSeconds;
     uint64 public immutable periodAnchor;
     address public maintenance;
 
-    constructor(address safe_, address passkey_, address burner_, address recovery_, address delay_) {
+    constructor(address safe_, address passkey_, address burner_, address delay_) {
         safe = safe_;
         passkey = passkey_;
         burner = burner_;
-        recovery = recovery_;
         delay = delay_;
         periodSeconds = 86400;
         periodAnchor = 0;
@@ -29,8 +27,8 @@ contract FakeReplacementGuard is ITransactionGuard, IModuleGuard {
         return interfaceId == type(ITransactionGuard).interfaceId || interfaceId == type(IModuleGuard).interfaceId;
     }
 
-    function config() external view returns (address, address, address, address, address, uint64, uint64) {
-        return (safe, passkey, burner, recovery, delay, periodSeconds, periodAnchor);
+    function config() external view returns (address, address, address, address, uint64, uint64) {
+        return (safe, passkey, burner, delay, periodSeconds, periodAnchor);
     }
 
     function setMaintenance(address maintenance_) external {

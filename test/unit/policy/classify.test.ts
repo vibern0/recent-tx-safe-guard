@@ -12,7 +12,7 @@ const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const SAFE = "0x0000000000000000000000000000000000000001" as Address;
 const PASSKEY = "0x0000000000000000000000000000000000000002" as Address;
 const BURNER = "0x0000000000000000000000000000000000000003" as Address;
-const RECOVERY = "0x0000000000000000000000000000000000000004" as Address;
+const LEGACY_RECOVERY_TARGET = "0x0000000000000000000000000000000000004" as Address;
 const DELAY = "0x0000000000000000000000000000000000000005" as Address;
 const TOKEN = "0x0000000000000000000000000000000000000010" as Address;
 const RECIPIENT = "0x0000000000000000000000000000000000000020" as Address;
@@ -34,7 +34,6 @@ const policy: VaultPolicy = {
   safe: SAFE,
   passkey: PASSKEY,
   burner: BURNER,
-  recovery: RECOVERY,
   delay: DELAY,
   periodSeconds: 86_400,
   periodAnchor: 0n,
@@ -103,21 +102,21 @@ describe("classifyAction", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 1n, { operation: 2 as never }), state, 1n)).to.equal("blocked");
   });
 
-  it("delays recognized transfer, Safe configuration, Delay, and recovery actions", () => {
+  it("delays recognized transfer, Safe configuration, and Delay actions without a recovery-only target", () => {
     expect(classifyAction(policy, transfer(RECIPIENT, 2_001n, { burnerApproved: true }), state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(SAFE, 0n), data: encodeFunctionData({ abi: parseAbi(["function disableModule(address,address)"]), functionName: "disableModule", args: [ZERO, DELAY] }) }, state, 1n)).to.equal("delayed");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
-    expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(LEGACY_RECOVERY_TARGET, 0n), data: "0x12345678" }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(DELAY, 0n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("delayed");
-    expect(classifyAction(policy, { ...transfer(RECOVERY, 0n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("delayed");
+    expect(classifyAction(policy, { ...transfer(LEGACY_RECOVERY_TARGET, 0n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("blocked");
   });
 
   it("blocks delayed control actions carrying ETH", () => {
     const setGuard = encodeFunctionData({ abi: parseAbi(["function setGuard(address)"]), functionName: "setGuard", args: [ZERO] });
     expect(classifyAction(policy, { ...transfer(SAFE, 1n), data: setGuard }, state, 1n)).to.equal("blocked");
     expect(classifyAction(policy, { ...transfer(DELAY, 1n), data: toFunctionSelector("skipExpired()") }, state, 1n)).to.equal("blocked");
-    expect(classifyAction(policy, { ...transfer(RECOVERY, 1n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("blocked");
+    expect(classifyAction(policy, { ...transfer(LEGACY_RECOVERY_TARGET, 1n), data: toFunctionSelector("freeze()") }, state, 1n)).to.equal("blocked");
   });
 
   it("blocks truncated, extra, malformed, and invalid-argument delayed calldata", () => {
@@ -139,5 +138,6 @@ describe("classifyAction", () => {
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, instantDailyLimit: 1_000n }] })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, burner: PASSKEY })).to.throw();
     expect(() => assertValidVaultPolicy({ ...policy, assets: [{ ...asset, basePerTransaction: 1_001n }] })).to.throw();
+    expect(() => assertValidVaultPolicy({ ...policy, recovery: LEGACY_RECOVERY_TARGET } as never)).to.throw("recovery");
   });
 });

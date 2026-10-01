@@ -10,7 +10,7 @@ library SafeSignatureDecoder {
 
     /// @notice Decodes the first Safe owner signature slot used by this guard.
     /// @dev Supports the configured contract-signature path and, only when
-    ///      explicitly allowed, a raw ECDSA signer for recovery paths. Approved
+    ///      explicitly allowed by callers, a raw ECDSA signer. Approved
     ///      hashes are rejected because they do not bind the signer interaction.
     /// @param signatures Safe signatures bytes, optionally followed by extension data.
     /// @param safeTxHash Safe transaction hash used to recover ECDSA signers.

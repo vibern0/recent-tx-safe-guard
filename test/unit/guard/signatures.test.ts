@@ -5,21 +5,21 @@ import { keccak256, toHex, type Address, type Hex } from "viem";
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
 async function fixture() {
-  const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
+  const [deployer, burner, recipient] = await hre.viem.getWalletClients();
   const singleton = await hre.viem.deployContract("Safe");
   const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
   const safe = await hre.viem.getContractAt("Safe", proxy.address);
   const passkey = await hre.viem.deployContract("Mock1271Signer");
+  const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
   const guard = await hre.viem.deployContract("TieredSpendingGuard", [[
     safe.address,
     passkey.address,
     burner.account.address,
-    recovery.account.address,
-    ZERO,
+    delay.address,
     86400n,
     0n,
   ]]);
-  const owners = [passkey.address, burner.account.address, recovery.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   await safe.write.setup([
     owners,
     1n,
@@ -30,10 +30,48 @@ async function fixture() {
     0n,
     ZERO,
   ], { account: deployer.account });
-  return { deployer, burner, recovery, recipient, safe, passkey, guard };
+  return { deployer, burner, recipient, safe, passkey, guard };
 }
 
 describe("TieredSpendingGuard exact signatures", () => {
+  it("two-owner config exposes only safe, passkey, Burner, Delay, and period fields", async () => {
+    const artifact = await hre.artifacts.readArtifact("TieredSpendingGuard");
+    const constructorAbi = artifact.abi.find((entry) => entry.type === "constructor");
+    const constructorFields = constructorAbi?.inputs[0].components.map((component) => component.name);
+    expect(constructorFields).to.deep.equal(["safe", "passkey", "burner", "delay", "periodSeconds", "periodAnchor"]);
+
+    const [deployer, burner] = await hre.viem.getWalletClients();
+    const singleton = await hre.viem.deployContract("Safe");
+    const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
+    const safe = await hre.viem.getContractAt("Safe", proxy.address);
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[
+      safe.address,
+      passkey.address,
+      burner.account.address,
+      delay.address,
+      86400n,
+      0n,
+    ]]);
+    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    await safe.write.setup([
+      owners,
+      1n,
+      ZERO,
+      "0x",
+      ZERO,
+      ZERO,
+      0n,
+      ZERO,
+    ], { account: deployer.account });
+
+    const config = await guard.read.config();
+    expect(config).to.have.length(6);
+    expect(config.map((value) => typeof value)).to.deep.equal(["string", "string", "string", "string", "bigint", "bigint"]);
+    expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
+  });
+
   it("reconstructs the Safe hash with the pre-increment nonce and binds every Safe field", async () => {
     const { safe, guard, recipient } = await fixture();
     const data = "0x12345678" as Hex;

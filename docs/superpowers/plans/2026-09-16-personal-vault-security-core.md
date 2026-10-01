@@ -6,6 +6,10 @@
 
 **Architecture:** One Safe holds all assets and has the passkey signer contract, Burner signer, and offline recovery signer as owners at Safe threshold 1. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
 
+> **2026-09-28 supersession:** Task 2 of the two-owner atomic deployment transport plan supersedes this plan's three-owner recovery topology for current code, tests, deployment examples, and verification. The active security-core interface uses exactly two ordered Safe owners, `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, `periodAnchor`. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of either factor is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use the older three-owner sections below as implementation requirements.
+
+> **2026-09-29 Task 7 package gate:** The Sepolia runbook and rehearsal package now follow the active two-owner passkey/Burner boundary. `npm run package:sepolia-rehearsal` emits only public unsigned artifacts for human review: unsigned plan, decoded review, public manifest, and expected evidence hashes. The live low-value Sepolia rehearsal remains outstanding until separately reviewed, signed, executed, and recorded; this branch does not mark issue #5 complete.
+
 **Tech Stack:** Solidity, TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, Safe passkey contracts, current `@gnosis-guild/zodiac` Delay deployments, OpenZeppelin signature utilities where reviewed, Mocha/Chai, Slither, Echidna or Foundry invariant tests, and a Sepolia fork.
 
 **Spec:** `docs/research/2026-09-16-personal-vault-research.md`
@@ -360,7 +364,7 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 - Create: `scripts/verify-deployment.ts`
 - Create: `docs/security/call-graph.md`
 
-**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; deterministic draft calldata is isolated to `test/fixtures/topology-draft.ts` and requires exact verified evidence. `verifyTopology(input): Promise<TopologyReport>` requires official resolver-branded output before any topology report or RPC read, then re-reads every invariant.
+**Interfaces:** `buildVaultPlan(input)` accepts only official resolver output and fails closed until a reviewed concrete atomic setup path exists; deterministic draft calldata is isolated to `test/fixtures/topology-draft.ts` and requires exact verified evidence. `verifyTopology(input): Promise<TopologyReport>` requires official resolver-branded infrastructure plus branded vault prerequisite evidence before any topology report or RPC read, then re-reads every invariant.
 
 - [x] **Step 1: Write deterministic plan snapshots**
 

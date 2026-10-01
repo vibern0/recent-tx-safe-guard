@@ -9,5 +9,6 @@ The reviewed baseline is narrow and intentional:
 - `reentrancy-no-eth` in `GuardReplacementMaintenance.replaceGuards`: the lock is set before the two Safe self-calls and replacement configuration call, and is cleared only after all checks succeed. A revert rolls back both guard-slot writes and the lock. The remaining detector is retained as a review reminder, not suppressed.
 - `unused-return`: signature decoder tuple fields are intentionally discarded after the decoder validates the exact signature shape; Safe performs the authoritative signature check immediately afterward.
 - `cache-array-length`: `policyHash` is a read-only inventory loop over a bounded configuration array; this is an optimization-only finding.
+- `calls-loop` in `SafeAtomicSetupHelper.setup`: the loop is the fixed per-asset policy initialization sequence. Every target is the reviewed guard address, every call is checked, and any failed policy write reverts the whole Safe creation.
 
 This is a reviewed baseline, not an assertion that the code is audited or production-ready.

@@ -1,5 +1,7 @@
 import { expect } from "chai";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildDeploymentPlan } from "../../../scripts/plan-deployment";
 import { verifyDeployment } from "../../../scripts/verify-deployment";
 
@@ -15,7 +17,6 @@ const config = {
   delay: address(3),
   passkey: address(4),
   burner: address(5),
-  recovery: address(6),
   safeSingleton: { address: address(7), runtimeCodeHash: hash(7) },
   delayDependency: { address: address(3), runtimeCodeHash: hash(3) },
   guardRuntimeCodeHash: hash(2),
@@ -36,8 +37,8 @@ const observed = {
   chainId: 11155111,
   policyHash: buildDeploymentPlan(config).policyHash,
   dependencies: { safeSingleton: { address: address(7), runtimeCodeHash: hash(7) }, delay: { address: address(3), runtimeCodeHash: hash(3) } },
-  safe: { address: address(1), singletonAddress: address(7), owners: [address(4), address(5), address(6)], threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
-  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), recovery: address(6), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
+  safe: { address: address(1), singletonAddress: address(7), owners: [address(4), address(5)], threshold: 1, fallbackHandler: address(0), transactionGuard: address(2), moduleGuard: address(2), enabledModules: [address(3)] },
+  guard: { address: address(2), runtimeCodeHash: hash(2), config: { safe: address(1), passkey: address(4), burner: address(5), delay: address(3), periodSeconds: 86400, periodAnchor: "0" }, assets: [{ token: address(8), basePerTransaction: "10", stepUpPerTransaction: "100", baseDailyLimit: "100", instantDailyLimit: "1000", recipients: [address(9)] }], counters: [{ token: address(8), window: "0", baseSpent: "0", instantSpent: "0" }] },
   delay: { address: address(3), dependencyAddress: address(3), runtimeCodeHash: hash(3), owner: address(1), avatar: address(1), target: address(1), enabledUpstreamModules: [address(1)], cooldownSeconds: 86400, expirationSeconds: 172800 },
   queueFingerprints: [hash(10)],
   setupTransactionHashes: [hash(11)],
@@ -45,6 +46,8 @@ const observed = {
 };
 
 describe("Sepolia deployment runbook scripts", () => {
+  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
+
   it("keeps the redacted deployment manifest aligned with config evidence placeholders", () => {
     const publicConfig = JSON.parse(readFileSync("config/sepolia.example.json", "utf8")) as Record<string, unknown>;
     const manifest = JSON.parse(readFileSync("deployments/sepolia.example.json", "utf8")) as Record<string, unknown>;
@@ -61,6 +64,14 @@ describe("Sepolia deployment runbook scripts", () => {
     expect(first.unsigned).to.equal(true);
     expect(first.broadcast).to.equal(false);
     expect(first.setupCalls.every((call) => !("signature" in call))).to.equal(true);
+  });
+
+  it("exposes the public-only Sepolia rehearsal package command", () => {
+    expect(pkg.scripts["package:sepolia-rehearsal"]).to.equal("tsx scripts/package-sepolia-rehearsal.ts");
+  });
+
+  it("fails closed when asked to emit atomic Safe creation without prerequisite evidence inputs", () => {
+    expect(() => buildDeploymentPlan({ ...config, atomicSafeCreation: true })).to.throw("atomic Safe creation requires buildVaultPlan prerequisite evidence");
   });
 
   it("fails closed when any topology, policy, queue, or notification invariant differs", () => {
@@ -126,6 +137,7 @@ describe("Sepolia deployment runbook scripts", () => {
 
   it("rejects unknown or missing public configuration fields", () => {
     expect(() => buildDeploymentPlan({ ...config, unexpected: true })).to.throw("config.unexpected");
+    expect(() => buildDeploymentPlan({ ...config, recovery: address(6) })).to.throw(`config.${"recovery"}`);
     const incomplete = { ...config } as Record<string, unknown>;
     delete incomplete.safe;
     expect(() => buildDeploymentPlan(incomplete)).to.throw("config.safe");
@@ -151,5 +163,102 @@ describe("Sepolia deployment runbook scripts", () => {
     expect(report.ok).to.equal(false);
     expect(report.failures.join(" ")).to.contain("observed snapshot");
     expect(report.reportHash).to.match(/^0x[0-9a-f]{64}$/);
+  });
+});
+
+describe("Sepolia deployment runbook package", () => {
+  const forbiddenKey = /(?:signature|signatures|privateKey|private_key|secret|seed|mnemonic|rpcUrl|rpc_url|pin|broadcastCommand|recovery)/i;
+  const forbiddenValue = /(?:https?:\/\/|wss?:\/\/|PRIVATE KEY|MNEMONIC|BURNER PIN|broadcast this|cast send|safe-cli|recovery owner)/i;
+
+  function scanPublic(value: unknown, path = "package"): void {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => scanPublic(entry, `${path}[${index}]`));
+      return;
+    }
+    if (!value || typeof value !== "object") {
+      if (typeof value === "string") expect(value, path).not.to.match(forbiddenValue);
+      return;
+    }
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      expect(key, path).not.to.match(forbiddenKey);
+      scanPublic(entry, `${path}.${key}`);
+    }
+  }
+
+  it("writes only unsigned public artifacts with owners exactly passkey and Burner", () => {
+    const { buildSepoliaRehearsalPackage } = require("../../../scripts/package-sepolia-rehearsal") as { buildSepoliaRehearsalPackage: (configPath: string, outputDir: string) => { files: string[] } };
+    const dir = mkdtempSync(join(tmpdir(), "sepolia-rehearsal-package-"));
+    try {
+      const result = buildSepoliaRehearsalPackage("config/sepolia.example.json", dir);
+      expect(result.files.map((file) => file.split("/").pop()).sort()).to.deep.equal(["decoded-review.json", "expected-evidence-hashes.json", "public-manifest.json", "unsigned-plan.json"]);
+
+      const artifacts = Object.fromEntries(result.files.map((file) => [file.split("/").pop()!, JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>]));
+      Object.entries(artifacts).forEach(([name, artifact]) => scanPublic(artifact, name));
+      const plan = artifacts["unsigned-plan.json"];
+      const review = artifacts["decoded-review.json"];
+      const manifest = artifacts["public-manifest.json"];
+      const hashes = artifacts["expected-evidence-hashes.json"];
+      expect(plan.unsigned).to.equal(true);
+      expect(plan.broadcast).to.equal(false);
+      expect(review.safeOwners).to.deep.equal([(plan.deployments as Record<string, string>).passkey, (plan.deployments as Record<string, string>).burner]);
+      expect(manifest.status).to.equal("EXAMPLE_NOT_DEPLOYED");
+      expect(hashes.policyHash).to.equal(plan.policyHash);
+      expect(hashes.setupTransactionHashes).to.deep.equal(plan.setupTransactionHashes);
+      expect(hashes.queueFingerprints).to.deep.equal(plan.queueFingerprints);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects recovery fields before writing a rehearsal package", () => {
+    const { buildSepoliaRehearsalPackage } = require("../../../scripts/package-sepolia-rehearsal") as { buildSepoliaRehearsalPackage: (configPath: string, outputDir: string) => unknown };
+    const dir = mkdtempSync(join(tmpdir(), "sepolia-rehearsal-package-"));
+    const configPath = join(dir, "config-with-recovery.json");
+    try {
+      writeFileSync(configPath, JSON.stringify({ ...config, recovery: address(6) }, null, 2), "utf8");
+      expect(() => buildSepoliaRehearsalPackage(configPath, join(dir, "out"))).to.throw(/recovery/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a pre-populated output directory before writing package artifacts", () => {
+    const { buildSepoliaRehearsalPackage } = require("../../../scripts/package-sepolia-rehearsal") as { buildSepoliaRehearsalPackage: (configPath: string, outputDir: string) => unknown };
+    const dir = mkdtempSync(join(tmpdir(), "sepolia-rehearsal-package-"));
+    try {
+      writeFileSync(join(dir, "stale-signature.txt"), "RPC_URL=https://example.invalid\nBURNER PIN=123456\n", "utf8");
+      expect(() => buildSepoliaRehearsalPackage("config/sepolia.example.json", dir)).to.throw(/output directory must be empty/i);
+      expect(() => readFileSync(join(dir, "unsigned-plan.json"), "utf8")).to.throw();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("two-owner documentation", () => {
+  it("keeps the active runbook, call graph, research amendment, and Task 7 plan on the same two-owner boundary", () => {
+    const runbook = readFileSync("docs/security/testnet-runbook.md", "utf8");
+    const callGraph = readFileSync("docs/security/call-graph.md", "utf8");
+    const research = readFileSync("docs/research/2026-09-16-personal-vault-research.md", "utf8");
+    const securityPlan = readFileSync("docs/superpowers/plans/2026-09-16-personal-vault-security-core.md", "utf8");
+    const transportPlan = readFileSync("docs/superpowers/plans/2026-09-28-two-owner-atomic-deployment-transport.md", "utf8");
+
+    for (const [name, text] of Object.entries({ runbook, callGraph, research, securityPlan, transportPlan })) {
+      expect(text, name).to.contain("two-owner");
+      expect(text, name).to.match(/passkey(?: and| plus|, ) Burner|passkey\/Burner|\[passkey, Burner\]/i);
+    }
+    expect(runbook).to.contain("loss of either factor");
+    expect(runbook).to.contain("future delayed recovery design");
+    expect(runbook).to.contain("atomic setup");
+    expect(runbook).to.contain("exact Safe submission");
+    expect(runbook).to.contain("Delay execution");
+    expect(runbook).to.contain("cancellation/freeze");
+    expect(runbook).to.contain("signer repair");
+    expect(runbook).to.contain("Forbidden paths");
+    expect(runbook).not.to.contain("three owners");
+    expect(runbook).not.to.contain("[passkey, Burner, recovery]");
+    expect(runbook).not.to.match(/Recovery may|recovery cannot withdraw/i);
+    expect(securityPlan).to.contain("Loss of either factor is an accepted testnet denial-of-service risk");
+    expect(transportPlan).to.contain("Do not fabricate transaction hashes or mark issue #5 complete");
   });
 });

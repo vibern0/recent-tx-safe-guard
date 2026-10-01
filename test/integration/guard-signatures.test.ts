@@ -16,15 +16,16 @@ const setAssetPolicyAbi = fn("setAssetPolicy", [
 
 describe("TieredSpendingGuard against Safe 1.5", () => {
   it("accepts the configured passkey contract signature and rejects failed execution", async () => {
-    const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
 
     const nonce = await safe.read.nonce();
     const setGuardData = encodeFunctionData({ abi: setGuardAbi, functionName: "setGuard", args: [guard.address] });
-    const recoverySignature = await signSafeTransaction(safe, recovery, safe.address, setGuardData, { nonce });
-    await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, recoverySignature], { account: deployer.account });
+    const burnerSignature = await signSafeTransaction(safe, burner, safe.address, setGuardData, { nonce });
+    await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, burnerSignature], { account: deployer.account });
 
     const ownerSignature = passkeySignature(passkey.address);
     await expect(safe.write.execTransaction([recipient.account.address, 0n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, ownerSignature], { account: deployer.account })).to.be.rejected;
@@ -35,10 +36,11 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
   });
 
   it("accepts only a real Burner signature over the exact Safe hash and rejects mutations, wrong domains, and replay", async () => {
-    const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
 
     const signSafeHash = async (nonce: bigint, domainSafe = safe.address, chainId = 31337) => burner.signTypedData({
       domain: { chainId, verifyingContract: domainSafe }, types: safeTxTypes, primaryType: "SafeTx",
@@ -49,10 +51,10 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
     await deployer.sendTransaction({ to: safe.address, value: 1n });
     const policyData = encodeFunctionData({ abi: setAssetPolicyAbi, functionName: "setAssetPolicy", args: [ZERO, 1n, 1n, 100n, 1_000n, [recipient.account.address]] });
-    const policySignature = await signSafeTransaction(safe, recovery, guard.address, policyData);
+    const policySignature = await signSafeTransaction(safe, burner, guard.address, policyData);
     await safe.write.execTransaction([guard.address, 0n, policyData, 0, 0n, 0n, 0n, ZERO, ZERO, policySignature], { account: deployer.account });
     const setGuardData = encodeFunctionData({ abi: setGuardAbi, functionName: "setGuard", args: [guard.address] });
-    const setupSignature = await signSafeTransaction(safe, recovery, safe.address, setGuardData);
+    const setupSignature = await signSafeTransaction(safe, burner, safe.address, setGuardData);
     await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, setupSignature], { account: deployer.account });
 
     const nonce = await safe.read.nonce();
@@ -72,15 +74,15 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
   });
 
   it("constrains the configured module and rolls back failed module checks", async () => {
-    const [deployer, burner, recovery, recipient] = await hre.viem.getWalletClients();
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
     const module = await hre.viem.deployContract("ModuleCaller");
     const otherModule = await hre.viem.deployContract("ModuleCaller");
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, module.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, module.address, 86400n, 0n]]);
 
     const ownerTx = async (to: Address, data: Hex) => {
-      const signature = await signSafeTransaction(safe, recovery, to, data);
+      const signature = await signSafeTransaction(safe, burner, to, data);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     const enableData = encodeFunctionData({ abi: enableModuleAbi, functionName: "enableModule", args: [module.address] });

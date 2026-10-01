@@ -1,0 +1,243 @@
+import { expect } from "chai";
+import hre from "hardhat";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { encodeAbiParameters, encodeFunctionData, getContractAddress, keccak256, type Address, type Hex } from "viem";
+import { ZERO, fn } from "../helpers/safe";
+
+const GUARD_SLOT = "0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8" as Hex;
+const MODULE_GUARD_SLOT = "0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947" as Hex;
+const FALLBACK_HANDLER_SLOT = "0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5" as Hex;
+const SENTINEL_MODULES = "0x0000000000000000000000000000000000000001" as Address;
+
+const SAFE_SETUP_ABI = fn("setup", [
+  { name: "owners", type: "address[]" },
+  { name: "threshold", type: "uint256" },
+  { name: "to", type: "address" },
+  { name: "data", type: "bytes" },
+  { name: "fallbackHandler", type: "address" },
+  { name: "paymentToken", type: "address" },
+  { name: "payment", type: "uint256" },
+  { name: "paymentReceiver", type: "address" },
+]);
+
+const HELPER_SETUP_ABI = fn("setup", [
+  {
+    name: "params",
+    type: "tuple",
+    components: [
+      { name: "guard", type: "address" },
+      { name: "delay", type: "address" },
+      { name: "maintenance", type: "address" },
+      { name: "passkey", type: "address" },
+      { name: "burner", type: "address" },
+      { name: "periodSeconds", type: "uint64" },
+      { name: "periodAnchor", type: "uint64" },
+      {
+        name: "assets",
+        type: "tuple[]",
+        components: [
+          { name: "token", type: "address" },
+          { name: "basePerTransaction", type: "uint256" },
+          { name: "stepUpPerTransaction", type: "uint256" },
+          { name: "baseDailyLimit", type: "uint256" },
+          { name: "instantDailyLimit", type: "uint256" },
+          { name: "recipients", type: "address[]" },
+        ],
+      },
+    ],
+  },
+]);
+
+const FACTORY_ABI = [
+  {
+    type: "function",
+    name: "createProxyWithNonce",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_singleton", type: "address" },
+      { name: "initializer", type: "bytes" },
+      { name: "saltNonce", type: "uint256" },
+    ],
+    outputs: [{ name: "proxy", type: "address" }],
+  },
+  {
+    type: "event",
+    name: "ProxyCreation",
+    inputs: [
+      { name: "proxy", type: "address", indexed: false },
+      { name: "singleton", type: "address", indexed: false },
+    ],
+    anonymous: false,
+  },
+] as const;
+
+const FACTORY_ARTIFACT = JSON.parse(
+  readFileSync(
+    join(process.cwd(), "node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxyFactory.sol/SafeProxyFactory.json"),
+    "utf8",
+  ),
+) as { abi: typeof FACTORY_ABI; bytecode: Hex };
+const SAFE_PROXY_ARTIFACT = JSON.parse(
+  readFileSync(
+    join(process.cwd(), "node_modules/@safe-global/safe-smart-account/build/artifacts/contracts/proxies/SafeProxy.sol/SafeProxy.json"),
+    "utf8",
+  ),
+) as { bytecode: Hex };
+
+function storageAddress(word: Hex): Address {
+  return `0x${word.slice(-40)}` as Address;
+}
+
+describe("atomic two-owner topology via SafeAtomicSetupHelper", () => {
+  async function deployAtomicTopology() {
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const client = await hre.viem.getPublicClient();
+    const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
+    const singleton = await hre.viem.deployContract("Safe");
+    const factoryHash = await deployer.deployContract({ abi: FACTORY_ARTIFACT.abi, bytecode: FACTORY_ARTIFACT.bytecode });
+    const factoryReceipt = await client.waitForTransactionReceipt({ hash: factoryHash });
+    const factory = { address: factoryReceipt.contractAddress as Address };
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const startingNonce = BigInt(await client.getTransactionCount({ address: deployer.account.address }));
+    const saltNonce = 99n;
+    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) as [Address, Address];
+
+    const placeholderPolicy = {
+      token: ZERO,
+      basePerTransaction: 50n,
+      stepUpPerTransaction: 100n,
+      baseDailyLimit: 50n,
+      instantDailyLimit: 100n,
+      recipients: [recipient.account.address],
+    };
+
+    const guardAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce });
+    const delayAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 1n });
+    const maintenanceAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 2n });
+    const helperData = encodeFunctionData({
+      abi: HELPER_SETUP_ABI,
+      functionName: "setup",
+      args: [{
+        guard: guardAddress,
+        delay: delayAddress,
+        maintenance: maintenanceAddress,
+        passkey: passkey.address,
+        burner: burner.account.address,
+        periodSeconds: 86400,
+        periodAnchor: 0,
+        assets: [placeholderPolicy],
+      }],
+    });
+    const initializerWithoutSafeAddress = encodeFunctionData({
+      abi: SAFE_SETUP_ABI,
+      functionName: "setup",
+      args: [owners, 1n, helper.address, helperData, ZERO, ZERO, 0n, ZERO],
+    });
+
+    const salt = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [keccak256(initializerWithoutSafeAddress), saltNonce]));
+    const predictedSafe = getContractAddress({
+      opcode: "CREATE2",
+      from: factory.address,
+      salt,
+      bytecode: `${SAFE_PROXY_ARTIFACT.bytecode}${encodeAbiParameters([{ type: "address" }], [singleton.address]).slice(2)}` as Hex,
+    });
+    expect(initializerWithoutSafeAddress.toLowerCase()).not.to.contain("000000000000000000000000" + predictedSafe.slice(2).toLowerCase());
+
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, burner.account.address, delayAddress, 86400n, 0n]]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delay.address]);
+    expect(guard.address.toLowerCase()).to.equal(guardAddress.toLowerCase());
+    expect(delay.address.toLowerCase()).to.equal(delayAddress.toLowerCase());
+    expect(maintenance.address.toLowerCase()).to.equal(maintenanceAddress.toLowerCase());
+
+    const createData = encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [singleton.address, initializerWithoutSafeAddress, saltNonce] });
+    const hash = await deployer.sendTransaction({ to: factory.address, data: createData });
+    await client.waitForTransactionReceipt({ hash });
+    const safeAddress = predictedSafe;
+    const safe = await hre.viem.getContractAt("Safe", safeAddress);
+    expect(await client.getBytecode({ address: safeAddress })).not.to.equal(undefined);
+
+    return { client, deployer, burner, recipient, helper, singleton, factory, passkey, guard, delay, maintenance, safe, safeAddress, initializerWithoutSafeAddress };
+  }
+
+  it("atomically creates a guarded two-owner Safe with Delay as the only module", async () => {
+    const f = await deployAtomicTopology();
+
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase()).sort()).to.deep.equal(
+      [f.passkey.address, f.burner.account.address].map((owner) => owner.toLowerCase()).sort(),
+    );
+    expect(await f.safe.read.getThreshold()).to.equal(1n);
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: FALLBACK_HANDLER_SLOT }))!).toLowerCase()).to.equal(ZERO);
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+    expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: MODULE_GUARD_SLOT }))!).toLowerCase()).to.equal(f.guard.address.toLowerCase());
+
+    const modules = await f.safe.read.getModulesPaginated([SENTINEL_MODULES, 10n]);
+    expect(modules[0].map((module) => module.toLowerCase())).to.deep.equal([f.delay.address.toLowerCase()]);
+    expect(await f.delay.read.isModuleEnabled([f.safeAddress])).to.equal(true);
+    expect((await f.delay.read.owner()).toLowerCase()).to.equal(f.safeAddress.toLowerCase());
+    expect((await f.delay.read.avatar()).toLowerCase()).to.equal(f.safeAddress.toLowerCase());
+    expect((await f.delay.read.target()).toLowerCase()).to.equal(f.safeAddress.toLowerCase());
+    expect((await f.guard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
+    expect((await f.guard.read.config())[0].toLowerCase()).to.equal(f.safeAddress.toLowerCase());
+    expect((await f.guard.read.assetPolicy([ZERO]))[3]).to.equal(100n);
+    expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
+  });
+
+  it("rejects direct helper calls outside Safe setup delegatecall", async () => {
+    const f = await deployAtomicTopology();
+    const params = { guard: f.guard.address, delay: f.delay.address, maintenance: f.maintenance.address, passkey: f.passkey.address, burner: f.burner.account.address, periodSeconds: 86400n, periodAnchor: 0n, assets: [] };
+    await expect(f.helper.write.setup([params], { account: f.deployer.account })).to.be.rejected;
+  });
+
+  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardBurner?: Address }> = {}) {
+    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const client = await hre.viem.getPublicClient();
+    const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
+    const singleton = await hre.viem.deployContract("Safe");
+    const factoryHash = await deployer.deployContract({ abi: FACTORY_ARTIFACT.abi, bytecode: FACTORY_ARTIFACT.bytecode });
+    const factoryReceipt = await client.waitForTransactionReceipt({ hash: factoryHash });
+    const factory = { address: factoryReceipt.contractAddress as Address };
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const startingNonce = BigInt(await client.getTransactionCount({ address: deployer.account.address }));
+    const guardAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce });
+    const delayAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 1n });
+    const maintenanceAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 2n });
+    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) as [Address, Address];
+    const badAsset = { token: ZERO, basePerTransaction: overrides.assetBasePerTransaction ?? 0n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, recipients: [recipient.account.address] };
+    const helperData = encodeFunctionData({
+      abi: HELPER_SETUP_ABI,
+      functionName: "setup",
+      args: [{
+        guard: guardAddress,
+        delay: delayAddress,
+        maintenance: maintenanceAddress,
+        passkey: passkey.address,
+        burner: burner.account.address,
+        periodSeconds: 86400,
+        periodAnchor: 0,
+        assets: [badAsset],
+      }],
+    });
+    const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [owners, 1n, helper.address, helperData, ZERO, ZERO, 0n, ZERO] });
+    const saltNonce = 100n;
+    const salt = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [keccak256(initializer), saltNonce]));
+    const predictedSafe = getContractAddress({ opcode: "CREATE2", from: factory.address, salt, bytecode: `${SAFE_PROXY_ARTIFACT.bytecode}${encodeAbiParameters([{ type: "address" }], [singleton.address]).slice(2)}` as Hex });
+    await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, overrides.guardBurner ?? burner.account.address, delayAddress, 86400n, 0n]]);
+    await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
+    await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delayAddress]);
+    const createData = encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [singleton.address, initializer, saltNonce] });
+
+    await expect(deployer.sendTransaction({ to: factory.address, data: createData })).to.be.rejected;
+    expect(await client.getBytecode({ address: predictedSafe })).to.equal(undefined);
+  }
+
+  it("reverts Safe creation when an inner policy call fails", async () => {
+    await expectCreationRevertsWith();
+  });
+
+  it("reverts Safe creation when the guard signer binding differs from helper params", async () => {
+    const [, , wrongBurner] = await hre.viem.getWalletClients();
+    await expectCreationRevertsWith({ assetBasePerTransaction: 50n, guardBurner: wrongBurner.account.address });
+  });
+});

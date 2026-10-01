@@ -36,7 +36,7 @@ async function providerState(provider: Eip1193Provider, expected: SafeSignerRequ
 
 export type Eip1193SignerOptions = Readonly<{ provider: Eip1193Provider; account: Address }>;
 
-export function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
+function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
   const seen = new Set<string>();
   return Object.freeze({
     address: options.account,
@@ -72,8 +72,4 @@ export function createBurnerSigner(options: Eip1193SignerOptions): SafeSigner & 
     const signature = await base.sign(request);
     return `${signature}${toHex(65n, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
   }});
-}
-
-export function createRecoverySigner(options: Eip1193SignerOptions): SafeSigner {
-  return createEip1193Signer(options);
 }

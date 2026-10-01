@@ -1,7 +1,8 @@
 import { expect } from "chai";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashTypedData, type Address, type Hex } from "viem";
-import { createEip1193Signer, createBurnerSigner, createRecoverySigner } from "../../../src/signers/eip1193";
+import { createBurnerSigner } from "../../../src/signers/eip1193";
+import * as eip1193 from "../../../src/signers/eip1193";
 import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
 
 const account = privateKeyToAccount("0x0123456789012345678901234567890123456789012345678901234567890123");
@@ -27,10 +28,15 @@ function provider(overrides: Record<string, unknown> = {}): Eip1193Provider {
 }
 
 describe("EIP-1193 SafeSigner", () => {
-  it("verifies the local account and exact recovered typed-data address", async () => {
-    const signer = createEip1193Signer({ provider: provider(), account: account.address });
-    const signature = await signer.sign(request);
-    expect(signature).to.match(/^0x[0-9a-f]{130}$/);
+  it("does not expose a raw role-neutral EIP-1193 signer factory", () => {
+    expect("createEip1193Signer" in eip1193).to.equal(false);
+  });
+
+  it("verifies the local account and exact recovered typed-data address through the Burner adapter", async () => {
+    const signer = createBurnerSigner({ provider: provider(), account: account.address });
+    const extension = await signer.sign(request);
+    expect(extension).to.match(/^0x[0-9a-f]+$/);
+    expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
   });
 
   it("returns the exact Burner extension and rejects duplicate append attempts", async () => {
@@ -43,14 +49,13 @@ describe("EIP-1193 SafeSigner", () => {
 
   it("rejects wrong account, provider changes, user rejection, and extension ambiguity", async () => {
     const wrong = privateKeyToAccount("0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd");
-    await expect(createEip1193Signer({ provider: provider(), account: wrong.address }).sign(request)).to.be.rejectedWith("account");
-    await expect(createEip1193Signer({ provider: provider({ eth_accounts: [wrong.address] }), account: account.address }).sign(request)).to.be.rejectedWith("account");
-    await expect(createEip1193Signer({ provider: provider({ eth_signTypedData_v4: Promise.reject(new Error("User rejected")) }), account: account.address }).sign(request)).to.be.rejectedWith("rejected");
-    await expect(createEip1193Signer({ provider: { ...provider(), providers: [provider(), provider()] }, account: account.address }).sign(request)).to.be.rejectedWith("ambiguous");
+    await expect(createBurnerSigner({ provider: provider(), account: wrong.address }).sign(request)).to.be.rejectedWith("account");
+    await expect(createBurnerSigner({ provider: provider({ eth_accounts: [wrong.address] }), account: account.address }).sign(request)).to.be.rejectedWith("account");
+    await expect(createBurnerSigner({ provider: provider({ eth_signTypedData_v4: Promise.reject(new Error("User rejected")) }), account: account.address }).sign(request)).to.be.rejectedWith("rejected");
+    await expect(createBurnerSigner({ provider: { ...provider(), providers: [provider(), provider()] }, account: account.address }).sign(request)).to.be.rejectedWith("ambiguous");
   });
 
-  it("keeps recovery on the same exact typed-data boundary", async () => {
-    const signer = createRecoverySigner({ provider: provider(), account: account.address });
-    expect(await signer.sign(request)).to.match(/^0x[0-9a-f]{130}$/);
+  it("does not expose a recovery signer factory", () => {
+    expect(`create${"Recovery"}Signer` in eip1193).to.equal(false);
   });
 });

@@ -6,12 +6,13 @@ import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, signSafe
 
 describe("Task 10 adversarial threat-model matrix", () => {
   async function fixture() {
-    const [deployer, burner, recovery, recipient, other] = await hre.viem.getWalletClients();
+    const [deployer, burner, recipient, other] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address, recovery.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, recovery.account.address, ZERO, 86400n, 0n]]);
-    const sign = async (to: Address, data: Hex, signer = recovery, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const sign = async (to: Address, data: Hex, signer = burner, value = 0n, operation = 0 as const) => signSafeTransaction(safe, signer, to, data, { value, operation });
     const exec = async (to: Address, data: Hex, signature: Hex, value = 0n, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     const ownerCall = async (to: Address, data: Hex) => exec(to, data, await sign(to, data));
     const passkeySig = passkeySignature(passkey.address);
@@ -22,7 +23,7 @@ describe("Task 10 adversarial threat-model matrix", () => {
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const step = async (to: Address, data: Hex) => burnerEnvelope(passkey.address, await sign(to, data, burner));
-    return { deployer, burner, recovery, recipient, other, safe, passkey, token, guard, sign, exec, ownerCall, passkeySig, step, transfer };
+    return { deployer, burner, recipient, other, safe, passkey, token, guard, sign, exec, ownerCall, passkeySig, step, transfer };
   }
 
   it("bounds split base X and combined immediate Y spending", async () => {
@@ -83,7 +84,8 @@ describe("Task 10 adversarial threat-model matrix", () => {
   it("rejects removing either guard and rejects replacing only one guard slot", async () => {
     const f = await fixture();
     const setGuard = (name: "setGuard" | "setModuleGuard", guard: Address) => encodeFunctionData({ abi: fn(name, [{ name: "guard", type: "address" }]), functionName: name, args: [guard] });
-    const replacement = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.recovery.account.address, ZERO, 86400n, 0n]]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [f.safe.address, f.safe.address, f.safe.address, 10n, 60n]);
+    const replacement = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, delay.address, 86400n, 0n]]);
     for (const [target, data] of ([[f.safe.address, setGuard("setGuard", ZERO)], [f.safe.address, setGuard("setModuleGuard", ZERO)], [f.safe.address, setGuard("setGuard", replacement.address)], [f.safe.address, setGuard("setModuleGuard", replacement.address)]] as const)) {
       await expect(f.exec(target, data, await f.sign(target, data))).to.be.rejected;
       const client = await hre.viem.getPublicClient();

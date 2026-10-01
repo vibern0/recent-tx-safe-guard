@@ -1,5 +1,9 @@
 import { keccak256, type Address, type Hex } from "viem";
+import Safe150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe.json";
+import SafeProxyFactory150 from "@safe-global/safe-deployments/src/assets/v1.5.0/safe_proxy_factory.json";
+import MultiSendCallOnly150 from "@safe-global/safe-deployments/src/assets/v1.5.0/multi_send_call_only.json";
 import { DEPENDENCIES, deploymentAddressError, deploymentReleaseError, validatedDeploymentAddress } from "./deployment-validation";
+import { verifyPasskeySignerComponent, type VerifiedComponent } from "../topology/evidence";
 
 export const SUPPORTED_CHAIN_IDS = [11155111] as const;
 export type SupportedChainId = (typeof SUPPORTED_CHAIN_IDS)[number];
@@ -9,9 +13,7 @@ export type DependencyName =
   | "safeProxyFactory"
   | "passkeySignerFactory"
   | "passkeySignerVerifier"
-  | "multiSend"
-  | "guard"
-  | "delay";
+  | "multiSendCallOnly";
 
 export type DeploymentRecord = {
   name: string;
@@ -23,53 +25,84 @@ export type DeploymentRecord = {
   source: string;
 };
 
-export type ChainDeploymentRegistry = Record<DependencyName, DeploymentRecord>;
-export type DeploymentRegistry = Partial<Record<number, ChainDeploymentRegistry>>;
+export type ChainDeploymentInfrastructureRegistry = Record<DependencyName, DeploymentRecord>;
+export type DeploymentInfrastructureRegistry = Partial<Record<number, ChainDeploymentInfrastructureRegistry>>;
+export type ChainDeploymentRegistry = ChainDeploymentInfrastructureRegistry;
+export type DeploymentRegistry = DeploymentInfrastructureRegistry;
 
 export type ReadOnlyDeploymentClient = {
   getBytecode(args: { address: Address }): Promise<Hex | undefined>;
+  getTransactionCount?(args: { address: Address }): Promise<number | bigint>;
+  readContract?(args: { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] }): Promise<unknown>;
 };
 
 export type VerifiedDependency = DeploymentRecord & {
   address: Address;
   runtimeCodeHash: Hex;
+  evidence: "verified";
 };
 
-export type VerifiedDeployments = {
+export type DeploymentInfrastructureInput = Readonly<{
   chainId: number;
-  dependencies: Record<DependencyName, VerifiedDependency>;
-};
+  deployer: Address;
+  expectedDeployerNonce: bigint;
+  passkeySigner: Readonly<{
+    address: Address;
+    runtimeCodeHash: Hex;
+    bindingHash: Hex;
+    source: string;
+    binding: Readonly<{ x: bigint; y: bigint; verifiers: bigint }>;
+  }>;
+}>;
 
-const officialResolverResults = new WeakSet<object>();
+type DependencyMap = Record<DependencyName, VerifiedDependency>;
 
-export function isOfficialVerifiedDeployments(value: unknown): value is VerifiedDeployments {
-  return typeof value === "object" && value !== null && officialResolverResults.has(value);
+export type DeploymentInfrastructure = Readonly<{
+  chainId: number;
+  deployer: Address;
+  observedDeployerNonce: bigint;
+  safeSingleton: VerifiedDependency;
+  safeProxyFactory: VerifiedDependency;
+  passkeySignerFactory: VerifiedDependency;
+  passkeySignerVerifier: VerifiedDependency;
+  multiSendCallOnly: VerifiedDependency;
+  passkeySigner: VerifiedComponent;
+  dependencies: DependencyMap;
+}>;
+
+export type VerifiedDeploymentInfrastructure = DeploymentInfrastructure;
+export type VerifiedDeployments = VerifiedDeploymentInfrastructure;
+
+const verifiedInfrastructure = new WeakSet<object>();
+
+export function isVerifiedDeploymentInfrastructure(value: unknown): value is VerifiedDeploymentInfrastructure {
+  return typeof value === "object" && value !== null && verifiedInfrastructure.has(value);
 }
 
-const SAFE_DEPLOYMENTS = "https://github.com/safe-global/safe-deployments";
-const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
-const ZODIAC = "https://github.com/gnosisguild/zodiac";
+export const isOfficialVerifiedDeployments = isVerifiedDeploymentInfrastructure;
 
-// This is deliberately an evidence ledger, not a claim that these contracts are
-// deployed on Sepolia. The official registries do not publish canonical passkey
-// or Delay runtime evidence for this prototype, so those absences are explicit.
-const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentRegistry = {
+const SAFE_DEPLOYMENTS_PACKAGE = "@safe-global/safe-deployments@1.37.63";
+const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
+
+type SafeDeploymentAsset = Readonly<{
+  contractName: string;
+  version: string;
+  deployments: { canonical?: { address: string; codeHash: string } };
+}>;
+
+const fromSafeDeploymentAsset = (asset: SafeDeploymentAsset, name: string, supportsModuleGuards = false): DeploymentRecord => ({
+  name,
+  version: asset.version,
+  address: asset.deployments.canonical?.address as Address | undefined,
+  runtimeCodeHash: asset.deployments.canonical?.codeHash as Hex | undefined,
+  ...(supportsModuleGuards ? { supportsModuleGuards: true } : {}),
+  source: `${SAFE_DEPLOYMENTS_PACKAGE} ${asset.contractName}`,
+});
+
+const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentInfrastructureRegistry = {
   11155111: {
-    safeSingleton: {
-      name: "Safe singleton",
-      version: "1.5.0",
-      address: "0xFf51A5898e281Db6DfC7855790607438dF2ca44b" as Address,
-      runtimeCodeHash: "0xdda019cbd7c867a533a2a86e5c53434fdc50b13122b5a5ddb4a8df61b31c20f2" as Hex,
-      supportsModuleGuards: true,
-      source: SAFE_DEPLOYMENTS,
-    },
-    safeProxyFactory: {
-      name: "Safe proxy factory",
-      version: "1.5.0",
-      address: "0x14F2982D601c9458F93bd70B218933A6f8165e7b" as Address,
-      runtimeCodeHash: "0x967dae4cda22b0c9ef7f31b010bdc1ceb0af9904b0c3dc060b5302e4c18a4529" as Hex,
-      source: SAFE_DEPLOYMENTS,
-    },
+    safeSingleton: fromSafeDeploymentAsset(Safe150 as SafeDeploymentAsset, "Safe singleton", true),
+    safeProxyFactory: fromSafeDeploymentAsset(SafeProxyFactory150 as SafeDeploymentAsset, "Safe proxy factory"),
     passkeySignerFactory: {
       name: "Safe passkey signer factory",
       version: "0.2.0",
@@ -82,30 +115,11 @@ const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentRegistry = {
       evidence: "absent",
       source: SAFE_MODULES,
     },
-    multiSend: {
-      name: "Safe MultiSend",
-      version: "1.5.0",
-      address: "0x218543288004CD07832472D464648173c77D7eB7" as Address,
-      runtimeCodeHash: "0xca1147a12963172a93910c5cb2bfa5ad0e941c7f03fc7eb017dd06a8ea4e5604" as Hex,
-      source: SAFE_DEPLOYMENTS,
-    },
-    guard: {
-      name: "Tiered spending guard",
-      version: "task7-reviewed",
-      evidence: "absent",
-      source: "repository-reviewed-artifact",
-    },
-    delay: {
-      name: "Zodiac Delay",
-      version: "1.1.1",
-      address: "0x824175b945838d127c1ca83cbce11d8e44f6df01",
-      evidence: "absent",
-      source: ZODIAC,
-    },
+    multiSendCallOnly: fromSafeDeploymentAsset(MultiSendCallOnly150 as SafeDeploymentAsset, "Safe MultiSendCallOnly"),
   },
 };
 
-const freezeRegistry = (registry: DeploymentRegistry): Readonly<DeploymentRegistry> => {
+const freezeRegistry = (registry: DeploymentInfrastructureRegistry): Readonly<DeploymentInfrastructureRegistry> => {
   for (const chain of Object.values(registry)) {
     if (!chain) continue;
     for (const record of Object.values(chain)) Object.freeze(record);
@@ -120,37 +134,38 @@ const failClosed = (message: string): never => {
   throw new Error(`deployment verification failed closed: ${message}`);
 };
 
+const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
 const requireAddress = (dependency: DependencyName, record: DeploymentRecord): Address => {
   const error = deploymentAddressError(dependency, record);
   if (error) failClosed(error);
   return validatedDeploymentAddress(dependency, record);
 };
 
-export async function resolveDeploymentRegistry(
+async function resolveInfrastructureDependencies(
   client: ReadOnlyDeploymentClient,
   chainId: number,
-  registry: DeploymentRegistry | Readonly<DeploymentRegistry>,
-  options: Readonly<{ requireEvidence?: boolean; markOfficial?: boolean }> = {},
-): Promise<VerifiedDeployments> {
+  registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry>,
+  options: Readonly<{ requireEvidence?: boolean }> = {},
+): Promise<DependencyMap> {
   if (!SUPPORTED_CHAIN_IDS.includes(chainId as SupportedChainId)) {
     failClosed(`unsupported chain ${chainId}`);
   }
 
-  const chain = registry[chainId];
-  if (!chain) failClosed(`no official registry entry for chain ${chainId}`);
-  const selectedChain = chain as ChainDeploymentRegistry;
+  const selectedChain = registry[chainId];
+  if (!selectedChain) failClosed(`no official registry entry for chain ${chainId}`);
 
-  // Validate the complete production evidence ledger before making any RPC
-  // reads, so an incomplete official registry can never look partially usable.
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];
     if (!record) failClosed(`missing registry entry for ${dependency}`);
     if (options.requireEvidence !== false && record.evidence === "absent") {
       failClosed(`${dependency} has no official deployment evidence`);
     }
+    const addressError = deploymentAddressError(dependency, record);
+    if (options.requireEvidence !== false && addressError) failClosed(addressError);
   }
 
-  const dependencies = {} as Record<DependencyName, VerifiedDependency>;
+  const dependencies = {} as DependencyMap;
   for (const dependency of DEPENDENCIES) {
     const record = selectedChain[dependency];
     if (!record) failClosed(`missing registry entry for ${dependency}`);
@@ -162,31 +177,88 @@ export async function resolveDeploymentRegistry(
     if (!runtimeCode || runtimeCode === "0x") {
       failClosed(`${dependency} at ${address} has no runtime bytecode`);
     }
-    const verifiedRuntimeCode = runtimeCode as Hex;
-    if (!record.runtimeCodeHash) {
-      failClosed(`${dependency} has no committed runtime code hash`);
-    }
-    const committedRuntimeCodeHash = record.runtimeCodeHash;
-    if (!committedRuntimeCodeHash) {
-      failClosed(`${dependency} has no committed runtime code hash`);
-    }
-    const expectedRuntimeCodeHash = committedRuntimeCodeHash as Hex;
-    const runtimeCodeHash = keccak256(verifiedRuntimeCode);
-    if (runtimeCodeHash.toLowerCase() !== expectedRuntimeCodeHash.toLowerCase()) {
-      failClosed(`${dependency} runtime code hash mismatch`);
-    }
-    dependencies[dependency] = Object.freeze({ ...record, address, runtimeCodeHash, evidence: "verified" });
+    if (!record.runtimeCodeHash) failClosed(`${dependency} has no committed runtime code hash`);
+    const runtimeCodeHash = keccak256(runtimeCode);
+    if (!same(runtimeCodeHash, record.runtimeCodeHash)) failClosed(`${dependency} runtime code hash mismatch`);
+    dependencies[dependency] = Object.freeze({ ...record, address, runtimeCodeHash: record.runtimeCodeHash, evidence: "verified" });
   }
 
-  Object.freeze(dependencies);
-  const result = Object.freeze({ chainId, dependencies }) satisfies VerifiedDeployments;
-  if (options.markOfficial !== false) officialResolverResults.add(result);
+  return Object.freeze(dependencies);
+}
+
+export async function resolveDeploymentInfrastructureRegistry(
+  client: ReadOnlyDeploymentClient,
+  input: DeploymentInfrastructureInput,
+  registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry>,
+  options: Readonly<{ requireEvidence?: boolean }> = {},
+): Promise<DeploymentInfrastructure> {
+  if (typeof client.getTransactionCount !== "function") failClosed("deployer nonce reader is required");
+  if (typeof client.readContract !== "function") failClosed("passkey binding reader is required");
+
+  const dependencies = await resolveInfrastructureDependencies(client, input.chainId, registry, options);
+  const observedNonceRaw = await client.getTransactionCount({ address: input.deployer });
+  const observedDeployerNonce = typeof observedNonceRaw === "bigint" ? observedNonceRaw : BigInt(observedNonceRaw);
+  if (observedDeployerNonce !== input.expectedDeployerNonce) {
+    failClosed(`deployer nonce changed: expected ${input.expectedDeployerNonce}, observed ${observedDeployerNonce}`);
+  }
+
+  const passkeySigner = await verifyPasskeySignerComponent(
+    { getBytecode: client.getBytecode, readContract: client.readContract },
+    {
+      ...input.passkeySigner,
+      factory: dependencies.passkeySignerFactory.address,
+    },
+  );
+
+  const result = Object.freeze({
+    chainId: input.chainId,
+    deployer: input.deployer,
+    observedDeployerNonce,
+    safeSingleton: dependencies.safeSingleton,
+    safeProxyFactory: dependencies.safeProxyFactory,
+    passkeySignerFactory: dependencies.passkeySignerFactory,
+    passkeySignerVerifier: dependencies.passkeySignerVerifier,
+    multiSendCallOnly: dependencies.multiSendCallOnly,
+    passkeySigner,
+    dependencies,
+  }) satisfies DeploymentInfrastructure;
+
+  return result;
+}
+
+export function brandVerifiedDeploymentInfrastructureForTestsOnly(value: DeploymentInfrastructure): VerifiedDeploymentInfrastructure {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only deployment infrastructure branding is disabled outside tests");
+  }
+  verifiedInfrastructure.add(value);
+  return value;
+}
+
+export async function resolveVerifiedDeploymentInfrastructure(
+  client: ReadOnlyDeploymentClient,
+  input: DeploymentInfrastructureInput,
+): Promise<VerifiedDeploymentInfrastructure> {
+  const result = await resolveDeploymentInfrastructureRegistry(client, input, OFFICIAL_DEPLOYMENT_REGISTRY, {
+    requireEvidence: true,
+  });
+  verifiedInfrastructure.add(result);
   return result;
 }
 
 export async function resolveVerifiedDeployments(
   client: ReadOnlyDeploymentClient,
   chainId: number,
-): Promise<VerifiedDeployments> {
-  return resolveDeploymentRegistry(client, chainId, OFFICIAL_DEPLOYMENT_REGISTRY, { markOfficial: true });
+): Promise<VerifiedDeploymentInfrastructure> {
+  return resolveVerifiedDeploymentInfrastructure(client, {
+    chainId,
+    deployer: "0x0000000000000000000000000000000000000000",
+    expectedDeployerNonce: 0n,
+    passkeySigner: {
+      address: "0x0000000000000000000000000000000000000000",
+      runtimeCodeHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      bindingHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+      source: "legacy resolver placeholder",
+      binding: { x: 0n, y: 0n, verifiers: 0n },
+    },
+  });
 }
