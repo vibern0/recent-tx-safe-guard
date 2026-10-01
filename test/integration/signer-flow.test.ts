@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { encodeFunctionData, hashTypedData, toFunctionSelector, type Address, type Hex } from "viem";
-import { createBurnerSigner } from "../../src/signers/eip1193";
+import { createBurnerWalletConnectSigner } from "../../src/signers/eip1193";
 import { createTestPasskeySigner } from "../helpers/passkey";
-import { type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
+import { assertVaultSignerPair, type Eip1193Provider, type SafeSignerRequest, SAFE_TX_TYPES } from "../../src/signers/types";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const guardPolicyAbi = [{ name: "setAssetPolicy", type: "function", stateMutability: "nonpayable", inputs: [
@@ -41,7 +41,9 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const provider = (wallet: typeof burnerWallet) => walletProvider(wallet as never, publicClient);
     const passkeySigner = createTestPasskeySigner({ address: passkey.address, verifierAddress: passkey.address, chainId: 31337, provider: provider(deployer), sign: async () => "0x" });
-    const burner = createBurnerSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
+    const burner = createBurnerWalletConnectSigner({ provider: provider(burnerWallet), account: burnerWallet.account.address });
+    assertVaultSignerPair(passkeySigner, burner);
+    expect(() => assertVaultSignerPair(burner, passkeySigner)).to.throw("primary");
     const buildRequest = async (to: Address, value: bigint, data: Hex, providedNonce?: bigint): Promise<SafeSignerRequest> => {
       const nonce = providedNonce ?? await safe.read.nonce();
       const typedData = { domain: { chainId: 31337, verifyingContract: safe.address }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx" as const, message: { to, value, data, operation: 0 as const, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce } };
@@ -65,12 +67,14 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const stepData = "0x" as Hex;
     const stepRequest = await buildRequest(recipient.account.address, 80n, stepData);
     await expect(execute(recipient.account.address, 80n, stepData, await passkeySigner.sign(stepRequest))).to.be.rejected;
+    assertVaultSignerPair(passkeySigner, burner);
     const stepSignature = `${await passkeySigner.sign(stepRequest)}${(await burner.sign(stepRequest)).slice(2)}` as Hex;
     await execute(recipient.account.address, 80n, stepData, stepSignature);
     expect((await guard.read.spendState([ZERO]))[2]).to.equal(120n);
 
     const delayedData = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [recipient.account.address, 160n, "0x", 0] });
     const delayedRequest = await buildRequest(delay.address, 0n, delayedData);
+    assertVaultSignerPair(passkeySigner, burner);
     await execute(delay.address, 0n, delayedData, `${await passkeySigner.sign(delayedRequest)}${(await burner.sign(delayedRequest)).slice(2)}` as Hex);
     expect(await delay.read.queueNonce()).to.equal(1n);
 
@@ -82,8 +86,10 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
 
     const secondDelayedData = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [recipient.account.address, 170n, "0x", 0] });
     const secondDelayedRequest = await buildRequest(delay.address, 0n, secondDelayedData);
+    assertVaultSignerPair(passkeySigner, burner);
     await execute(delay.address, 0n, secondDelayedData, `${await passkeySigner.sign(secondDelayedRequest)}${(await burner.sign(secondDelayedRequest)).slice(2)}` as Hex);
     const invalidateRequest = await buildRequest(delay.address, 0n, encodeFunctionData({ abi: [{ name: "setTxNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "nonce", type: "uint256" }], outputs: [] }] as const, functionName: "setTxNonce", args: [2n] }));
+    assertVaultSignerPair(passkeySigner, burner);
     await execute(delay.address, 0n, invalidateRequest.typedData.message.data, `${await passkeySigner.sign(invalidateRequest)}${(await burner.sign(invalidateRequest)).slice(2)}` as Hex);
     expect(await delay.read.txNonce()).to.equal(2n);
     await expect(delay.write.executeNextTx([recipient.account.address, 170n, "0x", 0])).to.be.rejectedWith("empty");
@@ -100,6 +106,7 @@ describe("provider-neutral signer flow against Safe 1.5 and TieredSpendingGuard"
     const freezeData = toFunctionSelector("freeze()") as Hex;
     const freezeRequest = await buildRequest(guard.address, 0n, freezeData);
     await expect(execute(guard.address, 0n, freezeData, await passkeySigner.sign(freezeRequest))).to.be.rejected;
+    assertVaultSignerPair(passkeySigner, burner);
     await execute(guard.address, 0n, freezeData, `${await passkeySigner.sign(freezeRequest)}${(await burner.sign(freezeRequest)).slice(2)}` as Hex);
     expect(await guard.read.frozen()).to.equal(true);
   });

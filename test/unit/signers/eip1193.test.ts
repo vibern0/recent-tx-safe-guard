@@ -1,9 +1,9 @@
 import { expect } from "chai";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashTypedData, type Address, type Hex } from "viem";
-import { createBurnerSigner } from "../../../src/signers/eip1193";
+import { createBurnerSigner, createBurnerWalletConnectSigner } from "../../../src/signers/eip1193";
 import * as eip1193 from "../../../src/signers/eip1193";
-import type { Eip1193Provider, SafeSignerRequest } from "../../../src/signers/types";
+import { assertVaultSignerPair, type Eip1193Provider, type SafeSignerRequest, type VaultSigner } from "../../../src/signers/types";
 
 const account = privateKeyToAccount("0x0123456789012345678901234567890123456789012345678901234567890123");
 const OTHER = "0x00000000000000000000000000000000000000b2" as Address;
@@ -37,6 +37,31 @@ describe("EIP-1193 SafeSigner", () => {
     const extension = await signer.sign(request);
     expect(extension).to.match(/^0x[0-9a-f]+$/);
     expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
+  });
+
+  it("exposes Burner WalletConnect as a secondary ECDSA-extension VaultSigner", async () => {
+    const signer = createBurnerWalletConnectSigner({ provider: provider(), account: account.address });
+    expect(signer).to.include({ address: account.address, role: "secondary", kind: "ecdsa-extension" });
+    const extension = await signer.sign(request);
+    expect(extension.endsWith(signer.typeHash.slice(2))).to.equal(true);
+  });
+
+  it("keeps createBurnerSigner as the compatibility alias", async () => {
+    const signer = createBurnerSigner({ provider: provider(), account: account.address });
+    expect(signer).to.include({ address: account.address, role: "secondary", kind: "ecdsa-extension" });
+    expect(await signer.sign(request)).to.match(/^0x[0-9a-f]+$/);
+  });
+
+  it("fails closed when signer roles or kinds do not match primary-plus-secondary composition", () => {
+    const primary = { address: OTHER, role: "primary", kind: "safe-contract", sign: async () => "0x" as Hex } satisfies VaultSigner;
+    const secondary = { address: account.address, role: "secondary", kind: "ecdsa-extension", sign: async () => "0x" as Hex } satisfies VaultSigner;
+    const yubiKey = { ...secondary, kind: "safe-contract" } satisfies VaultSigner;
+    expect(() => assertVaultSignerPair(primary, secondary)).not.to.throw();
+    expect(() => assertVaultSignerPair(primary, yubiKey)).not.to.throw();
+    expect(() => assertVaultSignerPair({ ...primary, role: "secondary" }, secondary)).to.throw("primary");
+    expect(() => assertVaultSignerPair(primary, { ...secondary, role: "primary" })).to.throw("secondary");
+    expect(() => assertVaultSignerPair({ ...primary, kind: "ecdsa-extension" }, secondary)).to.throw("safe-contract");
+    expect(() => assertVaultSignerPair(primary, { ...secondary, kind: "unknown" as never })).to.throw("kind");
   });
 
   it("returns the exact Burner extension and rejects duplicate append attempts", async () => {

@@ -1,5 +1,5 @@
 import { hashTypedData, keccak256, recoverTypedDataAddress, toHex, type Address, type Hex } from "viem";
-import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSigner, type SafeSignerRequest } from "./types";
+import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest, type VaultSigner } from "./types";
 
 // Keep the extension type hash identical to TieredSpendingGuard.BURNER_SIGNATURE_TYPE_HASH.
 export const BURNER_SIGNATURE_TYPE_HASH = keccak256(toHex("TieredSpendingGuard.BurnerSignature.v1"));
@@ -36,10 +36,12 @@ async function providerState(provider: Eip1193Provider, expected: SafeSignerRequ
 
 export type Eip1193SignerOptions = Readonly<{ provider: Eip1193Provider; account: Address }>;
 
-function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
+function createEip1193Signer(options: Eip1193SignerOptions): VaultSigner {
   const seen = new Set<string>();
   return Object.freeze({
     address: options.account,
+    role: "secondary",
+    kind: "ecdsa-extension",
     sign: async (input) => {
       const request = snapshotSafeSignerRequest(input);
       providerIsUnambiguous(options.provider);
@@ -66,10 +68,15 @@ function createEip1193Signer(options: Eip1193SignerOptions): SafeSigner {
   });
 }
 
-export function createBurnerSigner(options: Eip1193SignerOptions): SafeSigner & Readonly<{ typeHash: Hex }> {
+export type BurnerWalletConnectSigner = VaultSigner & Readonly<{ typeHash: Hex }>;
+
+export function createBurnerWalletConnectSigner(options: Eip1193SignerOptions): BurnerWalletConnectSigner {
   const base = createEip1193Signer(options);
   return Object.freeze({ ...base, typeHash: BURNER_SIGNATURE_TYPE_HASH, sign: async (request) => {
     const signature = await base.sign(request);
     return `${signature}${toHex(65n, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
   }});
 }
+
+/** @deprecated use createBurnerWalletConnectSigner. */
+export const createBurnerSigner = createBurnerWalletConnectSigner;
