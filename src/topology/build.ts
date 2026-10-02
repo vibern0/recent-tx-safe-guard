@@ -18,6 +18,8 @@ import { type VerifiedComponent } from "./evidence";
 import { type UnsignedSetupCall } from "./multisend";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const SIGNER_ROLE = { primary: 0, secondary: 1 } as const;
+const SIGNER_KIND = { "safe-contract": 0, "ecdsa-extension": 1 } as const;
 
 const SAFE_ABI = [
   { name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "address[]" }, { name: "threshold", type: "uint256" }, { name: "to", type: "address" }, { name: "data", type: "bytes" }, { name: "fallbackHandler", type: "address" }, { name: "paymentToken", type: "address" }, { name: "payment", type: "uint256" }, { name: "paymentReceiver", type: "address" }], outputs: [] },
@@ -26,9 +28,11 @@ const SAFE_ABI = [
   { name: "enableModule", type: "function", stateMutability: "nonpayable", inputs: [{ name: "module", type: "address" }], outputs: [] },
 ] as const;
 const FACTORY_ABI = [{ name: "createProxyWithNonce", type: "function", stateMutability: "nonpayable", inputs: [{ name: "_singleton", type: "address" }, { name: "initializer", type: "bytes" }, { name: "saltNonce", type: "uint256" }], outputs: [{ name: "proxy", type: "address" }] }] as const;
-const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
+const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 const GUARD_ABI = [
-  { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "burner", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
+  { name: "config", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "safe", type: "address" }, { name: "passkey", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "delay", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }] },
+  { name: "safeContractSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
+  { name: "ecdsaSecondary", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "signer", type: "address" }, { name: "kind", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { name: "maintenance", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 const DELAY_ABI = [
@@ -87,7 +91,7 @@ export type VaultDeploymentPlan = Readonly<{
   safeInitializer: Hex;
   setupHelperCalldata: Hex;
   review: Readonly<{
-    owners: readonly [Address, Address];
+    owners: readonly [Address, Address, Address];
     threshold: 1;
     fallbackHandler: Address;
     paymentToken: Address;
@@ -120,7 +124,37 @@ export function isVerifiedVaultPrerequisites(value: unknown): value is VerifiedV
 
 export function policyHash(policy: VaultPolicy): Hex {
   const assets = policy.assets.map((asset) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "address[]" }], [asset.token, asset.basePerTransaction, asset.stepUpPerTransaction, asset.baseDailyLimit, asset.instantDailyLimit, [...asset.recipients]])));
-  return keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32[]" }], [BigInt(policy.chainId), policy.safe, policy.passkey, policy.burner, policy.delay, BigInt(policy.periodSeconds), policy.periodAnchor, BigInt(policy.cooldownSeconds), BigInt(policy.expirationSeconds), assets]));
+  const secondaries = policy.secondaries ?? [{ address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true }];
+  const safeContractSecondary = secondaries.find((signer) => signer.kind === "safe-contract") ?? { address: ZERO, role: "secondary" as const, kind: "safe-contract" as const, enabled: false };
+  const ecdsaSecondary = secondaries.find((signer) => signer.kind === "ecdsa-extension") ?? { address: policy.ecdsaSecondary, role: "secondary" as const, kind: "ecdsa-extension" as const, enabled: true };
+  return keccak256(encodeAbiParameters(
+    [
+      { type: "uint256" },
+      { type: "address" },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "tuple", components: [{ type: "address" }, { type: "uint8" }, { type: "bool" }] },
+      { type: "address" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "uint256" },
+      { type: "bytes32[]" },
+    ],
+    [
+      BigInt(policy.chainId),
+      policy.safe,
+      [policy.primary ?? policy.passkey, SIGNER_ROLE.primary, SIGNER_KIND["safe-contract"], true],
+      [safeContractSecondary.address, SIGNER_KIND[safeContractSecondary.kind], safeContractSecondary.enabled],
+      [ecdsaSecondary.address, SIGNER_KIND[ecdsaSecondary.kind], ecdsaSecondary.enabled],
+      policy.delay,
+      BigInt(policy.periodSeconds),
+      policy.periodAnchor,
+      BigInt(policy.cooldownSeconds),
+      BigInt(policy.expirationSeconds),
+      assets,
+    ],
+  ));
 }
 
 export function planHash(plan: VaultDeploymentPlan): Hex {
@@ -162,6 +196,27 @@ function same(left: Address, right: Address): boolean {
   return isAddressEqual(left, right);
 }
 
+function sortedOwners(owners: readonly Address[]): readonly [Address, Address, Address] {
+  const sorted = [...owners].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
+  if (sorted.length !== 3) throw new Error("fail closed: Option B requires exactly three Safe owners");
+  return sorted as [Address, Address, Address];
+}
+
+function plannedSetupSigners(plan: VaultDeploymentPlan): { passkey: Address; safeContractSecondary: Address; ecdsaSecondary: Address } {
+  const decoded = decodeFunctionData({ abi: HELPER_ABI, data: plan.setupHelperCalldata });
+  if (decoded.functionName !== "setup") throw new Error("fail closed: setup helper calldata mismatch");
+  const params = decoded.args[0];
+  return { passkey: params.passkey, safeContractSecondary: params.safeContractSecondary, ecdsaSecondary: params.ecdsaSecondary };
+}
+
+function configuredOptionBSecondaries(policy: VaultPolicy): { safeContractSecondary: Address; ecdsaSecondary: Address } {
+  const safeContractSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "safe-contract" && signer.enabled)?.address;
+  const ecdsaSecondary = policy.secondaries?.find((signer) => signer.role === "secondary" && signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.ecdsaSecondary))?.address;
+  if (!safeContractSecondary) throw new Error("fail closed: Option B requires an enabled Safe-contract secondary");
+  if (!ecdsaSecondary) throw new Error("fail closed: Option B requires an enabled ECDSA secondary");
+  return { safeContractSecondary, ecdsaSecondary };
+}
+
 function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedRuntimeCodeHash: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
   return {
     description,
@@ -195,6 +250,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
 
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
+  const optionB = configuredOptionBSecondaries(input.policy);
+  const owners = sortedOwners([input.policy.passkey, optionB.safeContractSecondary, optionB.ecdsaSecondary]);
 
   const setupHelperCalldata = encodeFunctionData({
     abi: HELPER_ABI,
@@ -204,7 +261,8 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       delay: components.delay,
       maintenance: components.maintenance,
       passkey: input.policy.passkey,
-      burner: input.policy.burner,
+      safeContractSecondary: optionB.safeContractSecondary,
+      ecdsaSecondary: optionB.ecdsaSecondary,
       periodSeconds: BigInt(input.policy.periodSeconds),
       periodAnchor: input.policy.periodAnchor,
       assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
@@ -213,7 +271,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   const safeInitializer = encodeFunctionData({
     abi: SAFE_ABI,
     functionName: "setup",
-    args: [[input.policy.passkey, input.policy.burner], 1n, components.setupHelper, setupHelperCalldata, ZERO, ZERO, 0n, ZERO],
+    args: [owners, 1n, components.setupHelper, setupHelperCalldata, ZERO, ZERO, 0n, ZERO],
   });
   const factoryCall = encodeFunctionData({
     abi: FACTORY_ABI,
@@ -256,7 +314,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     safeInitializer,
     setupHelperCalldata,
     review: {
-      owners: [input.policy.passkey, input.policy.burner],
+      owners,
       threshold: 1,
       fallbackHandler: ZERO,
       paymentToken: ZERO,
@@ -314,13 +372,18 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   const maintenance = await verifyCode(client, "maintenance", plan.prerequisites.maintenance.expectedCreatedAddress, plan.prerequisites.maintenance.creationCodeHash, plan.prerequisites.maintenance.expectedRuntimeCodeHash);
 
   if (typeof client.readContract !== "function") throw new Error("fail closed: prerequisite binding reader is required");
+  const plannedSigners = plannedSetupSigners(plan);
   const guardConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "config" });
   if (!Array.isArray(guardConfig) || guardConfig.length !== 6) throw new Error("fail closed: guard config evidence malformed");
-  const [safe, passkey, burner, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
-  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plan.review.owners[0]) || !same(burner, plan.review.owners[1]) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
+  const [safe, passkey, configuredEcdsaSecondary, configuredDelay, periodSeconds, periodAnchor] = guardConfig as [Address, Address, Address, Address, bigint, bigint];
+  if (!same(safe, plan.safeProxyDeployment.expectedCreatedAddress) || !same(passkey, plannedSigners.passkey) || !same(configuredEcdsaSecondary, plannedSigners.ecdsaSecondary) || !same(configuredDelay, delay.address) || periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) {
     if (periodSeconds !== 86400n || periodAnchor !== plan.review.periodAnchor) throw new Error("fail closed: guard period binding mismatch");
     throw new Error("fail closed: guard binding mismatch");
   }
+  const safeContractSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "safeContractSecondary" });
+  const ecdsaSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "ecdsaSecondary" });
+  if (!Array.isArray(safeContractSecondaryConfig) || safeContractSecondaryConfig.length !== 3 || !same(safeContractSecondaryConfig[0] as Address, plannedSigners.safeContractSecondary) || safeContractSecondaryConfig[1] !== 0 || safeContractSecondaryConfig[2] !== true) throw new Error("fail closed: Safe-contract secondary binding mismatch");
+  if (!Array.isArray(ecdsaSecondaryConfig) || ecdsaSecondaryConfig.length !== 3 || !same(ecdsaSecondaryConfig[0] as Address, configuredEcdsaSecondary) || ecdsaSecondaryConfig[1] !== 1 || ecdsaSecondaryConfig[2] !== true) throw new Error("fail closed: ECDSA secondary binding mismatch");
   if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), maintenance.address)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "avatar"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay avatar mismatch");

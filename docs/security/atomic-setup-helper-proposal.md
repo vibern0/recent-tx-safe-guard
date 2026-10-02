@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 
-Status: selected for the two-owner atomic deployment transport prototype.
+Status: selected for the Option B atomic deployment transport prototype.
 
 ## Problem
 
@@ -16,7 +16,7 @@ The selected design uses a reviewed, stateless setup helper as the Safe setup de
 
 Pros:
 
-1. Keeps one externally submitted Safe creation transaction: the Safe either initializes with owners, guard slots, Delay module, Delay upstream module, maintenance, and policy, or creation reverts.
+1. Keeps one externally submitted Safe creation transaction: the Safe either initializes with primary passkey plus both secondary owners, guard slots, Delay module, Delay upstream module, maintenance, YubiKey secondary configuration, and policy, or creation reverts.
 2. Removes the CREATE2 fixed-point problem because the initializer references the helper, guard, Delay, and maintenance addresses, but not the Safe address.
 3. Keeps the deploy-time privileged code narrow and auditable: one stateless helper function with a fixed sequence of Safe-originated calls.
 
@@ -61,16 +61,18 @@ Use `SafeAtomicSetupHelper.setup` as the `to` and `data` delegatecall payload pa
 Allowed sequence:
 
 1. Configure each asset policy on `TieredSpendingGuard`.
-2. Set the one-time `GuardReplacementMaintenance` address on the guard.
-3. Call Zodiac Delay `enableModule(address(this))`, where `address(this)` is the Safe proxy.
-4. Safe self-call `setGuard(guard)`.
-5. Safe self-call `setModuleGuard(guard)`.
-6. Safe self-call `enableModule(delay)`.
+2. Configure the YubiKey Safe-contract secondary on `TieredSpendingGuard`.
+3. Set the one-time `GuardReplacementMaintenance` address on the guard.
+4. Call Zodiac Delay `enableModule(address(this))`, where `address(this)` is the Safe proxy.
+5. Safe self-call `setGuard(guard)`.
+6. Safe self-call `setModuleGuard(guard)`.
+7. Safe self-call `enableModule(delay)`.
 
 The helper must:
 
 - have no persistent storage variables;
 - reject zero helper inputs and zero asset policy targets;
+- reject missing, duplicate, or unbound Option B signer inputs;
 - require guard, Delay, and maintenance code to exist before setup;
 - only make the fixed calls above;
 - never accept arbitrary target/calldata batches;

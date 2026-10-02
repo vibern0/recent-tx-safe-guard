@@ -8,16 +8,16 @@ import {Enum} from "@safe-global/safe-smart-account/contracts/libraries/Enum.sol
 contract FakeReplacementGuard is ITransactionGuard, IModuleGuard {
     address public immutable safe;
     address public immutable passkey;
-    address public immutable burner;
+    address public immutable ecdsaSecondary;
     address public immutable delay;
     uint64 public immutable periodSeconds;
     uint64 public immutable periodAnchor;
     address public maintenance;
 
-    constructor(address safe_, address passkey_, address burner_, address delay_) {
+    constructor(address safe_, address passkey_, address ecdsaSecondary_, address delay_) {
         safe = safe_;
         passkey = passkey_;
-        burner = burner_;
+        ecdsaSecondary = ecdsaSecondary_;
         delay = delay_;
         periodSeconds = 86400;
         periodAnchor = 0;
@@ -28,7 +28,7 @@ contract FakeReplacementGuard is ITransactionGuard, IModuleGuard {
     }
 
     function config() external view returns (address, address, address, address, uint64, uint64) {
-        return (safe, passkey, burner, delay, periodSeconds, periodAnchor);
+        return (safe, passkey, ecdsaSecondary, delay, periodSeconds, periodAnchor);
     }
 
     function setMaintenance(address maintenance_) external {

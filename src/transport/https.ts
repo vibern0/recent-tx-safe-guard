@@ -9,7 +9,7 @@ import { type SubmissionRequest, type SubmissionResult, type SubmissionTransport
 const MAX_RESPONSE_BYTES = 65_536;
 const RESULT_KINDS = ["submitted", "confirmed", "reverted", "stale", "unsupported-chain", "rpc-inconsistent", "transport-unavailable"] as const;
 const TERMINAL_KINDS = new Set(["reverted", "stale", "unsupported-chain", "rpc-inconsistent", "transport-unavailable"]);
-const SENSITIVE = /private|secret|mnemonic|seed|pin|credential|provider|rpc|passkey|burner|signature/i;
+const SENSITIVE = /private|secret|mnemonic|seed|pin|credential|provider|rpc|passkey|ecdsaSecondary|signature/i;
 
 type Options = Readonly<{ endpoint: URL; fetch: typeof globalThis.fetch; timeoutMs: number }>;
 

@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build and prove a testnet-only Safe security core where one Safe permits passkey-only spending up to daily X, requires a named Burner co-signature up to shared daily Y, and requires a cancellable delay Z above Y.
+**Goal:** Build and prove a testnet-only Safe security core where one Safe permits primary-passkey-only spending up to daily X, requires one configured secondary signer up to shared daily Y, and requires a cancellable delay Z above Y.
 
-**Architecture:** One Safe holds all assets and has the passkey signer contract, Burner signer, and offline recovery signer as owners at Safe threshold 1. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
+**Architecture:** One Safe holds all assets and has the primary passkey signer contract plus the configured secondary signer contracts/accounts as Safe owners at Safe threshold 1. In the active Option B prototype those owners are primary passkey, safe-contract secondary, and ECDSA secondary. A new non-upgradeable `TieredSpendingGuard` is installed as both transaction guard and module guard; it enforces the effective signer requirements, per-token X/Y counters, fail-closed call policy, emergency restrictions, and delayed configuration. A reviewed Zodiac Delay is the Safe's only enabled module and executes only transactions that were queued through a guard-approved Safe transaction.
 
-> **2026-09-28 supersession:** Task 2 of the two-owner atomic deployment transport plan supersedes this plan's three-owner recovery topology for current code, tests, deployment examples, and verification. The active security-core interface uses exactly two ordered Safe owners, `[passkey, Burner]`, and a six-field guard config: `safe`, `passkey`, `burner`, `delay`, `periodSeconds`, `periodAnchor`. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of either factor is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use the older three-owner sections below as implementation requirements.
+> **2026-10-01 supersession:** The secondary-signer design supersedes this plan's recovery-owner topology and the later Burner-specific transport boundary for current code, tests, deployment examples, and verification. The active Option B interface uses exactly three Safe owners: primary passkey, safe-contract secondary, and ECDSA secondary. The guard requires the primary plus exactly one enabled configured secondary for step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance. The offline recovery owner, recovery signer adapter, and recovery-only classifier/topology paths are deferred. Loss of the primary or all configured secondary factors is an accepted testnet denial-of-service risk until a separate reviewed recovery design exists. Do not use older recovery-owner or Burner-specific sections below as implementation requirements.
 
-> **2026-09-29 Task 7 package gate:** The Sepolia runbook and rehearsal package now follow the active two-owner passkey/Burner boundary. `npm run package:sepolia-rehearsal` emits only public unsigned artifacts for human review: unsigned plan, decoded review, public manifest, and expected evidence hashes. The live low-value Sepolia rehearsal remains outstanding until separately reviewed, signed, executed, and recorded; this branch does not mark issue #5 complete.
+> **2026-10-01 Task 5 package gate:** The Sepolia runbook and rehearsal package now follow the active Option B primary-plus-secondary boundary. `npm run package:sepolia-rehearsal` emits only public unsigned artifacts for human review: unsigned plan, decoded review, public manifest, and expected evidence hashes. The live low-value Sepolia rehearsal remains outstanding until separately reviewed, signed, executed, and recorded; this branch does not mark issue #5 complete. Direct Burner NFC/libhalo remains out of scope until a separate spike proves documented HaLo signing for the exact Safe transaction.
 
 **Tech Stack:** Solidity, TypeScript, Node.js, Hardhat, viem, Safe Smart Account 1.5.x, Safe passkey contracts, current `@gnosis-guild/zodiac` Delay deployments, OpenZeppelin signature utilities where reviewed, Mocha/Chai, Slither, Echidna or Foundry invariant tests, and a Sepolia fork.
 
@@ -18,13 +18,13 @@
 
 - This is security research and a testnet prototype, not a mainnet-ready wallet.
 - The product deploys exactly one Safe; no Daily, Step-up, Control, or other auxiliary Safe is introduced.
-- The Safe owners are exactly the configured passkey signer contract, Burner signer, and recovery signer. The Safe threshold is 1, while the guard enforces the stronger tier-specific signer policy.
+- The active Safe owners are exactly the configured primary passkey signer contract, safe-contract secondary, and ECDSA secondary. The Safe threshold is 1, while the guard enforces the stronger tier-specific signer policy.
 - The guard must be installed as both transaction guard and Safe 1.5 module guard in the same atomic setup.
 - Zodiac Delay is the only module enabled on the Safe. The Safe is Delay's owner, avatar, target, and only enabled upstream module/proposer.
 - X and Y are cumulative per-token limits over one shared 86,400-second period with one anchor and `0 < X < Y`.
 - A base transfer consumes X and Y; a step-up transfer consumes Y only. Transaction ordering or splitting must never allow more than X passkey-only or Y total immediate outflow.
-- Base transfers require the Safe-validated signature to be exactly the configured passkey contract signature.
-- Step-up transfers and ordinary delayed proposals require that passkey signature plus a Burner signature over the exact Safe transaction hash.
+- Base transfers require the Safe-validated signature to be exactly the configured primary passkey contract signature.
+- Step-up transfers and ordinary delayed proposals require the primary passkey signature plus one configured secondary signer approval over the exact Safe transaction hash.
 - Recovery may cancel, freeze, or queue an enumerated repair. Recovery may not immediately transfer funds or broaden policy.
 - Fast execution supports native transfers and selected ERC-20 `transfer` calls only. It denies delegate calls, batches, approvals, Permit/Permit2, arbitrary messages, configuration calls, and unknown calldata.
 - The Safe has no unrestricted fallback handler. Approved-hash signatures and arbitrary Safe ERC-1271 message validation are unavailable to spending paths.
@@ -61,7 +61,7 @@ src/topology/verify.ts                          Read-only deployed invariant ver
 src/queue/delay.ts                              Queue, cancel, expire, and execute builders
 src/signers/types.ts                            Provider-neutral Safe signer boundary
 src/signers/passkey.ts                          Safe passkey adapter
-src/signers/eip1193.ts                          Burner/recovery EIP-1193 adapter
+src/signers/eip1193.ts                          Generic EIP-1193 ECDSA secondary adapter
 src/monitoring/guard-events.ts                  Step-up authorization event decoder
 src/monitoring/delay-events.ts                  Delayed lifecycle decoder
 src/monitoring/notifier.ts                      Non-authorizing notification port
@@ -83,7 +83,7 @@ test/fixtures/
 | One Safe holds assets | 5, 7, 10, 11 |
 | Passkey-only spending bounded by X | 2, 5, 10 |
 | Combined immediate spending bounded by Y | 2, 5, 10 |
-| Named Burner required above X | 4, 5, 8, 10 |
+| One configured secondary signer required above X | 4, 5, 8, 10 |
 | Mandatory cancellable delay above Y | 6, 10, 11 |
 | Owner and module paths both constrained | 4, 6, 7, 10 |
 | Recovery cannot immediately withdraw | 6, 10, 11 |
@@ -152,9 +152,8 @@ export type AssetPolicy = Readonly<{
 export type VaultPolicy = Readonly<{
   chainId: number;
   safe: Address;
-  passkey: Address;
-  burner: Address;
-  recovery: Address;
+  primary: Address;
+  secondaries: readonly ConfiguredSigner[];
   delay: Address;
   periodSeconds: 86400;
   periodAnchor: bigint;
@@ -238,9 +237,9 @@ enum AuthorizationTier { Base, StepUp, DelayedProposal, Emergency }
 
 struct GuardConfig {
     address safe;
-    address passkey;
-    address burner;
-    address recovery;
+    address primary;
+    address safeContractSecondary;
+    address ecdsaSecondary;
     address delay;
     uint64 periodSeconds;
     uint64 periodAnchor;
@@ -267,11 +266,11 @@ Compare the guard's reconstructed hash with Safe `getTransactionHash`. Changing 
 
 - [x] **Step 2: Write failing signature tests**
 
-Require a validated `v == 0` contract-signature slot naming the configured passkey for all transfer paths. Reject approved-hash `v == 1`, raw EOA substitution, malformed offsets, duplicate/trailing ambiguity, wrong passkey, and signatures not validated by Safe.
+Require a validated `v == 0` contract-signature slot naming the configured primary passkey for all transfer paths. Reject approved-hash `v == 1`, raw EOA substitution, malformed offsets, duplicate/trailing ambiguity, wrong primary, and signatures not validated by Safe.
 
-- [x] **Step 3: Define and test the Burner extension**
+- [x] **Step 3: Define and test the ECDSA secondary extension**
 
-Use a typed terminal envelope `[burnerSignature][uint256 length][bytes32 typeHash]`. Verify the Burner with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
+Use a typed terminal envelope `[secondarySignature][uint256 length][bytes32 typeHash]` for the ECDSA secondary. Verify the configured ECDSA secondary with `SignatureChecker` over the exact Safe transaction hash. Reject missing, malformed, wrong-signer, wrong-chain, wrong-Safe, wrong-nonce, replayed, and user-rejected signatures.
 
 - [x] **Step 4: Implement atomic guard mechanics**
 
@@ -299,7 +298,7 @@ Allow only native transfers with empty calldata and ERC-20 `transfer(address,uin
 
 - [ ] **Step 2: Write failing X/Y accounting tests**
 
-Use X=100 and Y=1,000. Prove repeated passkey transfers total at most 100; crossing X requires Burner; all immediate ordering and splitting totals at most 1,000; base consumes X and Y; step-up consumes Y only; failed transfers consume nothing; both counters reset on the same anchored daily boundary.
+Use X=100 and Y=1,000. Prove repeated primary-passkey transfers total at most 100; crossing X requires one configured secondary signer; all immediate ordering and splitting totals at most 1,000; base consumes X and Y; step-up consumes Y only; failed transfers consume nothing; both counters reset on the same anchored daily boundary.
 
 - [ ] **Step 3: Implement minimal tier accounting**
 
@@ -311,7 +310,7 @@ Generate arbitrary sequences of base attempts, step-up attempts, failures, bound
 
 - [ ] **Step 5: Verify and commit**
 
-Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce daily passkey and burner tiers`.
+Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce daily primary and secondary tiers`.
 
 ---
 
@@ -328,7 +327,7 @@ Run unit, real-Safe integration, and invariant suites. Commit as `feat: enforce 
 
 - [x] **Step 1: Write delayed-proposal tests**
 
-A direct transfer above remaining Y must fail. A Safe call to the exact Delay queue selector succeeds only with passkey plus Burner and only when the decoded inner action is an allowed transfer or enumerated weakening action. Mutation of inner target, value, calldata, operation, nonce, cooldown, or expiration fails.
+A direct transfer above remaining Y must fail. A Safe call to the exact Delay queue selector succeeds only with the primary passkey plus one configured secondary signer and only when the decoded inner action is an allowed transfer or enumerated weakening action. Mutation of inner target, value, calldata, operation, nonce, cooldown, or expiration fails.
 
 - [x] **Step 2: Write module-path tests**
 
@@ -336,11 +335,11 @@ Only the verified Delay address may call the Safe module path. Execution before 
 
 - [x] **Step 3: Implement cancellation and emergency rules**
 
-Permit the recovery owner or passkey-plus-Burner to call only the configured Delay's nonce-advance cancellation and guard freeze functions immediately. Enumerate every ordered queue item invalidated by cancellation. Deny recovery transfers and arbitrary queue creation.
+Permit only the primary passkey plus one configured secondary signer to call the configured Delay's nonce-advance cancellation or guard freeze functions immediately. Enumerate every ordered queue item invalidated by cancellation. Deny recovery transfers and arbitrary queue creation.
 
 - [x] **Step 4: Implement delayed recovery and configuration**
 
-Allow recovery to queue only fixed signer replacement, guard repair, and policy repair selectors. Limit increases, recipient additions, delay reductions, owner/module/guard/fallback changes, and unfreezing require Delay. Immediate tightening functions must prove limits only decrease, recipients only disappear, or the system only becomes more restrictive.
+Allow delayed maintenance to queue only fixed signer replacement, guard repair, and policy repair selectors. Limit increases, recipient additions, delay reductions, owner/module/guard/fallback changes, and unfreezing require Delay. Immediate tightening functions must prove limits only decrease, recipients only disappear, or the system only becomes more restrictive.
 
 - [x] **Step 5: Prove removal and fallback safety**
 
@@ -368,7 +367,7 @@ Run queue, module, recovery, and configuration integration tests. Commit as `fea
 
 - [x] **Step 1: Write deterministic plan snapshots**
 
-Assert one Safe address, owners `[passkey, burner, recovery]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
+Assert one Safe address, owners `[primary passkey, safe-contract secondary, ECDSA secondary]`, threshold 1, zero fallback handler, the same guard in both guard slots, Delay as the only Safe module, Safe as Delay owner/avatar/target/only enabled upstream module, exact policy hash, and no extra account deployment.
 
 - [x] **Step 2: Implement atomic planning**
 
@@ -388,7 +387,7 @@ Run deterministic planning twice for byte-identical output, assert fail-closed b
 
 ---
 
-### Task 8: Add passkey, Burner, and recovery signer adapters
+### Task 8: Add primary passkey and secondary signer adapters
 
 **Files:**
 - Create: `src/signers/types.ts`
@@ -399,7 +398,7 @@ Run deterministic planning twice for byte-identical output, assert fail-closed b
 - Create: `test/integration/signer-flow.test.ts`
 - Modify: `docs/security/signer-provider-evaluation.md`
 
-**Interfaces:** A `SafeSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; a Burner adapter returns the exact guard extension.
+**Interfaces:** A role-neutral `VaultSigner` returns a signature bound to `{chainId, safe, safeTxHash, typedData}`; the safe-contract secondary returns a Safe-contract signature and the EIP-1193 secondary adapter returns the exact ECDSA guard extension.
 
 - [x] **Step 1: Write provider-neutral conformance tests**
 
@@ -409,13 +408,13 @@ Reject chain, Safe, hash, account, or typed-data changes; invalid ERC-1271 respo
 
 Use the reviewed Safe passkey contracts and verify the configured signer contract identity. Produce the canonical contract signature expected by Safe and the guard.
 
-- [x] **Step 3: Implement Burner and recovery adapters**
+- [x] **Step 3: Implement configured secondary adapters**
 
-Use `eth_signTypedData_v4` through generic EIP-1193/WalletConnect. Verify recovered addresses locally. Do not invoke undocumented NFC commands or bypass Burner PIN/connection behavior.
+Use Safe-native passkey signing for the safe-contract secondary and `eth_signTypedData_v4` through generic EIP-1193/WalletConnect for the ECDSA secondary. Verify recovered addresses locally. Do not invoke undocumented NFC/libhalo commands or bypass provider confirmation/PIN behavior.
 
 - [x] **Step 4: Prove the complete signer matrix**
 
-Passkey succeeds only for base. Burner-only and recovery-only transfers fail. Passkey-plus-Burner succeeds within Y and queues above Y. Recovery succeeds only for cancellation, freeze, and enumerated delayed repair.
+The primary passkey succeeds only for base. Secondary-only and recovery-only transfers fail. Primary plus a configured secondary succeeds within Y and queues above Y. Recovery succeeds only for cancellation, freeze, and enumerated delayed repair if a future reviewed recovery design adds that role.
 
 - [x] **Step 5: Verify and commit**
 
@@ -473,7 +472,7 @@ Test split X/Y spending, counter rollback, period boundaries, wrong signer combi
 
 - [x] **Step 2: Add recovery and denial-of-service tests**
 
-Test lost passkey, lost Burner, recovery cancellation of a valid delayed ERC-20 transfer with pre/post cooldown and unchanged balances, requeue and actual execution, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of recovery to move assets before Z. Document unavoidable guard-bricking risks.
+Test lost primary passkey, unavailable secondary factors, cancellation of a valid delayed ERC-20 transfer with pre/post cooldown and unchanged balances, requeue and actual execution, immediate freeze, delayed signer rotation, delayed guard repair, ordered collateral cancellation, and inability of any recovery placeholder to move assets before Z. Document unavoidable guard-bricking risks.
 
 - [x] **Step 3: Add static and invariant gates**
 
@@ -514,7 +513,7 @@ Run the planner for Sepolia and compare every decoded setup call with the call g
 
 - [ ] **Step 4: Execute the low-value rehearsal**
 
-Exercise base, step-up, queue, tier-2/tier-3 alerts, cancellation, expiry, delayed execution, freeze, lost-factor recovery, signer rotation, and teardown using deliberately low-value test assets.
+Exercise base, both supported step-up secondary forms, queue, tier-2/tier-3 alerts, cancellation, expiry, delayed execution, freeze, lost-factor availability, signer rotation, and teardown using deliberately low-value test assets.
 
 - [ ] **Step 5: Hold the architecture gate and commit**
 
@@ -532,7 +531,7 @@ The live Sepolia rehearsal and architecture gate were not completed in this work
 - The Safe has the exact owners, threshold 1, and no unrestricted fallback handler.
 - Passkey-only daily outflow is bounded onchain by X per token.
 - Combined immediate daily outflow is bounded onchain by Y per token regardless of ordering or splitting.
-- Burner is required above X and its signature is bound to the exact Safe transaction.
+- One configured secondary signer is required above X and its approval is bound to the exact Safe transaction.
 - Transfers above Y cannot execute before delay Z and can be cancelled.
 - Recovery cannot immediately transfer funds or weaken policy.
 - Failed owner and module executions cannot consume counters or authorizations.

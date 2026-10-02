@@ -6,7 +6,8 @@
   "guard": "0x0000000000000000000000000000000000000002",
   "delay": "0x0000000000000000000000000000000000000003",
   "passkey": "0x0000000000000000000000000000000000000004",
-  "burner": "0x0000000000000000000000000000000000000005",
+  "safeContractSecondary": "0x0000000000000000000000000000000000000006",
+  "ecdsaSecondary": "0x0000000000000000000000000000000000000005",
   "safeSingleton": {
     "address": "0x0000000000000000000000000000000000000007",
     "runtimeCodeHash": "0x0000000000000000000000000000000000000000000000000000000000000007"
@@ -44,7 +45,7 @@
   "setupTransactionHashes": ["0x0000000000000000000000000000000000000000000000000000000000000000"],
   "setupCalls": [
     {
-      "description": "Replace with decoded two-owner atomic Safe setup calls after independently reviewed deployment",
+      "description": "Replace with decoded Option B atomic Safe setup calls for primary passkey, safe-contract secondary, and ECDSA secondary after independently reviewed deployment",
       "to": "0x0000000000000000000000000000000000000001",
       "value": "0",
       "data": "0x"

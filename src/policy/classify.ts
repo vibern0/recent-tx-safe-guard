@@ -9,7 +9,7 @@ export type ClassifiableAction = Readonly<{
   data: Hex;
   operation: "call" | "delegatecall" | 0 | 1;
   signer: Address;
-  burnerApproved?: boolean;
+  secondaryApproved?: boolean;
 }>;
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -95,7 +95,7 @@ function recognizedDelayedAction(policy: VaultPolicy, action: ClassifiableAction
   return functionName !== undefined && exactCall(SAFE_DELAYED_ABI, action.data, functionName);
 }
 
-export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, state: AssetSpendState, now: bigint, burnerApproved = action.burnerApproved ?? false): Lane {
+export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, state: AssetSpendState, now: bigint, secondaryApproved = action.secondaryApproved ?? false): Lane {
   assertValidVaultPolicy(policy);
   if ((action.operation !== "call" && action.operation !== 0) || !isAddress(action.to) || !isAddress(action.signer) || !same(action.signer, policy.passkey)) return "blocked";
   if (recognizedDelayedAction(policy, action)) return "delayed";
@@ -110,6 +110,6 @@ export function classifyAction(policy: VaultPolicy, action: ClassifiableAction, 
   const instantSpent = state.window === window ? state.instantSpent : 0n;
   if (baseSpent < 0n || instantSpent < 0n || baseSpent > instantSpent || baseSpent > asset.baseDailyLimit || instantSpent > asset.instantDailyLimit) return "blocked";
   if (amount <= asset.basePerTransaction && amount <= asset.baseDailyLimit - baseSpent && amount <= asset.instantDailyLimit - instantSpent) return "base";
-  if (burnerApproved && amount <= asset.stepUpPerTransaction && amount <= asset.instantDailyLimit - instantSpent) return "step-up";
+  if (secondaryApproved && amount <= asset.stepUpPerTransaction && amount <= asset.instantDailyLimit - instantSpent) return "step-up";
   return "blocked";
 }

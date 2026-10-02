@@ -1,11 +1,12 @@
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSigner, type SafeSignerRequest } from "./types";
+import { snapshotSafeSignerRequest, type Eip1193Provider, type SafeSignerRequest, type SignerRole, type VaultSigner } from "./types";
 import { ERC1271_ABI, encodeSafeContractSignature } from "./passkey-helpers";
 
 export type PasskeyCoreOptions = Readonly<{
   address: Address;
   verifierAddress: Address;
   chainId: number;
+  role?: SignerRole;
   provider: Eip1193Provider;
   sign(request: SafeSignerRequest): Promise<Hex>;
 }>;
@@ -28,6 +29,13 @@ async function signPasskeyRequest(options: PasskeyCoreOptions, input: SafeSigner
 }
 
 /** Internal shared implementation for production and test passkey adapters. */
-export function createPasskeySignerCore(options: PasskeyCoreOptions): SafeSigner {
-  return Object.freeze({ address: options.address, sign: (input) => signPasskeyRequest(options, input) });
+export function createPasskeySignerCore(options: PasskeyCoreOptions): VaultSigner {
+  const role = options.role ?? "primary";
+  if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey signer role");
+  return Object.freeze({
+    address: options.address,
+    role,
+    kind: "safe-contract",
+    sign: (input) => signPasskeyRequest(options, input),
+  });
 }

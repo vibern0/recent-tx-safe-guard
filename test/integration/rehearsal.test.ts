@@ -2,37 +2,43 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
+import { ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
+const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 
 describe("local time-controlled security rehearsal", () => {
-  it("proves real X/Y spending, delayed cancellation/expiry/execution, and delayed two-owner repair", async () => {
+  it("proves real X/Y spending, delayed cancellation/expiry/execution, and delayed Option B repair", async () => {
     const publicClient = await hre.viem.getPublicClient();
     const network = await publicClient.getChainId();
     expect(network).to.equal(31337);
-    const [deployer, burner, recipient, replacement] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient, replacement] = await hre.viem.getWalletClients();
     const singleton = await hre.viem.deployContract("Safe");
     const proxy = await hre.viem.deployContract("SafeProxy", [singleton.address]);
     const safe = await hre.viem.getContractAt("Safe", proxy.address);
     const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
-    const owners = [passkey.address, burner.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const owners = [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
-    const sign = async (to: Address, value: bigint, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data, { chainId: network, value });
+    const sign = async (to: Address, value: bigint, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data, { chainId: network, value });
     const exec = (to: Address, value: bigint, data: Hex, signature: Hex, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
-    const ownerCall = async (to: Address, data: Hex, signer = burner) => exec(to, 0n, data, await sign(to, 0n, data, signer));
+    const ownerCall = async (to: Address, data: Hex, signer = ecdsaSecondary) => exec(to, 0n, data, await sign(to, 0n, data, signer));
     const passkeySig = passkeySignature(passkey.address);
-    const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
-    const passkeyAndBurner = async (to: Address, value: bigint, data: Hex) => envelope(await sign(to, value, data, burner));
+    const envelope = (signature: Hex) => ecdsaSecondaryEnvelope(passkey.address, signature);
+    const passkeyAndSecondary = async (to: Address, value: bigint, data: Hex) => envelope(await sign(to, value, data, ecdsaSecondary));
 
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await ownerCall(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 25n, 100n, 50n, 100n, [recipient.account.address]] }));
@@ -44,16 +50,16 @@ describe("local time-controlled security rehearsal", () => {
     expect((await guard.read.spendState([ZERO]))[2]).to.equal(50n);
     await expect(exec(recipient.account.address, 1n, "0x", passkeySig)).to.be.rejected;
 
-    const stepSignature = await sign(recipient.account.address, 50n, "0x", burner);
+    const stepSignature = await sign(recipient.account.address, 50n, "0x", ecdsaSecondary);
     await exec(recipient.account.address, 50n, "0x", envelope(stepSignature));
     expect((await guard.read.spendState([ZERO]))[2]).to.equal(100n);
     await expect(exec(recipient.account.address, 101n, "0x", passkeySig)).to.be.rejected;
     await time.increase(86401);
 
-    const queue = async (value: bigint, data: Hex = "0x", target: Address = recipient.account.address, operation = 0 as const, signer = burner, includeBurner = true) => {
+    const queue = async (value: bigint, data: Hex = "0x", target: Address = recipient.account.address, operation = 0 as const, signer = ecdsaSecondary, includeSecondary = true) => {
       const inner = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [target, value, data, operation] });
       const signature = await sign(delay.address, 0n, inner, signer);
-      await exec(delay.address, 0n, inner, includeBurner ? envelope(signature) : signature);
+      await exec(delay.address, 0n, inner, includeSecondary ? envelope(signature) : signature);
       return { inner, target, value, data, operation };
     };
     const beforeCancelSafe = await publicClient.getBalance({ address: safe.address });
@@ -61,7 +67,7 @@ describe("local time-controlled security rehearsal", () => {
     const first = await queue(150n);
     expect(await delay.read.queueNonce()).to.equal(1n);
     await expect(delay.write.executeNextTx([first.target, first.value, first.data, first.operation], { account: deployer.account })).to.be.rejected;
-    await exec(delay.address, 0n, encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] }), await passkeyAndBurner(delay.address, 0n, encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] })));
+    await exec(delay.address, 0n, encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] }), await passkeyAndSecondary(delay.address, 0n, encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] })));
     await time.increase(11);
     await expect(delay.write.executeNextTx([first.target, first.value, first.data, first.operation], { account: deployer.account })).to.be.rejected;
     expect(await publicClient.getBalance({ address: safe.address })).to.equal(beforeCancelSafe);
@@ -84,12 +90,12 @@ describe("local time-controlled security rehearsal", () => {
     expect(await publicClient.getBalance({ address: recipient.account.address })).to.equal(beforeCancelRecipient + 150n);
 
     const freeze = encodeFunctionData({ abi: fn("freeze", []), functionName: "freeze", args: [] });
-    await exec(guard.address, 0n, freeze, await passkeyAndBurner(guard.address, 0n, freeze));
+    await exec(guard.address, 0n, freeze, await passkeyAndSecondary(guard.address, 0n, freeze));
     expect(await guard.read.frozen()).to.equal(true);
-    const burnerIndex = owners.findIndex((owner) => owner.toLowerCase() === burner.account.address.toLowerCase());
-    const previousOwner = (burnerIndex === 0 ? "0x0000000000000000000000000000000000000001" : owners[burnerIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, burner.account.address, replacement.account.address, previousOwner, 1n, "0x"] });
-    const repairQueue = await queue(0n, repair, maintenance.address, 1, burner, true);
+    const ecdsaSecondaryIndex = owners.findIndex((owner) => owner.toLowerCase() === ecdsaSecondary.account.address.toLowerCase());
+    const previousOwner = (ecdsaSecondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : owners[ecdsaSecondaryIndex - 1]) as Address;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, ecdsaSecondary.account.address, replacement.account.address, previousOwner, 1n, "0x"] });
+    const repairQueue = await queue(0n, repair, maintenance.address, 1, ecdsaSecondary, true);
     await expect(delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account })).to.be.rejected;
     await time.increase(11);
     await delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account });

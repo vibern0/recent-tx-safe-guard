@@ -3,6 +3,7 @@ import { hashTypedData, keccak256, toHex, type Address, type Hex } from "viem";
 import * as passkeyModule from "../../../src/signers/passkey";
 import { createPasskeySigner } from "../../../src/signers/passkey";
 import { createTestPasskeySigner } from "../../helpers/passkey";
+import { brandVerifiedDeploymentInfrastructureForTestsOnly } from "../../../src/config/deployments";
 import { SAFE_TX_TYPES, type Eip1193Provider, type SafeSignerRequest } from "../../../src/signers/types";
 
 const PASSKEY = "0x00000000000000000000000000000000000000a1" as Address;
@@ -41,9 +42,31 @@ const fabricatedDeployments = (branded = false) => Object.freeze({
   ...(branded ? { [Symbol.for("recent-tx-safe-guard.test.verified-deployments")]: true } : {}),
 });
 
+const verifiedDeployments = () => brandVerifiedDeploymentInfrastructureForTestsOnly({
+  chainId: 31337,
+  passkeySignerVerifier: Object.freeze({
+    name: "fixture passkey verifier",
+    version: "0.2.0",
+    address: PASSKEY,
+    runtimeCodeHash: `0x${"11".repeat(32)}` as Hex,
+    evidence: "verified",
+    source: "fixture",
+  }),
+} as never);
+
 describe("passkey SafeSigner", () => {
   it("exports only the evidence-bound production passkey signer factory", () => {
     expect(Object.keys(passkeyModule)).to.deep.equal(["createPasskeySigner"]);
+  });
+
+  it("returns a role-neutral primary Safe-contract VaultSigner by default", () => {
+    const signer = createPasskeySigner({ address: PASSKEY, deployments: verifiedDeployments(), provider: verifierProvider(), sign: async () => "0x12" });
+    expect(signer).to.include({ address: PASSKEY, role: "primary", kind: "safe-contract" });
+  });
+
+  it("can be configured as a secondary Safe-contract VaultSigner", () => {
+    const signer = createPasskeySigner({ address: PASSKEY, role: "secondary", deployments: verifiedDeployments(), provider: verifierProvider(), sign: async () => "0x12" });
+    expect(signer).to.include({ address: PASSKEY, role: "secondary", kind: "safe-contract" });
   });
 
   it("returns one canonical Safe contract-signature slot", async () => {

@@ -3,13 +3,17 @@ import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, queueAbi, safeContractSignatures, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
 const replaceSignerAbi = fn("replaceSigner", [{ name: "guard", type: "address" }, { name: "role", type: "uint8" }, { name: "expectedOld", type: "address" }, { name: "replacement", type: "address" }, { name: "previousOwner", type: "address" }, { name: "threshold", type: "uint256" }, { name: "replacementProof", type: "bytes" }]);
 const replaceGuardsAbi = fn("replaceGuards", [{ name: "expectedGuard", type: "address" }, { name: "replacement", type: "address" }]);
 const setCooldownAbi = fn("setTxCooldown", [{ name: "cooldown", type: "uint256" }]);
 const setExpirationAbi = fn("setTxExpiration", [{ name: "expiration", type: "uint256" }]);
+const configureSafeContractSecondaryAbi = fn("configureSafeContractSecondary", [
+  { name: "signer", type: "address" },
+  { name: "enabled", type: "bool" },
+]);
 const repairPolicyAbi = fn("repairPolicy", [
   { name: "token", type: "address" }, { name: "basePerTx", type: "uint256" }, { name: "stepUpPerTx", type: "uint256" },
   { name: "baseDaily", type: "uint256" }, { name: "instantDaily", type: "uint256" }, { name: "recipients", type: "address[]" },
@@ -25,38 +29,69 @@ const passkeyRepairProofHash = (chainId: bigint, safe: Address, delay: Address, 
 
 describe("pinned Zodiac Delay v1.1.1 integration", () => {
   async function fixture() {
-    const [deployer, burner, recipient, replacement, replacement2] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient, replacement, replacement2] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
     await deployer.sendTransaction({ to: safe.address, value: 500n });
-    const ownerTx = async (to: Address, data: Hex, signer = burner) => {
+    const ownerTx = async (to: Address, data: Hex, signer = ecdsaSecondary) => {
       const signature = await signSafeTransaction(safe, signer, to, data);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     await ownerTx(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerTx(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
     await ownerTx(guard.address, encodeFunctionData({ abi: fn("setMaintenance", [{ name: "replacementMaintenance", type: "address" }]), functionName: "setMaintenance", args: [maintenance.address] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setModuleGuard", [{ name: "guard", type: "address" }]), functionName: "setModuleGuard", args: [guard.address] }));
     await ownerTx(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }]), functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
     await ownerTx(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
     const passkeySig = passkeySignature(passkey.address);
-    const envelope = (signature: Hex) => burnerEnvelope(passkey.address, signature);
-    const sign = async (to: Address, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data);
-    const passkeyAndBurner = async (to: Address, data: Hex) => envelope(await sign(to, data, burner));
+    const envelope = (signature: Hex) => ecdsaSecondaryEnvelope(passkey.address, signature);
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data);
+    const passkeyAndSecondary = async (to: Address, data: Hex) => envelope(await sign(to, data, ecdsaSecondary));
     const execute = async (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
     const executeNext = (to: Address, value: bigint, data: Hex, operation: 0 | 1 = 0) => delay.write.executeNextTx([to, value, data, operation], { account: deployer.account });
-    return { deployer, burner, recipient, replacement, replacement2, safe, passkey, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, passkeyAndBurner, execute, executeNext };
+    return { deployer, ecdsaSecondary, recipient, replacement, replacement2, safe, passkey, safeContractSecondary, delay, guard, maintenance, owners, ownerTx, sign, passkeySig, envelope, passkeyAndSecondary, execute, executeNext };
   }
 
-  it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
-    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
-    const { safe } = await deploySafeFixture(hre, deployer, [deployer.account.address, burner.account.address]);
+  it("secondary signer Safe contract approval can queue an exact delayed action", async () => {
+    const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
+    const passkey = await hre.viem.deployContract("Mock1271Signer");
+    const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, burner.account.address, delay.address, 86400n, 0n]]);
-    const sign = async (to: Address, data: Hex, signer = burner) => signSafeTransaction(safe, signer, to, data);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    await deployer.sendTransaction({ to: safe.address, value: 500n });
+    const ownerCall = async (to: Address, data: Hex) => {
+      const signature = await signSafeTransaction(safe, ecdsaSecondary, to, data);
+      await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
+    };
+    await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
+    await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
+      { name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" },
+      { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" },
+    ]), functionName: "setAssetPolicy", args: [ZERO, 50n, 100n, 50n, 100n, [recipient.account.address]] }));
+    await ownerCall(safe.address, encodeFunctionData({ abi: fn("setGuard", [{ name: "guard", type: "address" }]), functionName: "setGuard", args: [guard.address] }));
+
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [recipient.account.address, 150n, "0x", 0] });
+    await safe.write.execTransaction([delay.address, 0n, queued, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(passkey.address, safeContractSecondary.address)], { account: deployer.account });
+    expect(await delay.read.queueNonce()).to.equal(1n);
+    await time.increase(10);
+    await delay.write.executeNextTx([recipient.account.address, 150n, "0x", 0], { account: deployer.account });
+    expect(await delay.read.txNonce()).to.equal(1n);
+  });
+
+  it("rejects an ECDSA passkey owner on the delayed queue path", async () => {
+    const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
+    const { safe } = await deploySafeFixture(hre, deployer, [deployer.account.address, ecdsaSecondary.account.address]);
+    const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, deployer.account.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data);
     const ownerCall = async (to: Address, data: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, await sign(to, data)], { account: deployer.account });
     await ownerCall(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await ownerCall(guard.address, encodeFunctionData({ abi: fn("setAssetPolicy", [
@@ -79,8 +114,8 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(await f.guard.read.allowedRecipient([ZERO, f.recipient.account.address])).to.equal(true);
     const queue = async (amount: bigint) => {
       const data = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, amount, "0x", 0] });
-      const burnerSig = await f.sign(f.delay.address, data, f.burner);
-      await f.execute(f.delay.address, data, f.envelope(burnerSig));
+      const ecdsaSecondarySig = await f.sign(f.delay.address, data, f.ecdsaSecondary);
+      await f.execute(f.delay.address, data, f.envelope(ecdsaSecondarySig));
       return data;
     };
     await queue(110n);
@@ -93,7 +128,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(await (await hre.viem.getPublicClient()).getBalance({ address: f.recipient.account.address })).not.to.equal(0n);
     const third = await queue(110n);
     const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [3n] });
-    await f.execute(f.delay.address, cancel, await f.passkeyAndBurner(f.delay.address, cancel));
+    await f.execute(f.delay.address, cancel, await f.passkeyAndSecondary(f.delay.address, cancel));
     expect(await f.delay.read.txNonce()).to.equal(3n);
     await queue(110n);
     await queue(110n);
@@ -106,12 +141,18 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     void third;
   });
 
-  it("requires passkey plus Burner for emergency freeze and cancellation", async () => {
+  it("requires primary plus a configured secondary for emergency freeze and cancellation", async () => {
     const f = await fixture();
+    const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 110n, "0x", 0] });
+    await f.execute(f.delay.address, queued, await f.passkeyAndSecondary(f.delay.address, queued));
+    expect(await f.delay.read.queueNonce()).to.equal(1n);
+    const cancel = encodeFunctionData({ abi: setNonceAbi, functionName: "setTxNonce", args: [1n] });
+    await f.execute(f.delay.address, cancel, safeContractSignatures(f.passkey.address, f.safeContractSecondary.address));
+    expect(await f.delay.read.txNonce()).to.equal(1n);
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.execute(f.guard.address, freeze, f.passkeySig)).to.be.rejected;
-    const burnerSig = await f.sign(f.guard.address, freeze, f.burner);
-    await f.execute(f.guard.address, freeze, f.envelope(burnerSig));
+    const ecdsaSecondarySig = await f.sign(f.guard.address, freeze, f.ecdsaSecondary);
+    await f.execute(f.guard.address, freeze, f.envelope(ecdsaSecondarySig));
     expect(await f.guard.read.frozen()).to.equal(true);
     const item = { safe: f.safe.address, delay: f.delay.address, to: f.recipient.account.address, value: 0n, data: "0x" as Hex, operation: 0 as const, queueNonce: 0n };
     expect(queueFingerprint(item)).to.equal(await f.delay.read.getTransactionHash([item.to, item.value, item.data, item.operation]));
@@ -119,16 +160,16 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
 
   it("rotates a delayed signer atomically in the Safe and keeps maintenance usable", async () => {
     const f = await fixture();
-    const burnerIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.burner.account.address.toLowerCase());
-    const previous = (burnerIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[burnerIndex - 1]) as Address;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, previous, 1n, "0x"] });
+    const ecdsaSecondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.ecdsaSecondary.account.address.toLowerCase());
+    const previous = (ecdsaSecondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[ecdsaSecondaryIndex - 1]) as Address;
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.ecdsaSecondary.account.address, f.replacement.account.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement.account.address.toLowerCase());
-    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.burner.account.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.ecdsaSecondary.account.address.toLowerCase());
     expect((await f.guard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement.account.address.toLowerCase());
   });
@@ -138,7 +179,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const queueRepair = async (base: bigint, stepUp: bigint, daily: bigint, instant: bigint) => {
       const repair = encodeFunctionData({ abi: repairPolicyAbi, functionName: "repairPolicy", args: [ZERO, base, stepUp, daily, instant, [f.recipient.account.address]] });
       const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.guard.address, 0n, repair, 0] });
-      const signature = await f.passkeyAndBurner(f.delay.address, queued);
+      const signature = await f.passkeyAndSecondary(f.delay.address, queued);
       await f.execute(f.delay.address, queued, signature);
       return repair;
     };
@@ -164,10 +205,10 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
 
   it("rejects a contract that imitates the guard interfaces during replacement", async () => {
     const f = await fixture();
-    const fake = await hre.viem.deployContract("FakeReplacementGuard", [f.safe.address, f.passkey.address, f.burner.account.address, f.delay.address]);
+    const fake = await hre.viem.deployContract("FakeReplacementGuard", [f.safe.address, f.passkey.address, f.ecdsaSecondary.account.address, f.delay.address]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, fake.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
@@ -177,10 +218,10 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
   // reviewed runtime-hash assertion is covered by the normal integration run.
   itUnlessCoverage("replaces both guard slots through delayed maintenance with an approved guard bound to the same signer set", async () => {
     const f = await fixture();
-    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.burner.account.address, f.delay.address, 86400n, 0n]]);
+    const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.ecdsaSecondary.account.address, f.delay.address, 86400n, 0n]]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
@@ -191,12 +232,12 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect((await replacementGuard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
   });
 
-  it("rejects delayed guard replacement when approved code is bound to a different Burner", async () => {
+  it("rejects delayed guard replacement when approved code is bound to a different ECDSA secondary", async () => {
     const f = await fixture();
     const replacementGuard = await hre.viem.deployContract("TieredSpendingGuard", [[f.safe.address, f.passkey.address, f.replacement2.account.address, f.delay.address, 86400n, 0n]]);
     const repair = encodeFunctionData({ abi: replaceGuardsAbi, functionName: "replaceGuards", args: [f.guard.address, replacementGuard.address] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
@@ -212,7 +253,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, f.replacement.account.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
@@ -229,7 +270,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const previous = (passkeyIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[passkeyIndex - 1]) as Address;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, f.passkey.address, replacementPasskey.address, previous, 1n, proof] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
-    const signature = await f.passkeyAndBurner(f.delay.address, queued);
+    const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
@@ -252,7 +293,7 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const f = await fixture();
     const valid = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 110n, "0x", 0] });
     const signedQueue = async (data: Hex) => {
-      const signature = await f.sign(f.delay.address, data, f.burner);
+      const signature = await f.sign(f.delay.address, data, f.ecdsaSecondary);
       return f.envelope(signature);
     };
     await expect(f.execute(f.delay.address, valid.slice(0, -2) as Hex, await signedQueue(valid.slice(0, -2) as Hex))).to.be.rejected;

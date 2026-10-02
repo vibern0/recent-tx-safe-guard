@@ -20,7 +20,7 @@ import {
   validateAndBroadcast,
 } from "../../src/transport/relayer";
 import { type DelayExecutionRequest, type SafeExecutionRequest } from "../../src/transport/types";
-import { deploySafeFixture, ZERO, burnerEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
+import { deploySafeFixture, ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, queueAbi, signSafeTransaction, transferAbi } from "../helpers/safe";
 
 process.env.NODE_ENV = "test";
 
@@ -69,15 +69,15 @@ function verifiedDeployments(): VerifiedDeploymentInfrastructure {
 
 describe("submission transport", () => {
   async function fixture() {
-    const [deployer, burner, recipient, replacement] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient, replacement] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, ecdsaSecondary.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
-    const ownerTx = async (to: Address, data: Hex, signer = burner) => {
+    const ownerTx = async (to: Address, data: Hex, signer = ecdsaSecondary) => {
       const signature = await signSafeTransaction(safe, signer, to, data);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
@@ -154,10 +154,10 @@ describe("submission transport", () => {
       expectedSpend,
     });
 
-    return { deployer, burner, recipient, replacement, safe, passkey, delay, guard, maintenance, owners, context, safeRequest };
+    return { deployer, ecdsaSecondary, recipient, replacement, safe, passkey, delay, guard, maintenance, owners, context, safeRequest };
   }
 
-  it("relays passkey base, passkey-plus-Burner step-up, and ready Delay execution without relayer authority", async () => {
+  it("relays passkey base, passkey-plus-secondary step-up, and ready Delay execution without relayer authority", async () => {
     const f = await fixture();
     const relayerIsOwner = (await f.safe.read.getOwners()).some((owner: Address) => owner.toLowerCase() === f.deployer.account.address.toLowerCase());
     expect(relayerIsOwner).to.equal(false);
@@ -169,7 +169,7 @@ describe("submission transport", () => {
     await expect(f.safe.write.execTransactionFromModule([f.recipient.account.address, 1n, "0x", 0], { account: f.deployer.account })).to.be.rejected;
     const freeze = encodeFunctionData({ abi: freezeAbi, functionName: "freeze" });
     await expect(f.safe.write.execTransaction([f.guard.address, 0n, freeze, 0, 0n, 0n, 0n, ZERO, ZERO, unauthorizedSignature], { account: f.deployer.account })).to.be.rejected;
-    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.burner.account.address, f.replacement.account.address, f.owners[0], 1n, "0x"] });
+    const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.ecdsaSecondary.account.address, f.replacement.account.address, f.owners[0], 1n, "0x"] });
     await expect(f.safe.write.execTransaction([f.maintenance.address, 0n, repair, 1, 0n, 0n, 0n, ZERO, ZERO, unauthorizedSignature], { account: f.deployer.account })).to.be.rejected;
 
     const spend = async (): Promise<SafeExecutionRequest["expectedSpend"]> => {
@@ -182,15 +182,15 @@ describe("submission transport", () => {
     expect((await f.guard.read.spendState([ZERO]))[1]).to.equal(40n);
 
     const stepTx: SafeTxMessage = { ...baseTx, value: 60n, nonce: await f.safe.read.nonce() };
-    const burnerSig = await signSafeTransaction(f.safe, f.burner, stepTx.to, stepTx.data, { value: stepTx.value, nonce: stepTx.nonce });
-    const stepResult = await validateAndBroadcast(f.safeRequest(stepTx, burnerEnvelope(f.passkey.address, burnerSig), await spend()), f.context());
+    const ecdsaSecondarySig = await signSafeTransaction(f.safe, f.ecdsaSecondary, stepTx.to, stepTx.data, { value: stepTx.value, nonce: stepTx.nonce });
+    const stepResult = await validateAndBroadcast(f.safeRequest(stepTx, ecdsaSecondaryEnvelope(f.passkey.address, ecdsaSecondarySig), await spend()), f.context());
     expect(stepResult.kind, "reason" in stepResult ? stepResult.reason : stepResult.kind).to.be.oneOf(["submitted", "confirmed"]);
     expect((await f.guard.read.spendState([ZERO]))[2]).to.equal(100n);
 
     const queueData = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.recipient.account.address, 110n, "0x", 0] });
     const queueTx: SafeTxMessage = { ...baseTx, to: getAddress(f.delay.address), value: 0n, data: queueData, nonce: await f.safe.read.nonce() };
-    const queueSig = await signSafeTransaction(f.safe, f.burner, queueTx.to, queueTx.data, { value: queueTx.value, nonce: queueTx.nonce });
-    const queueResult = await validateAndBroadcast(f.safeRequest(queueTx, burnerEnvelope(f.passkey.address, queueSig), await spend()), f.context());
+    const queueSig = await signSafeTransaction(f.safe, f.ecdsaSecondary, queueTx.to, queueTx.data, { value: queueTx.value, nonce: queueTx.nonce });
+    const queueResult = await validateAndBroadcast(f.safeRequest(queueTx, ecdsaSecondaryEnvelope(f.passkey.address, queueSig), await spend()), f.context());
     expect(queueResult.kind).to.be.oneOf(["submitted", "confirmed"]);
     expect(await f.delay.read.queueNonce()).to.equal(1n);
     await time.increase(10);

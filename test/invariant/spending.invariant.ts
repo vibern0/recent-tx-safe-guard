@@ -6,15 +6,15 @@ import { deploySafeFixture, ZERO, safeTxTypes as types } from "../helpers/safe";
 
 describe("spending stateful invariants", () => {
   it("keeps counters bounded and monotonic within a window across mixed attempts", async () => {
-    const [deployer, burner, recipient] = await hre.viem.getWalletClients();
+    const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, burner.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, ecdsaSecondary.account.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 100_000n]);
     const tokenTwo = await hre.viem.deployContract("ERC20Mock", [safe.address, 100_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
-    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, burner.account.address, delay.address, 86400n, 0n]]);
+    const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const transfer = (tokenRecipient: Address, amount: bigint) => encodeFunctionData({ abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }], functionName: "transfer", args: [tokenRecipient, amount] });
-    const sign = async (to: Address, data: Hex, signer = burner) => signer.signTypedData({
+    const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signer.signTypedData({
       domain: { chainId: 31337, verifyingContract: safe.address }, types, primaryType: "SafeTx",
       message: { to, value: 0n, data, operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: ZERO, refundReceiver: ZERO, nonce: await safe.read.nonce() },
     });
@@ -27,8 +27,8 @@ describe("spending stateful invariants", () => {
     await safe.write.execTransaction([safe.address, 0n, setGuardData, 0, 0n, 0n, 0n, ZERO, ZERO, await sign(safe.address, setGuardData)], { account: deployer.account });
     const ownerSignature = `0x${passkey.address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
     const stepUp = async (asset: Address, data: Hex) => {
-      const burnerSignature = await sign(asset, data, burner);
-      return `${ownerSignature}${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
+      const ecdsaSecondarySignature = await sign(asset, data, ecdsaSecondary);
+      return `${ownerSignature}${ecdsaSecondarySignature.slice(2)}${toHex((ecdsaSecondarySignature.length - 2) / 2, { size: 32 }).slice(2)}b730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9` as Hex;
     };
     const assets = [token.address, tokenTwo.address];
     const initialBalance = 100_000n;

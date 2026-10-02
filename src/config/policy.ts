@@ -9,11 +9,25 @@ export type AssetPolicy = Readonly<{
   recipients: readonly Address[];
 }>;
 
+export type SignerRole = "primary" | "secondary";
+export type SignerKind = "safe-contract" | "ecdsa-extension";
+
+export type ConfiguredSigner = Readonly<{
+  address: Address;
+  role: SignerRole;
+  kind: SignerKind;
+  enabled: boolean;
+}>;
+
 export type VaultPolicy = Readonly<{
   chainId: number;
   safe: Address;
+  primary?: Address;
+  secondaries?: readonly ConfiguredSigner[];
+  /** @deprecated use primary */
   passkey: Address;
-  burner: Address;
+  /** @deprecated use secondaries */
+  ecdsaSecondary: Address;
   delay: Address;
   periodSeconds: 86400;
   periodAnchor: bigint;
@@ -29,13 +43,15 @@ export type AssetSpendState = Readonly<{
 }>;
 
 const ZERO = "0x0000000000000000000000000000000000000000";
-const POLICY_KEYS = ["chainId", "safe", "passkey", "burner", "delay", "periodSeconds", "periodAnchor", "cooldownSeconds", "expirationSeconds", "assets"] as const;
+const POLICY_REQUIRED_KEYS = ["chainId", "safe", "passkey", "ecdsaSecondary", "delay", "periodSeconds", "periodAnchor", "cooldownSeconds", "expirationSeconds", "assets"] as const;
+const POLICY_KEYS = [...POLICY_REQUIRED_KEYS, "primary", "secondaries"] as const;
 const ASSET_KEYS = ["token", "basePerTransaction", "stepUpPerTransaction", "baseDailyLimit", "instantDailyLimit", "recipients"] as const;
+const SIGNER_KEYS = ["address", "role", "kind", "enabled"] as const;
 
-function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], path: string): void {
+function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], path: string, required: readonly string[] = allowed): void {
   const allowedSet = new Set(allowed);
   for (const key of Object.keys(value)) if (!allowedSet.has(key)) throw new Error(`${path}.${key} is not allowed`);
-  for (const key of allowed) if (!(key in value)) throw new Error(`${path}.${key} is required`);
+  for (const key of required) if (!(key in value)) throw new Error(`${path}.${key} is required`);
 }
 
 function assertAddress(name: string, value: Address): void {
@@ -47,7 +63,7 @@ function assertNonNegative(name: string, value: bigint): void {
 }
 
 export function assertValidVaultPolicy(policy: VaultPolicy): void {
-  assertExactKeys(policy as unknown as Record<string, unknown>, POLICY_KEYS, "policy");
+  assertExactKeys(policy as unknown as Record<string, unknown>, POLICY_KEYS, "policy", POLICY_REQUIRED_KEYS);
   if (!Number.isSafeInteger(policy.chainId) || policy.chainId <= 0) throw new Error("invalid chainId");
   if (policy.periodSeconds !== 86400) throw new Error("periodSeconds must be 86400");
   if (policy.periodAnchor % BigInt(policy.periodSeconds) !== 0n) throw new Error("periodAnchor is not aligned");
@@ -55,10 +71,29 @@ export function assertValidVaultPolicy(policy: VaultPolicy): void {
   if (!Number.isSafeInteger(policy.expirationSeconds) || policy.expirationSeconds <= 0) throw new Error("invalid expirationSeconds");
   assertAddress("safe", policy.safe);
   assertAddress("passkey", policy.passkey);
-  assertAddress("burner", policy.burner);
+  assertAddress("ecdsaSecondary", policy.ecdsaSecondary);
   assertAddress("delay", policy.delay);
-  const signers = [policy.passkey.toLowerCase(), policy.burner.toLowerCase()];
+  const primary = policy.primary ?? policy.passkey;
+  assertAddress("primary", primary);
+  if (primary.toLowerCase() !== policy.passkey.toLowerCase()) throw new Error("primary must match passkey compatibility signer");
+  const secondaries = policy.secondaries ?? [{ address: policy.ecdsaSecondary, role: "secondary", kind: "ecdsa-extension", enabled: true } satisfies ConfiguredSigner];
+  if (!Array.isArray(secondaries) || secondaries.length === 0) throw new Error("at least one secondary signer is required");
+  const signers = [primary.toLowerCase()];
+  let hasEcdsaSecondary = false;
+  for (const [index, signer] of secondaries.entries()) {
+    assertExactKeys(signer as unknown as Record<string, unknown>, SIGNER_KEYS, `secondaries[${index}]`);
+    assertAddress(`secondaries[${index}].address`, signer.address);
+    if (signer.role !== "secondary") throw new Error("secondary signer role must be secondary");
+    if (signer.kind !== "safe-contract" && signer.kind !== "ecdsa-extension") throw new Error("secondary signer kind is unsupported");
+    if (signer.enabled !== true) throw new Error("secondary signer must be enabled for this prototype");
+    if (signer.address.toLowerCase() === policy.ecdsaSecondary.toLowerCase()) {
+      if (signer.kind !== "ecdsa-extension") throw new Error("ecdsaSecondary secondary must use ecdsa-extension");
+      hasEcdsaSecondary = true;
+    }
+    signers.push(signer.address.toLowerCase());
+  }
   if (new Set(signers).size !== signers.length) throw new Error("signers must be distinct");
+  if (!hasEcdsaSecondary) throw new Error("ecdsaSecondary compatibility signer must be a configured secondary");
   if (policy.assets.length === 0) throw new Error("at least one asset is required");
 
   const tokens = new Set<string>();

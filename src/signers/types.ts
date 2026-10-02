@@ -27,8 +27,18 @@ export type SafeSignerRequest = Readonly<{
   typedData: SafeTxTypedData;
 }>;
 
+export type SignerRole = "primary" | "secondary";
+export type SignerKind = "safe-contract" | "ecdsa-extension";
+
 export type SafeSigner = Readonly<{
   address: Address;
+  sign(request: SafeSignerRequest): Promise<Hex>;
+}>;
+
+export type VaultSigner = Readonly<{
+  address: Address;
+  role: SignerRole;
+  kind: SignerKind;
   sign(request: SafeSignerRequest): Promise<Hex>;
 }>;
 
@@ -97,4 +107,12 @@ export function sameSignerRequest(left: SafeSignerRequest, right: SafeSignerRequ
 
 export function assertSameSignerRequest(expected: SafeSignerRequest, actual: SafeSignerRequest): void {
   if (!sameSignerRequest(expected, actual)) throw new Error("signer request mutated");
+}
+
+export function assertVaultSignerPair(primary: VaultSigner, secondary: VaultSigner): void {
+  if (primary.role !== "primary") throw new Error("primary signer role mismatch");
+  if (primary.kind !== "safe-contract") throw new Error("primary signer kind must be safe-contract");
+  if (secondary.role !== "secondary") throw new Error("secondary signer role mismatch");
+  if (secondary.kind !== "safe-contract" && secondary.kind !== "ecdsa-extension") throw new Error("secondary signer kind mismatch");
+  if (sameAddress(primary.address, secondary.address)) throw new Error("primary and secondary signers must be distinct");
 }

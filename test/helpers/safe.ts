@@ -2,7 +2,7 @@ import { toHex, type Address, type Hex } from "viem";
 import { SAFE_TX_TYPES } from "../../src/signers/types";
 
 export const ZERO = "0x0000000000000000000000000000000000000000" as Address;
-export const BURNER_SIGNATURE_TYPE_HASH = "0xb730773ff261bde7bdf630037533d4522df4bf5695e820c5373a22210670f2f9" as Hex;
+export const ECDSA_SECONDARY_SIGNATURE_TYPE_HASH = "0xc3d042548a46ef9078620b2d3fe7e21f006a7ecf29ab9b2807d4bdbbc41cecf0" as Hex;
 
 export const safeTxTypes = { SafeTx: SAFE_TX_TYPES } as const;
 
@@ -62,6 +62,33 @@ export function passkeySignature(address: Address): Hex {
   return `0x${address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(0n, { size: 32 }).slice(2)}` as Hex;
 }
 
-export function burnerEnvelope(passkey: Address, burnerSignature: Hex): Hex {
-  return `${passkeySignature(passkey)}${burnerSignature.slice(2)}${toHex((burnerSignature.length - 2) / 2, { size: 32 }).slice(2)}${BURNER_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
+export function safeContractSignatures(primary: Address, secondary: Address, primaryPayload: Hex = "0x", secondaryPayload: Hex = "0x"): Hex {
+  const primaryPayloadOffset = 65n * 2n;
+  const primaryPayloadLength = BigInt((primaryPayload.length - 2) / 2);
+  const secondaryPayloadLength = BigInt((secondaryPayload.length - 2) / 2);
+  const secondaryPayloadOffset = primaryPayloadOffset + 32n + primaryPayloadLength;
+  return `0x${
+    primary.slice(2).padStart(64, "0")
+  }${
+    toHex(primaryPayloadOffset, { size: 32 }).slice(2)
+  }00${
+    secondary.slice(2).padStart(64, "0")
+  }${
+    toHex(secondaryPayloadOffset, { size: 32 }).slice(2)
+  }00${
+    toHex(primaryPayloadLength, { size: 32 }).slice(2)
+  }${
+    primaryPayload.slice(2)
+  }${
+    toHex(secondaryPayloadLength, { size: 32 }).slice(2)
+  }${
+    secondaryPayload.slice(2)
+  }` as Hex;
 }
+
+export function ecdsaSecondaryEnvelope(passkey: Address, ecdsaSecondarySignature: Hex): Hex {
+  return `${passkeySignature(passkey)}${ecdsaSecondarySignature.slice(2)}${toHex((ecdsaSecondarySignature.length - 2) / 2, { size: 32 }).slice(2)}${ECDSA_SECONDARY_SIGNATURE_TYPE_HASH.slice(2)}` as Hex;
+}
+
+/** @deprecated use ecdsaSecondaryEnvelope. */
+export const burnerEnvelope = ecdsaSecondaryEnvelope;
