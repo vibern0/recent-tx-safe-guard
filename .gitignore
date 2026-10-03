@@ -5,14 +5,21 @@ node_modules
 # Hardhat files
 /cache
 /artifacts
+packages/*/cache
+packages/*/artifacts
 
 # TypeChain files
 /typechain
 /typechain-types
+packages/*/typechain
+packages/*/typechain-types
 
 # solidity-coverage files
 /coverage
 /coverage.json
+packages/*/coverage
+packages/*/coverage.json
 
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/chain-31337
+packages/*/ignition/deployments/chain-31337

@@ -6,10 +6,10 @@ This repository explores a personal self-custody vault with bounded instant spen
 
 Read these documents in order before changing architecture, contracts, transaction encoding, signers, or dependencies:
 
-1. [Research, threat model, and product direction](docs/research/2026-09-16-personal-vault-research.md)
-2. [Security-core implementation plan](docs/superpowers/plans/2026-09-16-personal-vault-security-core.md)
+1. [Research, threat model, and product direction](packages/security-core/docs/research/2026-09-16-personal-vault-research.md)
+2. [Security-core implementation plan](packages/security-core/docs/superpowers/plans/2026-09-16-personal-vault-security-core.md)
 
-Before adding or changing passkey, Burner, Cometh, embedded-wallet, account-abstraction, or WalletConnect behavior, also read [Signer provider evaluation](docs/security/signer-provider-evaluation.md).
+Before adding or changing passkey, Burner, Cometh, embedded-wallet, account-abstraction, or WalletConnect behavior, also read [Signer provider evaluation](packages/security-core/docs/security/signer-provider-evaluation.md).
 
 The research document defines the intended security properties and scope. The implementation plan defines the approved sequence, file boundaries, tests, and delivery gates. If code and documentation disagree, stop and resolve the discrepancy explicitly; do not silently weaken the documented property.
 
@@ -51,8 +51,8 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 - Follow the implementation plan task by task and keep its checkboxes current.
 - When using `superpowers:writing-plans`, write plan prose in `caveman ultra` style while preserving required Superpowers headers, checkboxes, code blocks, exact commands, paths, signatures, and security wording.
 - Use test-driven development for policy, encoding, topology, queue, signer, and monitoring behavior.
-- Every new execution path requires a corresponding update to `docs/security/call-graph.md` and adversarial tests.
-- Every security dependency change requires an update to `docs/security/dependency-review.md`.
+- Every new execution path requires a corresponding update to `packages/security-core/docs/security/call-graph.md` and adversarial tests.
+- Every security dependency change requires an update to `packages/security-core/docs/security/dependency-review.md`.
 - Keep private keys, passkey material, Burner PINs, RPC secrets, and provider credentials out of the repository and logs.
 - Generated deployment plans must be unsigned and reproducible before human review.
 - Prefer read-only verification scripts that fail closed on missing or inconsistent RPC data.
