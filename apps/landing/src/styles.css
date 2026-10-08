@@ -203,3 +203,41 @@
 
 @media (max-width:1100px) { .landing-container { width:min(100% - 3rem,900px); } .hero-grid { grid-template-columns:1fr; gap:3rem; } .hero-copy h1 { max-width:16ch; } .landing-section-grid { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:700px) { .landing-container { width:min(100% - 2rem,560px); } .brand-mark small { display:none; } .hero-grid { padding-block:3.6rem 3rem; } .hero-copy h1 { font-size:clamp(2.8rem,14vw,4.2rem); } .hero-description { font-size:1rem; } .diagram-layout { grid-template-columns:1fr; gap:.8rem; min-height:auto; } .diagram-column { grid-template-columns:repeat(2,1fr); } .safe-node { order:-1; min-height:8rem; } .diagram-node { min-height:4.5rem; } .diagram-label span { display:none; } .landing-section-grid,.architecture-notes,.trust-strip { grid-template-columns:1fr; } .info-panel { min-height:auto; padding:1.2rem; } .info-panel ul { margin-top:1.4rem; } .landing-architecture { grid-template-columns:1fr; gap:2.5rem; padding-block:3.5rem; } .trust-strip span { justify-content:flex-start; min-height:4.4rem; } .trust-strip span+span { border-left:0; border-top:1px solid var(--landing-border); } .footer-bottom { flex-direction:column; } }
+
+/* Wireframe fidelity: lighter typography, explicit transaction flow, and cinematic but restrained motion. */
+.landing-page { --landing-bg:#060b12; --landing-border:rgba(115,148,213,.3); --landing-muted:#9eafc9; --landing-violet:#947fff; --landing-green:#53e28e; font-family:"Manrope",ui-sans-serif,system-ui,sans-serif; background-image:linear-gradient(rgba(69,103,155,.075) 1px,transparent 1px),linear-gradient(90deg,rgba(69,103,155,.075) 1px,transparent 1px),radial-gradient(circle at 66% 4%,rgba(86,64,220,.18),transparent 35rem); }
+.landing-header { background:rgba(6,11,18,.76); }
+.landing-header .landing-container { min-height:4.15rem; }
+.hero-copy h1 { font-weight:400; letter-spacing:-.075em; }
+.hero-copy h1 span { font-weight:500; }
+.hero-description { color:#aebdd2; }
+.system-diagram { border-color:rgba(115,148,213,.36); background:rgba(7,14,24,.72); }
+.diagram-layout { position:relative; }
+.diagram-layout > :not(.diagram-connections) { position:relative; z-index:1; }
+.diagram-connections { position:absolute; inset:0; z-index:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.diagram-connections path { fill:none; stroke-width:.34; stroke-linecap:round; stroke-dasharray:1.2 1.2; opacity:.95; }
+.connection-blue { stroke:#55b4ff; filter:drop-shadow(0 0 3px rgba(85,180,255,.4)); }
+.connection-green { stroke:#53e28e; filter:drop-shadow(0 0 3px rgba(83,226,142,.4)); }
+.safe-node { min-height:10rem; }
+.hero-copy,.system-diagram,.info-panel,.landing-architecture,.landing-footer { animation:landing-rise .85s cubic-bezier(.22,1,.36,1) both; }
+.system-diagram { animation-delay:.12s; }
+.landing-section-grid .info-panel:nth-child(1) { animation-delay:.2s; }
+.landing-section-grid .info-panel:nth-child(2) { animation-delay:.28s; }
+.landing-section-grid .info-panel:nth-child(3) { animation-delay:.36s; }
+.landing-section-grid .info-panel:nth-child(4) { animation-delay:.44s; }
+.landing-architecture { animation-delay:.52s; }
+.landing-footer { animation-delay:.6s; }
+.safe-node::before { content:""; position:absolute; inset:18%; border-radius:inherit; background:rgba(83,226,142,.12); filter:blur(20px); animation:safe-pulse 3.6s ease-in-out infinite; pointer-events:none; }
+.safe-node > * { position:relative; z-index:1; }
+.diagram-node,.policy-row,.architecture-note { transition:transform .35s cubic-bezier(.22,1,.36,1),border-color .35s ease,background-color .35s ease,box-shadow .35s ease; }
+.diagram-node:hover,.policy-row:hover,.architecture-note:hover { transform:translateY(-3px); box-shadow:0 1rem 2.5rem rgba(0,0,0,.22); }
+.diagram-node:hover { border-color:#70bbff; }
+.policy-violet:hover,.policy-pink:hover { border-color:#ae91ff; }
+.policy-blue:hover { border-color:#70bbff; }
+.landing-button { transition:transform .3s cubic-bezier(.22,1,.36,1),box-shadow .3s ease,filter .3s ease; }
+.landing-button-primary:hover { box-shadow:0 .8rem 2rem rgba(126,101,245,.32); filter:saturate(1.12) brightness(1.06); }
+.landing-button-secondary:hover { border-color:rgba(160,176,216,.62); background:rgba(28,40,61,.72); }
+@keyframes landing-rise { from { opacity:0; transform:translateY(18px); filter:blur(4px); } to { opacity:1; transform:translateY(0); filter:blur(0); } }
+@keyframes safe-pulse { 0%,100% { opacity:.45; transform:scale(.92); } 50% { opacity:.9; transform:scale(1.08); } }
+@media (max-width:700px) { .diagram-connections { display:none; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }

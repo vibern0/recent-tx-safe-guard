@@ -7,7 +7,6 @@ import {
   FlaskConical,
   KeyRound,
   Link2,
-  Menu,
   Shield,
   ShieldCheck,
   SlidersHorizontal,
@@ -24,7 +23,10 @@ export const Route = createFileRoute("/")({
         content:
           "A one-Safe vault with bounded instant spending, step-up approval, and cancellable delayed withdrawals.",
       },
-      { property: "og:title", content: "recent-tx-safe-guard — Onchain policy for self-custody" },
+      {
+        property: "og:title",
+        content: "recent-tx-safe-guard — Onchain policy for self-custody",
+      },
       {
         property: "og:description",
         content:
@@ -42,7 +44,10 @@ function HomePage() {
     <main className="landing-page overflow-hidden">
       <LandingHeader />
       <Hero />
-      <section className="landing-container landing-section-grid" aria-label="Project overview">
+      <section
+        className="landing-container landing-section-grid"
+        aria-label="Project overview"
+      >
         <InfoPanel
           eyebrow="Threat model"
           icon={<Shield className="size-5" aria-hidden />}
@@ -83,17 +88,24 @@ function HomePage() {
           tone="success"
         />
       </section>
-      <section className="landing-container landing-architecture" id="how-it-works">
+      <section
+        className="landing-container landing-architecture"
+        id="how-it-works"
+      >
         <div className="section-heading">
           <p className="eyebrow">Built as a security core</p>
           <h2>One Safe. Multiple safeguards.</h2>
           <p>
-            Convenient when the transaction is ordinary. Deliberate when the consequences are
-            larger.
+            Convenient when the transaction is ordinary. Deliberate when the
+            consequences are larger.
           </p>
         </div>
         <div className="architecture-notes">
-          <Note icon={<KeyRound />} title="Passkey" copy="Primary signer for everyday transfers." />
+          <Note
+            icon={<KeyRound />}
+            title="Passkey"
+            copy="Primary signer for everyday transfers."
+          />
           <Note
             icon={<Users />}
             title="Secondary signer"
@@ -120,26 +132,15 @@ function LandingHeader() {
   return (
     <header className="landing-header">
       <div className="landing-container flex items-center justify-between gap-6">
-        <a href="#top" className="brand-mark" aria-label="recent-tx-safe-guard home">
+        <a
+          href="#top"
+          className="brand-mark"
+          aria-label="recent-tx-safe-guard home"
+        >
           <ShieldCheck className="size-5 text-violet-300" aria-hidden />
           <span>recent-tx-safe-guard</span>
           <small>simple rules. safer ownership.</small>
         </a>
-        <nav
-          className="hidden items-center gap-7 text-sm text-slate-400 md:flex"
-          aria-label="Landing page"
-        >
-          <a href="#top" className="text-white">
-            Overview
-          </a>
-          <a href="#how-it-works">How it works</a>
-          <a href="#threat-model">Threat model</a>
-          <a href="#policy-lanes">Policy lanes</a>
-          <a href="#trust">Trust</a>
-        </nav>
-        <button className="landing-menu md:hidden" aria-label="Open navigation">
-          <Menu className="size-5" />
-        </button>
         <Link
           to="/onboarding"
           className="landing-button landing-button-primary hidden sm:inline-flex"
@@ -160,14 +161,21 @@ function Hero() {
           A vault whose policy is <span>enforced onchain.</span>
         </h1>
         <p className="hero-description">
-          recent-tx-safe-guard is a one-Safe vault with a clear transaction policy. Everyday actions
-          are fast. Larger actions are delayed. Your assets, better protected.
+          recent-tx-safe-guard is a one-Safe vault with a clear transaction
+          policy. Everyday actions are fast. Larger actions are delayed. Your
+          assets, better protected.
         </p>
         <div className="hero-actions">
-          <Link to="/onboarding" className="landing-button landing-button-primary">
+          <Link
+            to="/onboarding"
+            className="landing-button landing-button-primary"
+          >
             Try the testnet <ArrowRight className="size-4" aria-hidden />
           </Link>
-          <a href="#policy-lanes" className="landing-button landing-button-secondary">
+          <a
+            href="#policy-lanes"
+            className="landing-button landing-button-secondary"
+          >
             <Link2 className="size-4" aria-hidden /> Read the policy
           </a>
         </div>
@@ -198,9 +206,76 @@ function SystemDiagram() {
         System diagram <span>one vault. multiple safeguards.</span>
       </div>
       <div className="diagram-layout">
+        <svg
+          className="diagram-connections"
+          viewBox="0 0 100 100"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <marker
+              id="diagram-arrow-blue"
+              markerWidth="7"
+              markerHeight="7"
+              refX="6"
+              refY="3.5"
+              orient="auto"
+            >
+              <path
+                d="M0,0 L7,3.5 L0,7"
+                fill="none"
+                stroke="#55b4ff"
+                strokeWidth="1.2"
+              />
+            </marker>
+            <marker
+              id="diagram-arrow-green"
+              markerWidth="7"
+              markerHeight="7"
+              refX="6"
+              refY="3.5"
+              orient="auto"
+            >
+              <path
+                d="M0,0 L7,3.5 L0,7"
+                fill="none"
+                stroke="#53e28e"
+                strokeWidth="1.2"
+              />
+            </marker>
+          </defs>
+          <path
+            className="connection-blue"
+            d="M22 28 C31 28, 33 38, 42 42"
+            markerEnd="url(#diagram-arrow-blue)"
+          />
+          <path
+            className="connection-blue"
+            d="M22 72 C31 72, 33 62, 42 58"
+            markerEnd="url(#diagram-arrow-blue)"
+          />
+          <path
+            className="connection-green"
+            d="M58 42 C67 38, 69 28, 78 28"
+            markerEnd="url(#diagram-arrow-green)"
+          />
+          <path
+            className="connection-green"
+            d="M58 58 C67 62, 69 72, 78 72"
+            markerEnd="url(#diagram-arrow-green)"
+          />
+        </svg>
         <div className="diagram-column">
-          <DiagramNode icon={<KeyRound />} title="Passkey" copy="Primary signer" />
-          <DiagramNode icon={<Users />} title="Secondary signer" copy="Configured co-signer" />
+          <DiagramNode
+            icon={<KeyRound />}
+            title="Passkey"
+            copy="Primary signer"
+          />
+          <DiagramNode
+            icon={<Users />}
+            title="Secondary signer"
+            copy="Configured co-signer"
+          />
         </div>
         <div className="safe-node">
           <ShieldCheck className="size-8 text-emerald-300" />
@@ -214,7 +289,12 @@ function SystemDiagram() {
             copy="Checks policy"
             accent="green"
           />
-          <DiagramNode icon={<Clock3 />} title="Delay Z" copy="Enforces delay" accent="violet" />
+          <DiagramNode
+            icon={<Clock3 />}
+            title="Delay Z"
+            copy="Enforces delay"
+            accent="violet"
+          />
         </div>
       </div>
       <div className="legend">
@@ -344,7 +424,15 @@ function PolicyRow({
   );
 }
 
-function Note({ icon, title, copy }: { icon: ReactNode; title: string; copy: string }) {
+function Note({
+  icon,
+  title,
+  copy,
+}: {
+  icon: ReactNode;
+  title: string;
+  copy: string;
+}) {
   return (
     <div className="architecture-note">
       <span>{icon}</span>
@@ -376,7 +464,9 @@ function LandingFooter() {
             <ShieldCheck className="size-5 text-violet-300" aria-hidden />
             <span>recent-tx-safe-guard</span>
           </span>
-          <span>Independent review and audit required before production use.</span>
+          <span>
+            Independent review and audit required before production use.
+          </span>
         </div>
       </div>
     </footer>
