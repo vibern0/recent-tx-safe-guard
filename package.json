@@ -6,9 +6,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run security-core:build && npm run web:build",
-    "test": "npm run security-core:test && npm run web:test",
-    "check": "npm run security-core:check && npm run web:test",
+    "build": "npm run security-core:build && npm run app:build && npm run landing:build",
+    "test": "npm run security-core:test && npm run app:test && npm run landing:test",
+    "check": "npm run security-core:check && npm run app:test && npm run landing:test",
     "security-core:build": "npm --prefix packages/security-core run build",
     "security-core:test": "npm --prefix packages/security-core test",
     "security-core:test:unit": "npm --prefix packages/security-core run test:unit",
@@ -24,12 +24,19 @@
     "security-core:watch:activity": "npm --prefix packages/security-core run watch:activity",
     "security-core:rehearse": "npm --prefix packages/security-core run rehearse",
     "security-core:package:sepolia-rehearsal": "npm --prefix packages/security-core run package:sepolia-rehearsal",
-    "web:dev": "npm --prefix apps/web run dev",
-    "web:build": "npm --prefix apps/web run build",
-    "web:preview": "npm --prefix apps/web run preview",
-    "web:lint": "npm --prefix apps/web run lint",
-    "web:format": "npm --prefix apps/web run format",
-    "web:test": "npm --prefix apps/web test",
-    "web:test:watch": "npm --prefix apps/web run test:watch"
+    "app:dev": "npm --prefix apps/app run dev",
+    "app:build": "npm --prefix apps/app run build",
+    "app:preview": "npm --prefix apps/app run preview",
+    "app:lint": "npm --prefix apps/app run lint",
+    "app:format": "npm --prefix apps/app run format",
+    "app:test": "npm --prefix apps/app test",
+    "app:test:watch": "npm --prefix apps/app run test:watch",
+    "landing:dev": "npm --prefix apps/landing run dev",
+    "landing:build": "npm --prefix apps/landing run build",
+    "landing:preview": "npm --prefix apps/landing run preview",
+    "landing:lint": "npm --prefix apps/landing run lint",
+    "landing:format": "npm --prefix apps/landing run format",
+    "landing:test": "npm --prefix apps/landing test",
+    "landing:test:watch": "npm --prefix apps/landing run test:watch"
   }
 }
