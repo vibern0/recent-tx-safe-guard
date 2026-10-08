@@ -246,25 +246,37 @@ function SystemDiagram() {
           </defs>
           <path
             className="connection-blue"
-            d="M22 28 C31 28, 33 38, 42 42"
+            d="M25 31 C32 31, 34 38, 42 42"
             markerEnd="url(#diagram-arrow-blue)"
           />
           <path
             className="connection-blue"
-            d="M22 72 C31 72, 33 62, 42 58"
+            d="M25 69 C32 69, 34 62, 42 58"
             markerEnd="url(#diagram-arrow-blue)"
           />
           <path
             className="connection-green"
-            d="M58 42 C67 38, 69 28, 78 28"
+            d="M58 42 C66 38, 68 31, 75 31"
             markerEnd="url(#diagram-arrow-green)"
           />
           <path
             className="connection-green"
-            d="M58 58 C67 62, 69 72, 78 72"
+            d="M58 58 C66 62, 68 69, 75 69"
             markerEnd="url(#diagram-arrow-green)"
           />
         </svg>
+        <span className="diagram-annotation annotation-proposes">
+          Proposes tx
+        </span>
+        <span className="diagram-annotation annotation-cosigns">
+          Co-signs (1-of-2)
+        </span>
+        <span className="diagram-annotation annotation-checks">
+          Checks policy
+        </span>
+        <span className="diagram-annotation annotation-delay">
+          Enforces delay
+        </span>
         <div className="diagram-column">
           <DiagramNode
             icon={<KeyRound />}
