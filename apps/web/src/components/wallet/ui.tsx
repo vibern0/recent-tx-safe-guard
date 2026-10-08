@@ -136,6 +136,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { hydrated } = useVault();
   const hideNav = path.startsWith("/onboarding");
+  if (path === "/") return <>{children}</>;
   return (
     <div className="mx-auto min-h-screen max-w-md px-5 pb-28">
       {hydrated ? children : <div className="pt-24 text-center text-muted-foreground">Loading your account…</div>}
