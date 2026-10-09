@@ -195,152 +195,335 @@ function Hero() {
     </section>
   );
 }
-
 function SystemDiagram() {
   return (
     <div
       className="system-diagram"
-      aria-label="System diagram showing the Safe, signers, guard, and delay"
+      tabIndex={0}
+      role="region"
+      aria-label="Vault system diagram"
     >
-      <div className="diagram-label">
-        System diagram <span>one vault. multiple safeguards.</span>
-      </div>
-      <div className="diagram-layout">
-        <svg
-          className="diagram-connections"
-          viewBox="0 0 100 100"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <defs>
-            <marker
-              id="diagram-arrow-blue"
-              markerWidth="7"
-              markerHeight="7"
-              refX="6"
-              refY="3.5"
-              orient="auto"
-            >
-              <path
-                d="M0,0 L7,3.5 L0,7"
-                fill="none"
-                stroke="#55b4ff"
-                strokeWidth="1.2"
-              />
-            </marker>
-            <marker
-              id="diagram-arrow-green"
-              markerWidth="7"
-              markerHeight="7"
-              refX="6"
-              refY="3.5"
-              orient="auto"
-            >
-              <path
-                d="M0,0 L7,3.5 L0,7"
-                fill="none"
-                stroke="#53e28e"
-                strokeWidth="1.2"
-              />
-            </marker>
-          </defs>
+      <svg
+        className="vault-diagram"
+        viewBox="0 0 760 370"
+        role="img"
+        aria-labelledby="vault-diagram-title vault-diagram-description"
+      >
+        <title id="vault-diagram-title">One Safe. Multiple safeguards.</title>
+        <desc id="vault-diagram-description">
+          The primary passkey proposes transactions. One configured secondary
+          co-signs. TieredSpendingGuard checks policy, and Delay Z enforces the
+          mandatory delay. X is the base daily limit; Y is the shared instant
+          daily limit.
+        </desc>
+        <defs>
+          <pattern
+            id="vault-dots"
+            width="20"
+            height="20"
+            patternUnits="userSpaceOnUse"
+          >
+            <circle cx="10" cy="10" r=".65" fill="#1e4255" />
+          </pattern>
+          <linearGradient id="vault-edge">
+            <stop stopColor="#238dff" />
+            <stop offset="1" stopColor="#36efc5" />
+          </linearGradient>
+          <linearGradient id="vault-flow">
+            <stop stopColor="#42e5bd" />
+            <stop offset="1" stopColor="#827aff" />
+          </linearGradient>
+          <linearGradient id="vault-panel" x2="1" y2="1">
+            <stop stopColor="#101925" />
+            <stop offset="1" stopColor="#0a1018" />
+          </linearGradient>
+          <radialGradient id="vault-aura">
+            <stop stopColor="#12424a" stopOpacity=".35" />
+            <stop offset="1" stopColor="#080e14" stopOpacity="0" />
+          </radialGradient>
+          <filter id="vault-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="5" />
+          </filter>
+          <marker
+            id="vault-arrow"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 8 4 0 8Z" fill="#8e8bff" />
+          </marker>
+          <marker
+            id="vault-arrow-mint"
+            viewBox="0 0 8 8"
+            refX="7"
+            refY="4"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 8 4 0 8Z" fill="#45e6c0" />
+          </marker>
+        </defs>
+        <rect width="760" height="370" rx="8" fill="#080e14" />
+        <rect
+          x="1"
+          y="1"
+          width="758"
+          height="368"
+          rx="8"
+          fill="url(#vault-dots)"
+          opacity=".7"
+        />
+        <ellipse cx="374" cy="184" rx="200" ry="145" fill="url(#vault-aura)" />
+        <text className="vault-heading" x="20" y="28">
+          SYSTEM DIAGRAM
+        </text>
+        <text className="vault-caption" x="741" y="28" textAnchor="end">
+          ONE VAULT. MULTIPLE SAFEGUARDS.
+        </text>
+
+        <g className="vault-wires" fill="none" strokeWidth="1.8">
           <path
-            className="connection-blue"
-            d="M25 31 C32 31, 34 38, 42 42"
-            markerEnd="url(#diagram-arrow-blue)"
+            d="M188 107 C266 107 230 153 304 153"
+            stroke="#8588ef"
+            markerStart="url(#vault-arrow)"
+            markerEnd="url(#vault-arrow)"
           />
           <path
-            className="connection-blue"
-            d="M25 69 C32 69, 34 62, 42 58"
-            markerEnd="url(#diagram-arrow-blue)"
+            d="M188 237 C266 237 230 195 304 195"
+            stroke="#8588ef"
+            markerStart="url(#vault-arrow)"
+            markerEnd="url(#vault-arrow)"
           />
           <path
-            className="connection-green"
-            d="M58 42 C66 38, 68 31, 75 31"
-            markerEnd="url(#diagram-arrow-green)"
+            d="M446 153 C520 153 488 107 566 107"
+            stroke="url(#vault-flow)"
+            markerStart="url(#vault-arrow-mint)"
+            markerEnd="url(#vault-arrow)"
           />
           <path
-            className="connection-green"
-            d="M58 58 C66 62, 68 69, 75 69"
-            markerEnd="url(#diagram-arrow-green)"
+            d="M446 195 C520 195 488 237 566 237"
+            stroke="url(#vault-flow)"
+            markerStart="url(#vault-arrow-mint)"
+            markerEnd="url(#vault-arrow)"
           />
-        </svg>
-        <span className="diagram-annotation annotation-proposes">
-          Proposes tx
-        </span>
-        <span className="diagram-annotation annotation-cosigns">
-          Co-signs (1-of-2)
-        </span>
-        <span className="diagram-annotation annotation-checks">
-          Checks policy
-        </span>
-        <span className="diagram-annotation annotation-delay">
-          Enforces delay
-        </span>
-        <div className="diagram-column">
-          <DiagramNode
-            icon={<KeyRound />}
-            title="Passkey"
-            copy="Primary signer"
+        </g>
+        <g className="vault-annotation">
+          <text x="246" y="102" textAnchor="middle">
+            Proposes tx
+          </text>
+          <text x="246" y="252" textAnchor="middle">
+            Co-signs (1-of-2)
+          </text>
+          <text x="524" y="102" textAnchor="middle">
+            Checks policy
+          </text>
+          <text x="524" y="252" textAnchor="middle">
+            Enforces delay
+          </text>
+        </g>
+
+        <VaultDiagramNode
+          x={18}
+          y={65}
+          width={168}
+          icon={<KeyRound />}
+          title="Passkey"
+          lines={["Primary signer", "(you)"]}
+          color="#38a6ff"
+        />
+        <VaultDiagramNode
+          x={18}
+          y={198}
+          width={168}
+          icon={<Users />}
+          title="Secondary signer"
+          lines={["Configured", "co-signer"]}
+          color="#7292ff"
+        />
+        <VaultDiagramNode
+          x={568}
+          y={65}
+          width={175}
+          icon={<ShieldCheck />}
+          title="TieredSpendingGuard"
+          lines={["Spending limits", "(onchain)"]}
+          color="#44e89a"
+        />
+        <VaultDiagramNode
+          x={568}
+          y={198}
+          width={175}
+          icon={<Clock3 />}
+          title="Delay Z"
+          lines={["Mandatory delay for", "large transactions"]}
+          color="#9583ff"
+        />
+
+        <rect
+          x="306"
+          y="119"
+          width="138"
+          height="130"
+          rx="14"
+          fill="none"
+          stroke="url(#vault-edge)"
+          strokeWidth="4"
+          filter="url(#vault-glow)"
+          opacity=".45"
+        />
+        <rect
+          x="306"
+          y="119"
+          width="138"
+          height="130"
+          rx="14"
+          fill="#080f15"
+          stroke="url(#vault-edge)"
+          strokeWidth="1.8"
+        />
+        <g fill="#46efaa" aria-hidden="true">
+          <rect x="361" y="142" width="24" height="9" rx="3" />
+          <rect x="353" y="150" width="10" height="15" rx="3" />
+          <rect x="369" y="161" width="12" height="12" rx="4" />
+          <rect x="386" y="163" width="10" height="16" rx="3" />
+          <rect x="365" y="177" width="24" height="9" rx="3" />
+        </g>
+        <text className="vault-safe-title" x="375" y="211" textAnchor="middle">
+          Safe
+        </text>
+        <text className="vault-copy" x="375" y="229" textAnchor="middle">
+          One vault
+        </text>
+
+        <rect
+          x="16"
+          y="308"
+          width="728"
+          height="44"
+          rx="8"
+          fill="#0c121c"
+          stroke="#263248"
+        />
+        <text className="vault-legend-title" x="30" y="334">
+          LEGEND
+        </text>
+        <g className="vault-legend-item">
+          <rect
+            x="101"
+            y="319"
+            width="38"
+            height="23"
+            rx="5"
+            fill="#102338"
+            stroke="#3485c6"
           />
-          <DiagramNode
-            icon={<Users />}
-            title="Secondary signer"
-            copy="Configured co-signer"
+          <text x="120" y="335" textAnchor="middle" fill="#49b9ff">
+            X
+          </text>
+          <text className="vault-copy" x="149" y="335">
+            / base limit
+          </text>
+          <rect
+            x="298"
+            y="319"
+            width="38"
+            height="23"
+            rx="5"
+            fill="#21182e"
+            stroke="#9b66d5"
           />
-        </div>
-        <div className="safe-node">
-          <ShieldCheck className="size-8 text-emerald-300" />
-          <strong>Safe</strong>
-          <span>One vault</span>
-        </div>
-        <div className="diagram-column">
-          <DiagramNode
-            icon={<ShieldCheck />}
-            title="TieredSpendingGuard"
-            copy="Checks policy"
-            accent="green"
+          <text x="317" y="335" textAnchor="middle" fill="#cba3ff">
+            Y
+          </text>
+          <text className="vault-copy" x="346" y="335">
+            / instant limit
+          </text>
+          <rect
+            x="522"
+            y="319"
+            width="38"
+            height="23"
+            rx="5"
+            fill="#21182e"
+            stroke="#9b66d5"
           />
-          <DiagramNode
-            icon={<Clock3 />}
-            title="Delay Z"
-            copy="Enforces delay"
-            accent="violet"
-          />
-        </div>
-      </div>
-      <div className="legend">
-        <span>Legend</span>
-        <b className="legend-x">X</b>
-        <em>base limit</em>
-        <b className="legend-y">Y</b>
-        <em>instant limit</em>
-        <b className="legend-z">Z</b>
-        <em>mandatory delay</em>
-      </div>
+          <text x="541" y="335" textAnchor="middle" fill="#cba3ff">
+            Z
+          </text>
+          <text className="vault-copy" x="570" y="335">
+            / mandatory delay
+          </text>
+        </g>
+      </svg>
     </div>
   );
 }
 
-function DiagramNode({
+function VaultDiagramNode({
+  x,
+  y,
+  width,
   icon,
   title,
-  copy,
-  accent = "blue",
+  lines,
+  color,
 }: {
+  x: number;
+  y: number;
+  width: number;
   icon: ReactNode;
   title: string;
-  copy: string;
-  accent?: string;
+  lines: string[];
+  color: string;
 }) {
   return (
-    <div className={`diagram-node accent-${accent}`}>
-      <span className="diagram-icon">{icon}</span>
-      <span>
-        <strong>{title}</strong>
-        <small>{copy}</small>
-      </span>
-    </div>
+    <g transform={`translate(${x} ${y})`}>
+      <rect
+        width={width}
+        height="78"
+        rx="9"
+        fill="url(#vault-panel)"
+        stroke="#385175"
+      />
+      <rect
+        x="12"
+        y="15"
+        width="43"
+        height="43"
+        rx="11"
+        fill={color}
+        fillOpacity=".08"
+        stroke={color}
+        strokeOpacity=".55"
+      />
+      <svg
+        x="20"
+        y="23"
+        width="27"
+        height="27"
+        viewBox="0 0 24 24"
+        color={color}
+      >
+        {icon}
+      </svg>
+      <text
+        className="vault-node-title"
+        x="66"
+        y="27"
+        fontSize={title === "TieredSpendingGuard" ? 9.5 : 11.5}
+      >
+        {title}
+      </text>
+      {lines.map((line, index) => (
+        <text className="vault-copy" key={line} x="66" y={46 + index * 15}>
+          {line}
+        </text>
+      ))}
+    </g>
   );
 }
 
