@@ -587,12 +587,41 @@
   min-height: 4.15rem;
 }
 .hero-copy h1 {
-  font-weight: 400;
-  letter-spacing: -0.055em;
+  max-width: none;
+  font-family: "Inter", Arial, sans-serif;
+  font-size: clamp(2.25rem, 3.4vw, 3.45rem);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  color: #f3f4ff;
 }
 .hero-copy h1 span {
   font-weight: inherit;
-  color: #8d79ff;
+  color: inherit;
+}
+.hero-title-line {
+  display: block;
+}
+.hero-title-intro {
+  background: linear-gradient(105deg, #fafbff 0%, #edeefa 58%, #b3a5ff 100%);
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero-title-accent {
+  background: linear-gradient(
+    110deg,
+    #bb86f3 0%,
+    #9068fa 35%,
+    #6550f5 75%,
+    #6e53ff 100%
+  );
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@media (max-width: 1100px) {
+  .hero-copy h1 {
+    font-size: clamp(2rem, 5.7vw, 3.8rem);
+  }
 }
 .hero-description {
   color: #aebdd2;

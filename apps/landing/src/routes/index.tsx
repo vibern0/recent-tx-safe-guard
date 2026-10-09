@@ -158,7 +158,12 @@ function Hero() {
       <div className="hero-copy">
         <p className="hero-kicker">One Safe. Onchain policy.</p>
         <h1>
-          A vault whose policy is <span>enforced onchain.</span>
+          <span className="hero-title-line hero-title-intro">
+            A vault whose policy
+          </span>{" "}
+          <span className="hero-title-line">
+            is <span className="hero-title-accent">enforced onchain.</span>
+          </span>
         </h1>
         <p className="hero-description">
           recent-tx-safe-guard is a one-Safe vault with a clear transaction
