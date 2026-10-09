@@ -165,31 +165,6 @@ function Hero() {
           policy. Everyday actions are fast. Larger actions are delayed. Your
           assets, better protected.
         </p>
-        <div className="hero-actions">
-          <Link
-            to="/onboarding"
-            className="landing-button landing-button-primary"
-          >
-            Try the testnet <ArrowRight className="size-4" aria-hidden />
-          </Link>
-          <a
-            href="#policy-lanes"
-            className="landing-button landing-button-secondary"
-          >
-            <Link2 className="size-4" aria-hidden /> Read the policy
-          </a>
-        </div>
-        <div className="hero-proof">
-          <span>
-            <Check /> Onchain policy
-          </span>
-          <span>
-            <Check /> Simple UX
-          </span>
-          <span>
-            <Check /> Testnet research
-          </span>
-        </div>
       </div>
       <SystemDiagram />
     </section>
