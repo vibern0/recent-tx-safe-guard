@@ -234,7 +234,7 @@
 .hero-copy h1 {
   max-width: 11ch;
   margin-top: 1.6rem;
-  font-size: clamp(3.2rem, 6vw, 5.4rem);
+  font-size: clamp(3.2rem, 6vw, 5.5rem);
   line-height: 0.98;
   letter-spacing: -0.065em;
 }
@@ -588,10 +588,11 @@
 }
 .hero-copy h1 {
   font-weight: 400;
-  letter-spacing: -0.075em;
+  letter-spacing: -0.055em;
 }
 .hero-copy h1 span {
-  font-weight: 500;
+  font-weight: inherit;
+  color: #8d79ff;
 }
 .hero-description {
   color: #aebdd2;
