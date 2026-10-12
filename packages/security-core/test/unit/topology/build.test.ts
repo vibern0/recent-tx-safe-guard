@@ -4,6 +4,7 @@ import {
   assertSafeCreationReady,
   buildVaultPlan,
   decodeSafeFactoryCall,
+  deriveVaultSafeProxyAddress,
   policyHash,
   verifyVaultPrerequisites,
   type VaultDeploymentPlan,
@@ -141,6 +142,20 @@ async function derivedPolicy(): Promise<VaultPolicy> {
 }
 
 describe("buildVaultPlan", () => {
+  it("derives the Safe proxy before constructor-bound prerequisite creation code exists", async () => {
+    const deployments = await verifiedInfrastructure();
+    const expected = await derivedPolicy();
+
+    expect(deriveVaultSafeProxyAddress({
+      policy: policyBase,
+      deployer,
+      startingNonce,
+      safeProxySaltNonce: 7n,
+      safeProxyCreationCode: code(44),
+      deployments,
+    })).to.equal(expected.safe);
+  });
+
   it("produces byte-identical unsigned Option B topology output with fixed owners, initializer, nonces, and addresses", async () => {
     const policy = await derivedPolicy();
     const first = await productionPlan(policy);

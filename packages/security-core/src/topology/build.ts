@@ -226,6 +226,39 @@ function deployTransaction(description: string, deployer: Address, nonce: bigint
   };
 }
 
+/** Derives the Safe address from setup data before constructors bind prerequisites to it. */
+export function deriveVaultSafeProxyAddress(input: Pick<VaultPlanInput, "policy" | "deployer" | "startingNonce" | "safeProxySaltNonce" | "safeProxyCreationCode" | "deployments">): Address {
+  const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
+  const optionB = configuredOptionBSecondaries(input.policy);
+  const setupHelperCalldata = encodeFunctionData({
+    abi: HELPER_ABI,
+    functionName: "setup",
+    args: [{
+      guard: components.guard,
+      delay: components.delay,
+      maintenance: components.maintenance,
+      passkey: input.policy.passkey,
+      safeContractSecondary: optionB.safeContractSecondary,
+      ecdsaSecondary: optionB.ecdsaSecondary,
+      periodSeconds: BigInt(input.policy.periodSeconds),
+      periodAnchor: input.policy.periodAnchor,
+      assets: input.policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
+    }],
+  });
+  const safeInitializer = encodeFunctionData({
+    abi: SAFE_ABI,
+    functionName: "setup",
+    args: [[input.policy.passkey], 1n, components.setupHelper, setupHelperCalldata, ZERO, ZERO, 0n, ZERO],
+  });
+  return deriveSafeProxyAddress({
+    factory: input.deployments.safeProxyFactory.address,
+    singleton: input.deployments.safeSingleton.address,
+    proxyCreationCode: input.safeProxyCreationCode,
+    initializer: safeInitializer,
+    saltNonce: input.safeProxySaltNonce,
+  });
+}
+
 export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   assertValidVaultPolicy(input.policy);
   if (!isOfficialVerifiedDeployments(input.deployments)) throw new Error("fail closed: deployments must come from a verified resolver");
@@ -273,13 +306,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     functionName: "createProxyWithNonce",
     args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce],
   });
-  const derivedSafeProxy = deriveSafeProxyAddress({
-    factory: input.deployments.safeProxyFactory.address,
-    singleton: input.deployments.safeSingleton.address,
-    proxyCreationCode: input.safeProxyCreationCode,
-    initializer: safeInitializer,
-    saltNonce: input.safeProxySaltNonce,
-  });
+  const derivedSafeProxy = deriveVaultSafeProxyAddress(input);
   if (!same(input.policy.safe, derivedSafeProxy)) throw new Error("fail closed: policy Safe does not match derived Safe proxy address");
 
   return {
