@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { OFFICIAL_DEPLOYMENT_REGISTRY, isVerifiedDeploymentInfrastructure } from "../../../src/config/deployments";
+import { OFFICIAL_DEPLOYMENT_REGISTRY, isVerifiedDeploymentInfrastructure, verifyOfficialDeploymentDependencies } from "../../../src/config/deployments";
+import { keccak256, type Address, type Hex } from "viem";
 
 const CHAIN_ID = 11155111;
 
@@ -12,6 +13,26 @@ describe("deployment registry", () => {
     expect(entry.address).to.equal("0xA83c336B20401Af773B6219BA5027174338D1836");
     expect(entry.runtimeCodeHash).to.equal("0xcdbdcec38d2f1c7d961b0029ff8416b7e86e9974d6f0e9c9580c7d17fcfb6663");
     expect(entry.source).to.contain("@safe-global/safe-deployments");
+  });
+
+  it("pins the official Safe passkey factory and Daimo verifier deployment evidence", () => {
+    const factory = OFFICIAL_DEPLOYMENT_REGISTRY[CHAIN_ID]!.passkeySignerFactory;
+    const verifier = OFFICIAL_DEPLOYMENT_REGISTRY[CHAIN_ID]!.passkeySignerVerifier;
+
+    expect(factory).to.include({
+      name: "Safe WebAuthn signer factory",
+      version: "0.2.0",
+      address: "0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf",
+      runtimeCodeHash: "0xbe9db61b4ee533cb4b1136ef244141db4ca3b7867b44d154db9faeb22f39d7bb",
+      evidence: "verified",
+    });
+    expect(verifier).to.include({
+      name: "Daimo P-256 verifier",
+      version: "0.2.0",
+      address: "0xc2b78104907F722DABAc4C69f826a522B2754De4",
+      runtimeCodeHash: "0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc",
+      evidence: "verified",
+    });
   });
 
   it("does not let config-shaped JSON construct the production infrastructure brand", () => {
@@ -34,5 +55,17 @@ describe("deployment registry", () => {
     };
 
     expect(isVerifiedDeploymentInfrastructure(cloned)).to.equal(false);
+  });
+
+  it("verifies every pinned official dependency without requiring a credential-specific signer", async () => {
+    const chain = OFFICIAL_DEPLOYMENT_REGISTRY[CHAIN_ID]!;
+    const code = "0x6001" as Hex;
+    const verified = await verifyOfficialDeploymentDependencies({
+      getBytecode: async ({ address }: { address: Address }) => {
+        expect(Object.values(chain).some((record) => record.address?.toLowerCase() === address.toLowerCase())).to.equal(true);
+        return code;
+      },
+    }, CHAIN_ID, { [CHAIN_ID]: Object.fromEntries(Object.entries(chain).map(([name, record]) => [name, { ...record, runtimeCodeHash: keccak256(code) }])) } as typeof OFFICIAL_DEPLOYMENT_REGISTRY);
+    expect(Object.keys(verified)).to.have.length(5);
   });
 });

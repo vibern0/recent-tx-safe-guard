@@ -82,7 +82,7 @@ export function isVerifiedDeploymentInfrastructure(value: unknown): value is Ver
 export const isOfficialVerifiedDeployments = isVerifiedDeploymentInfrastructure;
 
 const SAFE_DEPLOYMENTS_PACKAGE = "@safe-global/safe-deployments@1.37.63";
-const SAFE_MODULES = "https://github.com/safe-global/safe-modules";
+const SAFE_PASSKEY_DEPLOYMENTS = "https://github.com/safe-global/safe-modules-deployments/blob/main/src/assets/safe-passkey-module/v0.2.0";
 
 type SafeDeploymentAsset = Readonly<{
   contractName: string;
@@ -104,16 +104,20 @@ const OFFICIAL_DEPLOYMENT_REGISTRY_DATA: DeploymentInfrastructureRegistry = {
     safeSingleton: fromSafeDeploymentAsset(Safe150 as SafeDeploymentAsset, "Safe singleton", true),
     safeProxyFactory: fromSafeDeploymentAsset(SafeProxyFactory150 as SafeDeploymentAsset, "Safe proxy factory"),
     passkeySignerFactory: {
-      name: "Safe passkey signer factory",
+      name: "Safe WebAuthn signer factory",
       version: "0.2.0",
-      evidence: "absent",
-      source: SAFE_MODULES,
+      address: "0xF7488fFbe67327ac9f37D5F722d83Fc900852Fbf",
+      runtimeCodeHash: "0xbe9db61b4ee533cb4b1136ef244141db4ca3b7867b44d154db9faeb22f39d7bb",
+      evidence: "verified",
+      source: `${SAFE_PASSKEY_DEPLOYMENTS}/safe-webauthn-signer-factory.json`,
     },
     passkeySignerVerifier: {
-      name: "Safe passkey verifier",
+      name: "Daimo P-256 verifier",
       version: "0.2.0",
-      evidence: "absent",
-      source: SAFE_MODULES,
+      address: "0xc2b78104907F722DABAc4C69f826a522B2754De4",
+      runtimeCodeHash: "0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc",
+      evidence: "verified",
+      source: `${SAFE_PASSKEY_DEPLOYMENTS}/daimo-p256-verifier.json`,
     },
     multiSendCallOnly: fromSafeDeploymentAsset(MultiSendCallOnly150 as SafeDeploymentAsset, "Safe MultiSendCallOnly"),
   },
@@ -184,6 +188,15 @@ async function resolveInfrastructureDependencies(
   }
 
   return Object.freeze(dependencies);
+}
+
+/** Verifies public, pinned dependencies before a credential-specific signer exists. */
+export async function verifyOfficialDeploymentDependencies(
+  client: Pick<ReadOnlyDeploymentClient, "getBytecode">,
+  chainId: number,
+  registry: DeploymentInfrastructureRegistry | Readonly<DeploymentInfrastructureRegistry> = OFFICIAL_DEPLOYMENT_REGISTRY,
+): Promise<Readonly<DependencyMap>> {
+  return resolveInfrastructureDependencies(client, chainId, registry, { requireEvidence: true });
 }
 
 export async function resolveDeploymentInfrastructureRegistry(

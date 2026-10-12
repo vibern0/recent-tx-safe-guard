@@ -173,9 +173,9 @@ describe("vault evidence", () => {
     ).to.be.rejectedWith("deployer nonce changed");
   });
 
-  it("keeps the production resolver fail-closed while public passkey infrastructure evidence is absent", async () => {
+  it("keeps the production resolver fail-closed when live public dependency code differs from its pin", async () => {
     await expect(resolveVerifiedDeploymentInfrastructure(clientFor(), input)).to.be.rejectedWith(
-      "official deployment evidence",
+      "runtime code hash mismatch",
     );
   });
 });

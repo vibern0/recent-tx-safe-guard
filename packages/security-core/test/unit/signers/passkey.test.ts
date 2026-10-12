@@ -44,10 +44,11 @@ const fabricatedDeployments = (branded = false) => Object.freeze({
 
 const verifiedDeployments = () => brandVerifiedDeploymentInfrastructureForTestsOnly({
   chainId: 31337,
+  passkeySigner: Object.freeze({ name: "passkeySigner", address: PASSKEY, runtimeCodeHash: `0x${"22".repeat(32)}`, bindingHash: `0x${"33".repeat(32)}`, source: "verified factory binding" }),
   passkeySignerVerifier: Object.freeze({
     name: "fixture passkey verifier",
     version: "0.2.0",
-    address: PASSKEY,
+    address: SAFE,
     runtimeCodeHash: `0x${"11".repeat(32)}` as Hex,
     evidence: "verified",
     source: "fixture",
@@ -73,7 +74,7 @@ describe("passkey SafeSigner", () => {
     const raw = "0x1234" as Hex;
     const signer = testPasskeySigner(verifierProvider(), async () => raw);
     const signature = await signer.sign(request());
-    expect(signature).to.equal(`0x${PASSKEY.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(2n, { size: 32 }).slice(2)}1234${"0".repeat(60)}`);
+    expect(signature).to.equal(`0x${PASSKEY.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(2n, { size: 32 }).slice(2)}1234`);
   });
 
   it("rejects a passkey response that fails the configured ERC-1271 verifier", async () => {

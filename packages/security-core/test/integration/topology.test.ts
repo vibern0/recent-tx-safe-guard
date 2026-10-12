@@ -15,7 +15,7 @@ describe("one-Safe setup integration gate", () => {
   it("keeps the deterministic draft encoder test-only and unsigned", () => {
     const plan = buildVaultPlanDraft({ policy, safeProxy: a(1), safeProxySaltNonce: 0n, deployments });
     expect(plan.safeProxyDeployment.value).to.equal(0n);
-    expect(plan.safe.owners).to.deep.equal([a(2), a(8), a(3)].sort());
+    expect(plan.safe.owners).to.deep.equal([a(2)]);
     expect(plan.setup.some((call) => call.to === deployments.guard.address && call.data.startsWith("0x7cec647c"))).to.equal(true);
     expect(plan.setup.every((call) => call.value === 0n && call.operation === 0)).to.equal(true);
     expect(plan.extraAccounts).to.deep.equal([]);

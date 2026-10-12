@@ -135,7 +135,7 @@ async function derivedPolicy(): Promise<VaultPolicy> {
       assets: policyBase.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })),
     }],
   });
-  const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey, policyBase.secondaries[0]!.address, policyBase.ecdsaSecondary].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase())), 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });
+  const initializer = encodeFunctionData({ abi: SAFE_SETUP_ABI, functionName: "setup", args: [[policyBase.passkey], 1n, components.setupHelper, helperData, a(0), a(0), 0n, a(0)] });
   const safe = deriveSafeProxyAddress({ factory: deployments.safeProxyFactory.address, singleton: deployments.safeSingleton.address, proxyCreationCode: code(44), initializer, saltNonce: 7n });
   return { ...policyBase, safe };
 }
@@ -151,7 +151,7 @@ describe("buildVaultPlan", () => {
     expect(first.unsigned).to.equal(true);
     expect(first.broadcast).to.equal(false);
     expect(json(first)).not.to.match(/signature|privateKey|secret|broadcast":true/i);
-    const expectedOwners = [policy.passkey, policy.secondaries![0]!.address, policy.ecdsaSecondary].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
+    const expectedOwners = [policy.passkey];
     expect(first.review.owners).to.deep.equal(expectedOwners);
     expect(first.review.threshold).to.equal(1);
     expect(first.review.fallbackHandler).to.equal(a(0));
@@ -235,9 +235,9 @@ describe("buildVaultPlan", () => {
       async getBytecode({ address }) { return deployed.get(address); },
       async readContract({ address, functionName }) {
         if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "config") return [policy.safe, policy.passkey, policy.ecdsaSecondary, components.delay, 86400n, policy.periodAnchor];
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "safeContractSecondary") return [policy.secondaries![0]!.address, 0, true];
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "safeContractSecondary") return [a(0), 0, false];
         if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "ecdsaSecondary") return [policy.ecdsaSecondary, 1, true];
-        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "maintenance") return components.maintenance;
+        if (address === plan.prerequisites.guard.expectedCreatedAddress && functionName === "maintenance") return a(0);
         if (address === plan.prerequisites.delay.expectedCreatedAddress && ["owner", "avatar", "target"].includes(functionName)) return policy.safe;
         if (address === plan.prerequisites.delay.expectedCreatedAddress && functionName === "txCooldown") return BigInt(policy.cooldownSeconds);
         if (address === plan.prerequisites.delay.expectedCreatedAddress && functionName === "txExpiration") return BigInt(policy.expirationSeconds);

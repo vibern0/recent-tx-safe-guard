@@ -15,7 +15,7 @@ export type PasskeySignerOptions = Readonly<{
 /** Safe-native passkey adapter. ERC-1271 is queried at the configured signer identity. */
 export function createPasskeySigner(options: PasskeySignerOptions): VaultSigner {
   if (!isVerifiedDeploymentInfrastructure(options.deployments)) throw new Error("passkey verifier requires official deployment evidence");
-  const verifier = options.deployments.passkeySignerVerifier;
-  if (verifier.evidence !== "verified" || !verifier.runtimeCodeHash || !/^0x[0-9a-f]{64}$/i.test(verifier.runtimeCodeHash) || verifier.address.toLowerCase() !== options.address.toLowerCase()) throw new Error("verifier must be an officially verified configured passkey");
-  return createPasskeySignerCore({ address: options.address, role: options.role, verifierAddress: verifier.address, chainId: options.deployments.chainId, provider: options.provider, sign: options.sign });
+  const signer = options.deployments.passkeySigner;
+  if (!signer || !/^0x[0-9a-f]{64}$/i.test(signer.runtimeCodeHash) || !/^0x[0-9a-f]{64}$/i.test(signer.bindingHash) || signer.address.toLowerCase() !== options.address.toLowerCase()) throw new Error("signer must be the verified configured passkey instance");
+  return createPasskeySignerCore({ address: options.address, role: options.role, verifierAddress: signer.address, chainId: options.deployments.chainId, provider: options.provider, sign: options.sign });
 }

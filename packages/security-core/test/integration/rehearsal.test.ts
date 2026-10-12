@@ -24,14 +24,14 @@ describe("local time-controlled security rehearsal", () => {
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
-    const owners = [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const owners = [passkey.address];
     await safe.write.setup([owners, 1n, ZERO, "0x", ZERO, ZERO, 0n, ZERO], { account: deployer.account });
     expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(owners.map((owner) => owner.toLowerCase()));
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
     const sign = async (to: Address, value: bigint, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data, { chainId: network, value });
     const exec = (to: Address, value: bigint, data: Hex, signature: Hex, operation = 0 as const) => safe.write.execTransaction([to, value, data, operation, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
-    const ownerCall = async (to: Address, data: Hex, signer = ecdsaSecondary) => exec(to, 0n, data, await sign(to, 0n, data, signer));
+    const ownerCall = async (to: Address, data: Hex) => exec(to, 0n, data, passkeySignature(passkey.address));
     const passkeySig = passkeySignature(passkey.address);
     const envelope = (signature: Hex) => ecdsaSecondaryEnvelope(passkey.address, signature);
     const passkeyAndSecondary = async (to: Address, value: bigint, data: Hex) => envelope(await sign(to, value, data, ecdsaSecondary));
@@ -93,13 +93,13 @@ describe("local time-controlled security rehearsal", () => {
     await exec(guard.address, 0n, freeze, await passkeyAndSecondary(guard.address, 0n, freeze));
     expect(await guard.read.frozen()).to.equal(true);
     const ecdsaSecondaryIndex = owners.findIndex((owner) => owner.toLowerCase() === ecdsaSecondary.account.address.toLowerCase());
-    const previousOwner = (ecdsaSecondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : owners[ecdsaSecondaryIndex - 1]) as Address;
+    const previousOwner = ZERO;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [guard.address, 1, ecdsaSecondary.account.address, replacement.account.address, previousOwner, 1n, "0x"] });
     const repairQueue = await queue(0n, repair, maintenance.address, 1, ecdsaSecondary, true);
     await expect(delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account })).to.be.rejected;
     await time.increase(11);
     await delay.write.executeNextTx([repairQueue.target, repairQueue.value, repairQueue.data, repairQueue.operation], { account: deployer.account });
     expect((await guard.read.config())[2].toLowerCase()).to.equal(replacement.account.address.toLowerCase());
-    expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(replacement.account.address.toLowerCase());
+    expect((await safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal([passkey.address.toLowerCase()]);
   });
 });

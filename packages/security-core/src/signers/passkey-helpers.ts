@@ -4,6 +4,5 @@ export const ERC1271_ABI = [{ name: "isValidSignature", type: "function", stateM
 
 export function encodeSafeContractSignature(address: Address, rawSignature: Hex): Hex {
   const byteLength = (rawSignature.length - 2) / 2;
-  const paddedLength = Math.ceil(byteLength / 32) * 64;
-  return `0x${address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(BigInt(byteLength), { size: 32 }).slice(2)}${rawSignature.slice(2).padEnd(paddedLength, "0")}` as Hex;
+  return `0x${address.slice(2).padStart(64, "0")}${toHex(65n, { size: 32 }).slice(2)}00${toHex(BigInt(byteLength), { size: 32 }).slice(2)}${rawSignature.slice(2)}` as Hex;
 }

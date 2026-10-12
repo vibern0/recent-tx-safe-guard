@@ -12,6 +12,7 @@ export type TopologyInput = Readonly<{ chainId: number; policy: VaultPolicy; saf
 export type TopologyReport = Readonly<{ ok: boolean; failures: readonly string[]; checked: readonly string[] }>;
 
 const ABI = parseAbi([
+  "function maintenance() view returns (address)", "function safe() view returns (address)", "function delay() view returns (address)",
   "function masterCopy() view returns (address)", "function VERSION() view returns (string)", "function getOwners() view returns (address[])", "function getThreshold() view returns (uint256)", "function getModulesPaginated(address,uint256) view returns (address[],address)", "function isModuleEnabled(address) view returns (bool)",
   "function config() view returns (address,address,address,address,uint64,uint64)", "function safeContractSecondary() view returns (address,uint8,bool)", "function ecdsaSecondary() view returns (address,uint8,bool)", "function assetPolicy(address) view returns (uint256,uint256,uint256,uint256)", "function spendState(address) view returns (uint256,uint256,uint256)", "function getPolicyRecipients(address) view returns (address[])", "function getConfiguredTokens() view returns (address[])", "function policyHash() view returns (bytes32)",
   "function owner() view returns (address)", "function avatar() view returns (address)", "function target() view returns (address)", "function txCooldown() view returns (uint256)", "function txExpiration() view returns (uint256)",
@@ -27,7 +28,7 @@ const storageAddress = (word: Hex | undefined): Address | undefined => word ? `0
 const expectedOwners = (policy: VaultPolicy): readonly Address[] => {
   const safeContractSecondary = policy.secondaries?.find((signer) => signer.kind === "safe-contract" && signer.enabled)?.address;
   const ecdsaSecondary = policy.secondaries?.find((signer) => signer.kind === "ecdsa-extension" && signer.enabled && same(signer.address, policy.ecdsaSecondary))?.address;
-  return safeContractSecondary && ecdsaSecondary ? [policy.passkey, safeContractSecondary, ecdsaSecondary].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase())) : [];
+  return safeContractSecondary && ecdsaSecondary ? [policy.passkey] : [];
 };
 
 export async function verifyTopology(input: TopologyInput): Promise<TopologyReport> {
@@ -38,15 +39,21 @@ export async function verifyTopology(input: TopologyInput): Promise<TopologyRepo
   if (!isVerifiedVaultPrerequisites(input.prerequisites)) {
     return { ok: false, failures: ["prerequisites: vault component evidence required"], checked };
   }
+  if (input.prerequisites.stage !== "after-setup") return { ok: false, failures: ["prerequisites: post-setup evidence required"], checked };
   const check = (name: string, condition: boolean) => { checked.push(name); if (!condition) failures.push(name); };
   try { assertValidVaultPolicy(input.policy); } catch (error) { failures.push("policy: " + (error instanceof Error ? error.message : "invalid")); return { ok: false, failures, checked }; }
   check("chain id", input.chainId === input.policy.chainId && input.deployments.chainId === input.chainId); check("safe address", same(input.safe, input.policy.safe)); check("Delay address", same(input.delay, input.policy.delay) && same(input.delay, input.prerequisites.delay.address)); check("guard address", same(input.guard, input.prerequisites.guard.address));
   const code = async (label: string, address: Address, expected: Hex) => { try { const actual = await input.client.getBytecode({ address }); check(label + " bytecode", !!actual && actual !== "0x"); check(label + " code hash", !!actual && keccak256(actual).toLowerCase() === expected.toLowerCase()); } catch { check(label + " bytecode", false); check(label + " code hash", false); } };
   await code("Safe proxy", input.safe, input.expectedSafeProxyCodeHash); await code("guard", input.guard, input.prerequisites.guard.runtimeCodeHash); await code("Delay", input.delay, input.prerequisites.delay.runtimeCodeHash);
   const read = async (label: string, address: Address, functionName: string, args: readonly unknown[] = []): Promise<unknown> => { try { return await input.client.readContract({ address, abi: ABI, functionName, args }); } catch { failures.push(label + " read"); return undefined; } };
+  const maintenance = input.prerequisites.maintenance;
+  await code("maintenance", maintenance.address, maintenance.runtimeCodeHash);
+  check("guard maintenance", same(await read("guard maintenance", input.guard, "maintenance"), maintenance.address));
+  check("maintenance Safe", same(await read("maintenance Safe", maintenance.address, "safe"), input.safe));
+  check("maintenance Delay", same(await read("maintenance Delay", maintenance.address, "delay"), input.delay));
   const storage = async (label: string, slot: Hex): Promise<Address | undefined> => { try { return storageAddress(await input.client.getStorageAt({ address: input.safe, slot })); } catch { failures.push(label + " read"); return undefined; } };
   const masterCopy = await read("Safe singleton", input.safe, "masterCopy"); check("Safe proxy singleton", same(masterCopy, input.deployments.dependencies.safeSingleton.address)); check("Safe version", (await read("Safe version", input.safe, "VERSION")) === input.deployments.dependencies.safeSingleton.version);
-  const owners = tuple(await read("owners", input.safe, "getOwners")); const expectedSafeOwners = expectedOwners(input.policy); check("owners", !!owners && owners.length === 3 && expectedSafeOwners.length === 3 && owners.every((x, i) => same(x, expectedSafeOwners[i])));
+  const owners = tuple(await read("owners", input.safe, "getOwners")); const expectedSafeOwners = expectedOwners(input.policy); check("owners", !!owners && owners.length === 1 && expectedSafeOwners.length === 1 && owners.every((x, i) => same(x, expectedSafeOwners[i])));
   check("threshold", (await read("threshold", input.safe, "getThreshold")) === 1n); check("fallback handler", same(await storage("fallback handler", FALLBACK_HANDLER_SLOT), ZERO)); check("transaction guard", same(await storage("transaction guard", GUARD_SLOT), input.guard)); check("module guard", same(await storage("module guard", MODULE_GUARD_SLOT), input.guard));
   const modulesPage = tuple(await read("modules", input.safe, "getModulesPaginated", [SENTINEL_MODULES, 10n])); const modules = tuple(modulesPage?.[0]); check("only Delay module", !!modulesPage && modulesPage.length === 2 && !!modules && modules.length === 1 && same(modules[0], input.delay) && same(modulesPage[1], SENTINEL_MODULES));
   const config = tuple(await read("guard config", input.guard, "config")); check("guard config", !!config && same(config[0], input.safe) && same(config[1], input.policy.passkey) && same(config[2], input.policy.ecdsaSecondary) && same(config[3], input.delay) && config[4] === 86400n && config[5] === input.policy.periodAnchor);

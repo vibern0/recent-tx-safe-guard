@@ -1,5 +1,7 @@
 # Single-Safe Tiered Spending Security Core Implementation Plan
 
+> **2026-10-09 supersession:** The [approved live-validation plan](2026-10-09-guard-live-validation.md) replaces the three-owner baseline with one primary-passkey owner and guard-only contract/ECDSA secondaries. Older owner-count and paired secondary/owner rotation requirements below are historical. Live and ERC-4337 gates remain unchecked until evidenced.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build and prove a testnet-only Safe security core where one Safe permits primary-passkey-only spending up to daily X, requires one configured secondary signer up to shared daily Y, and requires a cancellable delay Z above Y.
@@ -410,7 +412,7 @@ Use the reviewed Safe passkey contracts and verify the configured signer contrac
 
 - [x] **Step 3: Implement configured secondary adapters**
 
-Use Safe-native passkey signing for the safe-contract secondary and `eth_signTypedData_v4` through generic EIP-1193/WalletConnect for the ECDSA secondary. Verify recovered addresses locally. Do not invoke undocumented NFC/libhalo commands or bypass provider confirmation/PIN behavior.
+Use Safe-native passkey signing for the safe-contract secondary and `eth_signTypedData_v4` through a reviewed non-WalletConnect boundary for the ECDSA secondary. Verify recovered addresses locally. Do not invoke undocumented NFC/libhalo commands or bypass provider confirmation/PIN behavior.
 
 - [x] **Step 4: Prove the complete signer matrix**
 

@@ -9,7 +9,7 @@ Read these documents in order before changing architecture, contracts, transacti
 1. [Research, threat model, and product direction](packages/security-core/docs/research/2026-09-16-personal-vault-research.md)
 2. [Security-core implementation plan](packages/security-core/docs/superpowers/plans/2026-09-16-personal-vault-security-core.md)
 
-Before adding or changing passkey, Burner, Cometh, embedded-wallet, account-abstraction, or WalletConnect behavior, also read [Signer provider evaluation](packages/security-core/docs/security/signer-provider-evaluation.md).
+Before adding or changing passkey, Burner, Cometh, embedded-wallet, or account-abstraction behavior, also read [Signer provider evaluation](packages/security-core/docs/security/signer-provider-evaluation.md).
 
 The research document defines the intended security properties and scope. The implementation plan defines the approved sequence, file boundaries, tests, and delivery gates. If code and documentation disagree, stop and resolve the discrepancy explicitly; do not silently weaken the documented property.
 
@@ -38,6 +38,7 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 - Enforce passkey-only daily spending up to X and combined base-plus-step-up daily spending up to shared Y, per token, with `0 < X < Y`, on one asset-holding Safe.
 - Require the Safe-validated signer to be exactly the configured passkey for transfer paths.
 - Require a self-authenticating Burner co-signature over the exact Safe transaction for the step-up and delayed tiers.
+- Do not add WalletConnect dependencies, adapters, connection flows, or signing paths. If a secondary signer cannot sign through a reviewed non-WalletConnect boundary, stop and write a focused design proposal.
 - Enforce per-transaction and per-period limits onchain and per token.
 - Require a mandatory delay Z after full approval for delayed-tier operations above Y.
 - Delay security-weakening changes; permit immediate tightening only when enforced onchain.

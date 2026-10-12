@@ -1,14 +1,14 @@
 # Sepolia testnet runbook
 
-This runbook is for the Option B single-Safe security-core prototype on Sepolia only (`chainId 11155111`). It is security research, not a production wallet. Never use it for mainnet, production funds, or live broadcast from the planner. The examples are redacted, not deployed, and contain no secrets.
+This runbook is for the single-owner security-core prototype on Sepolia only (`chainId 11155111`). It is security research, not a production wallet. Never use it for mainnet, production funds, or live broadcast from the planner. The examples are redacted, not deployed, and contain no secrets. The approved 2026-10-09 plan permits a separate live runner after local gates and decoded deployment review; unsigned planners remain non-broadcasting.
 
-The active prototype has exactly three Safe owners: the configured primary passkey, safe-contract secondary, and ECDSA secondary. It has no recovery owner, recovery signer adapter, fallback handler, extra module, or auxiliary custody Safe. Base transfers require the primary passkey. Step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one configured secondary signer over the exact Safe transaction. The loss of the primary or all configured secondary factors is an accepted testnet availability risk: funds may become unavailable until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed. That boundary is deliberate because an immediate recovery path would weaken the active call graph. Direct Burner NFC/libhalo support remains a future spike and is out of scope for this runbook.
+The active prototype has exactly one Safe owner: the configured primary passkey. Contract and ECDSA secondary signers are guard-only identities. It has no recovery owner, recovery signer adapter, fallback handler, extra module, or auxiliary custody Safe. Base transfers require the primary passkey. Step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one configured secondary signer over the exact Safe transaction. The loss of the primary or all configured secondary factors is an accepted testnet availability risk: funds may become unavailable until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed. Direct Burner NFC/libhalo support remains a future spike and is out of scope for this runbook.
 
 ## Hard stop rules
 
 Stop immediately and do not sign, broadcast, deposit funds, or continue rehearsal if any read-only check differs from the reviewed plan. A mismatch in any of the following is a hard failure:
 
-- chain, Safe address, or exactly three Safe owners `[primary passkey, safe-contract secondary, ECDSA secondary]`;
+- chain, Safe address, or exactly one Safe owner `[primary passkey]`;
 - threshold, zero fallback handler, transaction guard, or module guard;
 - enabled Safe modules (Delay must be the only one);
 - guard or Delay address, runtime bytecode hash, signer identity, policy hash, or dependency hash;
@@ -49,17 +49,23 @@ npx ts-node scripts/verify-deployment.ts config/sepolia.example.json /tmp/sepoli
 
 Archive the unsigned plan, decoded review, public manifest, expected evidence hashes, observed snapshot, verification report, report hash, block number, and source revision as the evidence bundle. Redact logs before sharing.
 
+## Bootstrap live runner
+
+`npm run live -- <plan|preflight|submit|resume|evidence>` is a separate Sepolia-only bootstrap tool. It loads an owner-only funding key and locally generated P-256 credentials from private regular files outside the repository. `plan`, `preflight`, `resume`, and `evidence` never broadcast; `submit` additionally requires `LIVE_SUBMIT=YES`. Its durable journal records an intent before broadcast and resumes by receipt rather than rebroadcasting an uncertain transaction.
+
+The current allowlist is intentionally narrow: a zero-value self-transfer from the funder, or the exact `SafeWebAuthnSignerFactory.createSigner` call for either local credential against the pinned Daimo verifier. It is evidence for the signer/bootstrap boundary only. It must reject Safe, guard, Delay, ERC-20, deployment, and arbitrary transaction intents until a dedicated vault deployment/scenario runner has an exact reviewed plan verifier. Do not use it to infer any vault policy result.
+
 ## Atomic setup and exact Safe submission
 
 Prerequisite deployment is separate from Safe creation. First deploy the reviewed setup helper, guard, Delay, and maintenance instances at the deterministic nonce sequence. Then re-read their runtime hashes and constructor/configuration bindings. Only after `assertSafeCreationReady` proves the deployer nonce is exactly `startingNonce + 4` may the official Safe proxy factory transaction be prepared.
 
-The exact Safe submission is the factory call whose initializer is `setup([primary passkey, safe-contract secondary, ECDSA secondary], 1, setupHelper, setupData, 0, 0, 0, 0)` after Safe-required owner sorting. The setup helper performs the atomic setup while `address(this)` is the final Safe: configure assets, configure both secondary signer slots, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Any decoded submission that omits one of the three configured owners, names an extra owner, installs a nonzero fallback handler, adds an extra module, uses an unlisted delegatecall, or has a mismatched Delay owner/avatar/target is a hard stop.
+The exact Safe submission is the factory call whose initializer is `setup([primary passkey], 1, setupHelper, setupData, 0, 0, 0, 0)`. The setup helper checks the sole-owner topology and performs the atomic setup while `address(this)` is the final Safe: configure assets, configure both secondary signer slots, set maintenance, install the same guard in both guard slots, enable Delay as the only Safe module, and enable the Safe as Delay's only upstream module. Any decoded submission with a different owner, nonzero fallback handler, extra module, unlisted delegatecall, or mismatched Delay owner/avatar/target is a hard stop.
 
 ## Delay execution, cancellation/freeze, and signer repair
 
 Delay execution happens only after the queued fingerprint has cooled down and before expiration. The relayer may call `executeNextTx`, but it has no authority beyond executing the already queued tuple. The module guard admits only the configured Delay module and supported `CALL` transfer or delayed-maintenance tuple.
 
-Cancellation/freeze is available to the primary passkey plus exactly one configured secondary signer through the exact Delay nonce-advance cancellation or guard `freeze()` calls. Operators must enumerate the ordered queue items invalidated by a nonce advance before review. Signer repair is delayed and atomic through `GuardReplacementMaintenance.replaceSigner`, so the guard signer and Safe owner rotate together after Delay; direct guard signer repair and role-2 repair are forbidden.
+Cancellation/freeze is available to the primary passkey plus exactly one configured secondary signer through the exact Delay nonce-advance cancellation or guard `freeze()` calls. Operators must enumerate the ordered queue items invalidated by a nonce advance before review. Signer repair is delayed through `GuardReplacementMaintenance.replaceSigner`: primary repair swaps the sole Safe owner and guard identity atomically; secondary repair changes guard configuration only. Use sentinel previousOwner for primary and zero for secondary. Direct guard signer repair and role-2 repair are forbidden.
 
 ## Forbidden paths
 
@@ -70,7 +76,7 @@ Direct owner transfers that do not satisfy the guard tier, unlisted modules, fal
 Use deliberately low-value test assets and clean test accounts. Refuse chain ID 1 at every step.
 
 1. Read and record chain ID, bytecode, owners, threshold, fallback, both guard slots, the single Safe module, Delay topology, policy, counters, and notification destinations.
-2. Verify the atomic setup plan is unsigned and byte-stable across two generations. Do not broadcast it from this repository.
+2. Verify the atomic setup plan is unsigned and byte-stable across two generations. The planner cannot broadcast; only the separately gated live runner may submit after review.
 3. Exercise a native/ERC-20 base transfer within per-transaction and X limits. Confirm it consumes both X and shared Y.
 4. Exercise step-up transfers requiring the configured primary passkey plus the safe-contract secondary and the primary passkey plus the ECDSA secondary. Confirm each consumes shared Y, emits the step-up alert, and cannot be authorized by either secondary alone or by both secondaries without the primary.
 5. Attempt unsupported calldata, approvals, Permit/Permit2, batches, delegate calls, arbitrary messages, unknown recipients, and direct owner/module bypasses. Each must fail closed.
@@ -84,6 +90,6 @@ Use deliberately low-value test assets and clean test accounts. Refuse chain ID 
 
 The rehearsal is incomplete unless the evidence bundle proves one Safe holds assets, both guard paths are constrained, Delay is the only module, passkey-only spending is bounded by X, combined immediate spending by Y, transfers above Y wait Z and are cancellable, signer repair remains delayed, the lost-factor availability risk is visible, and both notification classes were independently observed.
 
-The live low-value Sepolia rehearsal remains outstanding until a human reviews the public package, signs externally, executes with deliberately low-value test assets, and records real evidence. Do not fabricate transaction hashes and do not mark issue #5 complete from this package alone.
+The live low-value Sepolia rehearsal remains outstanding until the public package is reviewed, the separate live runner passes its gates, and deliberately low-value test transactions produce real evidence. Do not fabricate transaction hashes and do not mark issue #5 complete from this package alone.
 
 Any security property that depends only on UI classification, monitoring, relayer honesty, or operator discipline fails the architecture gate. Do not deploy to mainnet or describe this prototype as production-ready or audited. Independent review and a professional audit remain mandatory.

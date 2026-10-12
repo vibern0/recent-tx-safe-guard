@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 interface ISafeAtomicSelfSetup {
+    function getOwners() external view returns (address[] memory);
+    function getThreshold() external view returns (uint256);
     function setGuard(address guard) external;
     function setModuleGuard(address guard) external;
     function enableModule(address module) external;
@@ -73,6 +75,8 @@ contract SafeAtomicSetupHelper {
     ///      helper address as `address(this)` and fail the component binding checks.
     function setup(SetupParams calldata params) external {
         address safe = address(this);
+        address[] memory owners = ISafeAtomicSelfSetup(safe).getOwners();
+        if (owners.length != 1 || owners[0] != params.passkey || ISafeAtomicSelfSetup(safe).getThreshold() != 1) revert InvalidBinding();
         _requireCode(params.guard);
         _requireCode(params.delay);
         _requireCode(params.maintenance);

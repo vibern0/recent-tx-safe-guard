@@ -91,7 +91,7 @@ export type VaultDeploymentPlan = Readonly<{
   safeInitializer: Hex;
   setupHelperCalldata: Hex;
   review: Readonly<{
-    owners: readonly [Address, Address, Address];
+    owners: readonly [Address];
     threshold: 1;
     fallbackHandler: Address;
     paymentToken: Address;
@@ -109,6 +109,7 @@ export type VaultDeploymentPlan = Readonly<{
 }>;
 
 export type VerifiedVaultPrerequisites = Readonly<{
+  stage: "before-setup" | "after-setup";
   planHash: Hex;
   setupHelper: VerifiedComponent;
   guard: VerifiedComponent;
@@ -196,12 +197,6 @@ function same(left: Address, right: Address): boolean {
   return isAddressEqual(left, right);
 }
 
-function sortedOwners(owners: readonly Address[]): readonly [Address, Address, Address] {
-  const sorted = [...owners].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
-  if (sorted.length !== 3) throw new Error("fail closed: Option B requires exactly three Safe owners");
-  return sorted as [Address, Address, Address];
-}
-
 function plannedSetupSigners(plan: VaultDeploymentPlan): { passkey: Address; safeContractSecondary: Address; ecdsaSecondary: Address } {
   const decoded = decodeFunctionData({ abi: HELPER_ABI, data: plan.setupHelperCalldata });
   if (decoded.functionName !== "setup") throw new Error("fail closed: setup helper calldata mismatch");
@@ -251,7 +246,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
   const optionB = configuredOptionBSecondaries(input.policy);
-  const owners = sortedOwners([input.policy.passkey, optionB.safeContractSecondary, optionB.ecdsaSecondary]);
+  const owners = [input.policy.passkey] as const;
 
   const setupHelperCalldata = encodeFunctionData({
     abi: HELPER_ABI,
@@ -365,7 +360,8 @@ async function readBigInt(client: ReadOnlyDeploymentClient, address: Address, ab
   return result;
 }
 
-export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient, plan: VaultDeploymentPlan): Promise<VerifiedVaultPrerequisites> {
+export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient, plan: VaultDeploymentPlan, stage: "before-setup" | "after-setup" = "before-setup"): Promise<VerifiedVaultPrerequisites> {
+  if (stage !== "before-setup" && stage !== "after-setup") throw new Error("fail closed: invalid prerequisite stage");
   const setupHelper = await verifyCode(client, "setupHelper", plan.prerequisites.setupHelper.expectedCreatedAddress, plan.prerequisites.setupHelper.creationCodeHash, plan.prerequisites.setupHelper.expectedRuntimeCodeHash);
   const guard = await verifyCode(client, "guard", plan.prerequisites.guard.expectedCreatedAddress, plan.prerequisites.guard.creationCodeHash, plan.prerequisites.guard.expectedRuntimeCodeHash);
   const delay = await verifyCode(client, "delay", plan.prerequisites.delay.expectedCreatedAddress, plan.prerequisites.delay.creationCodeHash, plan.prerequisites.delay.expectedRuntimeCodeHash);
@@ -382,9 +378,10 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   }
   const safeContractSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "safeContractSecondary" });
   const ecdsaSecondaryConfig = await client.readContract({ address: guard.address, abi: GUARD_ABI, functionName: "ecdsaSecondary" });
-  if (!Array.isArray(safeContractSecondaryConfig) || safeContractSecondaryConfig.length !== 3 || !same(safeContractSecondaryConfig[0] as Address, plannedSigners.safeContractSecondary) || safeContractSecondaryConfig[1] !== 0 || safeContractSecondaryConfig[2] !== true) throw new Error("fail closed: Safe-contract secondary binding mismatch");
+  const initialized = stage === "after-setup";
+  if (!Array.isArray(safeContractSecondaryConfig) || safeContractSecondaryConfig.length !== 3 || !same(safeContractSecondaryConfig[0] as Address, initialized ? plannedSigners.safeContractSecondary : ZERO) || safeContractSecondaryConfig[1] !== 0 || safeContractSecondaryConfig[2] !== initialized) throw new Error("fail closed: Safe-contract secondary binding mismatch");
   if (!Array.isArray(ecdsaSecondaryConfig) || ecdsaSecondaryConfig.length !== 3 || !same(ecdsaSecondaryConfig[0] as Address, configuredEcdsaSecondary) || ecdsaSecondaryConfig[1] !== 1 || ecdsaSecondaryConfig[2] !== true) throw new Error("fail closed: ECDSA secondary binding mismatch");
-  if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), maintenance.address)) throw new Error("fail closed: guard maintenance mismatch");
+  if (!same(await readAddress(client, guard.address, GUARD_ABI, "maintenance"), initialized ? maintenance.address : ZERO)) throw new Error("fail closed: guard maintenance mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "owner"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay owner mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "avatar"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay avatar mismatch");
   if (!same(await readAddress(client, delay.address, DELAY_ABI, "target"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: Delay target mismatch");
@@ -393,13 +390,14 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "safe"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: maintenance Safe mismatch");
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "delay"), delay.address)) throw new Error("fail closed: maintenance Delay mismatch");
 
-  const result = Object.freeze({ planHash: planHash(plan), setupHelper, guard, delay, maintenance });
+  const result = Object.freeze({ stage, planHash: planHash(plan), setupHelper, guard, delay, maintenance });
   prerequisiteEvidence.add(result);
   return result;
 }
 
 export function assertSafeCreationReady(plan: VaultDeploymentPlan, prerequisites: VerifiedVaultPrerequisites, observedDeployerNonce: bigint): void {
   if (!prerequisiteEvidence.has(prerequisites)) throw new Error("fail closed: prerequisite evidence was not produced by verifier");
+  if (prerequisites.stage !== "before-setup") throw new Error("fail closed: Safe creation requires pre-setup evidence");
   if (prerequisites.planHash !== planHash(plan)) throw new Error("fail closed: prerequisite evidence belongs to a different plan");
   const expected = plan.startingNonce + 4n;
   if (observedDeployerNonce !== expected) throw new Error(`fail closed: deployer nonce drift before Safe creation: expected ${expected}, observed ${observedDeployerNonce}`);

@@ -52,7 +52,7 @@ const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.fre
     multiSendCallOnly: dep(a(34), "1.5.0"),
   }),
 } satisfies DeploymentInfrastructure));
-const expectedOwners = [a(2), a(4), a(3)].sort((left, right) => left.toLowerCase().localeCompare(right.toLowerCase()));
+const expectedOwners = [a(2)];
 const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: expectedOwners, getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], safeContractSecondary: [a(4), 0, true], ecdsaSecondary: [a(3), 1, true], maintenance: a(7), getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel], safe: a(1), delay: a(5) };
 const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 
@@ -73,11 +73,11 @@ function plan(): VaultDeploymentPlan {
       functionName: "setup",
       args: [{ guard: a(6), delay: a(5), maintenance: a(7), passkey: a(2), safeContractSecondary: a(4), ecdsaSecondary: a(3), periodSeconds: 86400n, periodAnchor: 0n, assets: policy.assets.map((asset) => ({ ...asset, recipients: [...asset.recipients] })) }],
     }),
-    review: { owners: expectedOwners as readonly [Address, Address, Address], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
+    review: { owners: expectedOwners as readonly [Address], threshold: 1, fallbackHandler: zero, paymentToken: zero, payment: 0n, paymentReceiver: zero, transactionGuard: a(6), moduleGuard: a(6), modules: [a(5)], delay: { owner: a(1), avatar: a(1), target: a(1), upstreamModules: [a(1)], cooldownSeconds: 3600, expirationSeconds: 86400 }, periodAnchor: 0n, policyHash: policyHash(policy), creationCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash }, runtimeCodeHashes: { setupHelper: runtimeHash, guard: runtimeHash, delay: runtimeHash, maintenance: runtimeHash } },
   };
 }
 
-async function prerequisites(overrides: Record<string, unknown> = {}): Promise<VerifiedVaultPrerequisites> {
+async function prerequisites(overrides: Record<string, unknown> = {}, stage: "before-setup" | "after-setup" = "after-setup"): Promise<VerifiedVaultPrerequisites> {
   const data = { ...values, ...overrides };
   return verifyVaultPrerequisites({
     getBytecode: async () => code,
@@ -91,7 +91,7 @@ async function prerequisites(overrides: Record<string, unknown> = {}): Promise<V
       if (address === a(5) && functionName === "target") return data.target;
       return data[functionName];
     },
-  }, plan());
+  }, plan(), stage);
 }
 
 async function fixture(overrides: Record<string, unknown> = {}): Promise<TopologyInput> {
@@ -100,6 +100,13 @@ async function fixture(overrides: Record<string, unknown> = {}): Promise<Topolog
 }
 
 describe("verifyTopology", () => {
+  it("rejects pre-setup evidence and missing or changed live maintenance", async () => {
+    const before = await prerequisites({ maintenance: zero, safeContractSecondary: [zero, 0, false] }, "before-setup");
+    expect((await verifyTopology(await fixture({ prerequisites: before }))).ok).to.equal(false);
+    for (const maintenance of [zero, a(99)]) {
+      expect((await verifyTopology(await fixture({ maintenance }))).ok).to.equal(false);
+    }
+  });
   it("accepts branded infrastructure plus branded Option B topology prerequisite evidence", async () => {
     const report = await verifyTopology(await fixture());
     expect(report.ok, report.failures.join(", ")).to.equal(true);

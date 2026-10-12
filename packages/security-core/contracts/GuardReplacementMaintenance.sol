@@ -5,11 +5,10 @@ import {ITransactionGuard} from "@safe-global/safe-smart-account/contracts/base/
 import {IModuleGuard} from "@safe-global/safe-smart-account/contracts/base/ModuleManager.sol";
 
 interface ISafeOwnerMaintenance {
-    /// @notice Removes an owner from the Safe and sets the resulting threshold.
-    function removeOwner(address prevOwner, address owner, uint256 threshold) external;
-
-    /// @notice Adds an owner to the Safe and sets the resulting threshold.
-    function addOwnerWithThreshold(address owner, uint256 threshold) external;
+    /// @notice Replaces the sole owner without temporarily violating threshold one.
+    function swapOwner(address prevOwner, address oldOwner, address newOwner) external;
+    function getOwners() external view returns (address[] memory);
+    function getThreshold() external view returns (uint256);
 }
 
 interface IGuardSignerRepair {
@@ -55,7 +54,7 @@ contract GuardReplacementMaintenance {
 
     // Filled from the reviewed TieredSpendingGuard artifact during the Task 6
     // hardening build. Replacement is intentionally implementation-bound.
-    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0xf4bc84ea0c9ba4941b576e83194eaf83e853bc41184516a19822c84e68d6b31c;
+    bytes32 private constant APPROVED_GUARD_RUNTIME_CODE_HASH = 0x9321a6a896d85ec04efe82171b12f5f93c4e0c4ea9b34eb376b63ddbbb4ec070;
     bytes4 private constant ERC1271_MAGICVALUE = 0x1626ba7e;
     bytes32 private constant LOCK_SLOT = 0x5c0a4f8b1c122f2b1c07f4f9d0f8cba2557d5f7d4a2a4c8a2e4a5c9fb19f0c11;
     bytes32 private constant GUARD_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
@@ -111,7 +110,7 @@ contract GuardReplacementMaintenance {
         assembly { sstore(LOCK_SLOT, 0) }
     }
 
-    /// @notice Atomically updates the guard signer and Safe owner list.
+    /// @notice Updates a guard signer; only primary rotation changes the sole Safe owner.
     /// @dev Used by delayed signer repair so Safe ownership and guard policy do
     ///      not diverge. Primary and Safe-contract secondary replacements must provide ERC-1271 evidence.
     /// @param guard Current guard installed in both Safe guard slots.
@@ -131,7 +130,11 @@ contract GuardReplacementMaintenance {
     ) external {
         if (msg.sender != delay) revert OnlyDelay();
         if (address(this) != safe) revert WrongExecutionContext();
-        if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || previousOwner == address(0) || replacement == expectedOld || role > 1 || threshold != 1) revert InvalidReplacement();
+        if (guard == address(0) || expectedOld == address(0) || replacement == address(0) || replacement == expectedOld || role > 1 || threshold != 1) revert InvalidReplacement();
+        if ((role == 0 && previousOwner != address(1)) || (role == 1 && previousOwner != address(0))) revert InvalidReplacement();
+        address[] memory owners = ISafeOwnerMaintenance(address(this)).getOwners();
+        (, address primary,,,,) = IGuardSignerRepair(guard).config();
+        if (owners.length != 1 || owners[0] != primary || ISafeOwnerMaintenance(address(this)).getThreshold() != 1) revert InvalidReplacement();
         address currentGuard;
         address currentModuleGuard;
         assembly {
@@ -144,9 +147,11 @@ contract GuardReplacementMaintenance {
             if (!_hasContract1271Evidence(replacement, guard, expectedOld, replacementProof)) revert InvalidReplacement();
         } else if (replacementProof.length != 0) revert InvalidReplacement();
         (bool repaired,) = guard.call(abi.encodeWithSelector(IGuardSignerRepair.repairSigner.selector, role, expectedOld, replacement));
-        (bool removed,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.removeOwner.selector, previousOwner, expectedOld, threshold));
-        (bool added,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.addOwnerWithThreshold.selector, replacement, threshold));
-        if (!repaired || !removed || !added) revert SetterFailed();
+        if (!repaired) revert SetterFailed();
+        if (role == 0) {
+            (bool swapped,) = address(this).call(abi.encodeWithSelector(ISafeOwnerMaintenance.swapOwner.selector, previousOwner, expectedOld, replacement));
+            if (!swapped) revert SetterFailed();
+        }
     }
 
     /// @dev Checks ERC-165 support on a candidate replacement.

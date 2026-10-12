@@ -103,7 +103,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
     const startingNonce = BigInt(await client.getTransactionCount({ address: deployer.account.address }));
     const saltNonce = 99n;
-    const owners = [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) as [Address, Address, Address];
+    const owners = [passkey.address] as const;
 
     const placeholderPolicy = {
       token: ZERO,
@@ -164,11 +164,11 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     return { client, deployer, ecdsaSecondary, recipient, helper, singleton, factory, passkey, safeContractSecondary, guard, delay, maintenance, safe, safeAddress, initializerWithoutSafeAddress };
   }
 
-  it("atomically creates a guarded Option B Safe with both secondary owners and Delay as the only module", async () => {
+  it("atomically creates a sole-primary-owner Safe and guard-only secondaries", async () => {
     const f = await deployAtomicTopology();
 
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase()).sort()).to.deep.equal(
-      [f.passkey.address, f.safeContractSecondary.address, f.ecdsaSecondary.account.address].map((owner) => owner.toLowerCase()).sort(),
+      [f.passkey.address.toLowerCase()],
     );
     expect(await f.safe.read.getThreshold()).to.equal(1n);
     expect(storageAddress((await f.client.getStorageAt({ address: f.safeAddress, slot: FALLBACK_HANDLER_SLOT }))!).toLowerCase()).to.equal(ZERO);
@@ -195,7 +195,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     await expect(f.helper.write.setup([params], { account: f.deployer.account })).to.be.rejected;
   });
 
-  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardEcdsaSecondary?: Address }> = {}) {
+  async function expectCreationRevertsWith(overrides: Readonly<{ assetBasePerTransaction?: bigint; guardEcdsaSecondary?: Address; extraOwner?: boolean }> = {}) {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const client = await hre.viem.getPublicClient();
     const helper = await hre.viem.deployContract("SafeAtomicSetupHelper");
@@ -209,7 +209,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const guardAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce });
     const delayAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 1n });
     const maintenanceAddress = getContractAddress({ from: deployer.account.address, nonce: startingNonce + 2n });
-    const owners = [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) as [Address, Address, Address];
+    const owners = overrides.extraOwner ? [passkey.address, safeContractSecondary.address] : [passkey.address];
     const badAsset = { token: ZERO, basePerTransaction: overrides.assetBasePerTransaction ?? 0n, stepUpPerTransaction: 100n, baseDailyLimit: 50n, instantDailyLimit: 100n, recipients: [recipient.account.address] };
     const helperData = encodeFunctionData({
       abi: HELPER_SETUP_ABI,
@@ -241,6 +241,10 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
 
   it("reverts Safe creation when an inner policy call fails", async () => {
     await expectCreationRevertsWith();
+  });
+
+  it("rejects a secondary added as a Safe owner during atomic setup", async () => {
+    await expectCreationRevertsWith({ assetBasePerTransaction: 50n, extraOwner: true });
   });
 
   it("reverts Safe creation when the guard signer binding differs from helper params", async () => {
