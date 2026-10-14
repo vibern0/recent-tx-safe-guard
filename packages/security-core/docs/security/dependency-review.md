@@ -46,6 +46,12 @@ The modified TieredSpendingGuard runtime hash is `0x9321a6a896d85ec04efe82171b12
 
 The bootstrap live runner is available only for a funder self-probe and factory-bound automated passkey signer creation. Vault deployment and spending remain unavailable until a reproducible deployment package, exact upstream Delay deployment artifact, instance runtime bindings, and audit evidence are reviewed. No dependency is approved merely because the local integration suite passes.
 
+## 2026-10-14 Artifact Resolution Boundary
+
+No package version changed. The deployment planner no longer accepts caller-supplied creation bytecode or expected runtime hashes. `reviewed-artifacts.ts` obtains Safe proxy creation code from the pinned and already runtime-verified Safe v1.5 proxy factory, parses the exact SHA-256-pinned Zodiac Delay v1.1.1 source, and derives local constructor payloads for the repository contracts. It obtains expected runtime hashes through read-only EVM creation simulation, including the Safe proxy instantiated with the pinned singleton. The artifact object and resulting deployment plan are opaque runtime evidence; structural JSON cannot pass the planner or deployment sequencer.
+
+This validates source/version/binding provenance for an unsigned Sepolia plan. It does not add an independent audit, approve the local guard contracts for production, or authorize broadcasting. The future CLI adapter must still verify the source fetch response, gas bounds, receipts, all constructor bindings, and final topology before recording any live deployment as evidence.
+
 ## Codacy PR #2 dependency findings
 
 Codacy PR #2 identified transitive `elliptic@6.5.4` and `ws` 7.x/8.x releases with security findings. `elliptic` is pinned through an npm override to `6.6.1`; `ws` is pinned by major family (`7.5.11` and `8.21.3`) so the Ethers 5 and Ethers 6 consumers retain their respective major APIs. These are tooling and signer-library transitive dependencies, not direct vault runtime dependencies. Their exact resolution is recorded in `package-lock.json`; rerun the test suite after any override change.

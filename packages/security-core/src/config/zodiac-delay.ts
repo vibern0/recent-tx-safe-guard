@@ -41,7 +41,7 @@ function same(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
 }
 
-export function parseZodiacDelayArtifact(source: string, expectedSourceSha256: Hex = ZODIAC_DELAY_V1_1_1.sourceSha256): ZodiacDelayArtifact {
+function parseZodiacDelayArtifactWithDigest(source: string, expectedSourceSha256: Hex): ZodiacDelayArtifact {
   if (!/^0x[0-9a-fA-F]{64}$/.test(expectedSourceSha256)) throw new Error("Delay source digest must be a 32-byte hash");
   if (!same(sha256(source), expectedSourceSha256)) throw new Error("Delay source digest mismatch");
 
@@ -68,6 +68,19 @@ export function parseZodiacDelayArtifact(source: string, expectedSourceSha256: H
     creationBytecode: artifact.bytecode,
     mastercopy: ZODIAC_DELAY_V1_1_1.mastercopy,
   });
+}
+
+/** Parses only the committed upstream artifact in production. */
+export function parseZodiacDelayArtifact(source: string): ZodiacDelayArtifact {
+  return parseZodiacDelayArtifactWithDigest(source, ZODIAC_DELAY_V1_1_1.sourceSha256);
+}
+
+/** Test fixture escape hatch for adversarial parser coverage. */
+export function parseZodiacDelayArtifactForTestsOnly(source: string, expectedSourceSha256: Hex): ZodiacDelayArtifact {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only Delay source digest override is disabled outside tests");
+  }
+  return parseZodiacDelayArtifactWithDigest(source, expectedSourceSha256);
 }
 
 export function zodiacDelayCreationCode(

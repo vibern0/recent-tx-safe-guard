@@ -16,6 +16,7 @@ import {
 import { deriveComponentAddresses, deriveSafeProxyAddress } from "./addressing";
 import { type VerifiedComponent } from "./evidence";
 import { type UnsignedSetupCall } from "./multisend";
+import { isReviewedVaultArtifacts, type ReviewedVaultArtifacts } from "./reviewed-artifacts";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const SIGNER_ROLE = { primary: 0, secondary: 1 } as const;
@@ -52,19 +53,11 @@ export type VaultPlanInput = Readonly<{
   deployer: Address;
   startingNonce: bigint;
   safeProxySaltNonce: bigint;
-  safeProxyCreationCode: Hex;
-  setupHelperCreationCode: Hex;
-  guardCreationCode: Hex;
-  delayCreationCode: Hex;
-  maintenanceCreationCode: Hex;
-  prerequisiteRuntimeCodeHashes: Readonly<{
-    setupHelper: Hex;
-    guard: Hex;
-    delay: Hex;
-    maintenance: Hex;
-  }>;
+  artifacts: ReviewedVaultArtifacts;
   deployments: VerifiedDeploymentInfrastructure;
 }>;
+
+export type { ReviewedVaultArtifacts } from "./reviewed-artifacts";
 
 export type PlannedDeploymentTransaction = UnsignedSetupCall & Readonly<{
   nonce: bigint;
@@ -108,9 +101,24 @@ export type VaultDeploymentPlan = Readonly<{
   }>;
 }>;
 
+const plannedVaultDeployments = new WeakSet<object>();
+
+export function isReviewedVaultDeploymentPlan(value: unknown): value is VaultDeploymentPlan {
+  return typeof value === "object" && value !== null && plannedVaultDeployments.has(value);
+}
+
+export function brandVaultDeploymentPlanForTestsOnly(value: VaultDeploymentPlan): VaultDeploymentPlan {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only vault deployment plan branding is disabled outside tests");
+  }
+  plannedVaultDeployments.add(value);
+  return value;
+}
+
 export type VerifiedVaultPrerequisites = Readonly<{
   stage: "before-setup" | "after-setup";
   planHash: Hex;
+  safeProxyRuntimeCodeHash: Hex;
   setupHelper: VerifiedComponent;
   guard: VerifiedComponent;
   delay: VerifiedComponent;
@@ -121,6 +129,14 @@ const prerequisiteEvidence = new WeakSet<object>();
 
 export function isVerifiedVaultPrerequisites(value: unknown): value is VerifiedVaultPrerequisites {
   return typeof value === "object" && value !== null && prerequisiteEvidence.has(value);
+}
+
+export function brandVerifiedVaultPrerequisitesForTestsOnly(value: VerifiedVaultPrerequisites): VerifiedVaultPrerequisites {
+  if (process.env.NODE_ENV !== "test" && process.env.HARDHAT_NETWORK !== "hardhat") {
+    throw new Error("test-only prerequisite evidence branding is disabled outside tests");
+  }
+  prerequisiteEvidence.add(value);
+  return value;
 }
 
 export function policyHash(policy: VaultPolicy): Hex {
@@ -213,7 +229,7 @@ function configuredOptionBSecondaries(policy: VaultPolicy): { safeContractSecond
 }
 
 function deployTransaction(description: string, deployer: Address, nonce: bigint, creationCode: Hex, expectedRuntimeCodeHash: Hex, expectedCreatedAddress: Address): PlannedDeploymentTransaction {
-  return {
+  return Object.freeze({
     description,
     nonce,
     to: ZERO,
@@ -223,11 +239,11 @@ function deployTransaction(description: string, deployer: Address, nonce: bigint
     expectedCreatedAddress,
     creationCodeHash: keccak256(creationCode),
     expectedRuntimeCodeHash,
-  };
+  });
 }
 
 /** Derives the Safe address from setup data before constructors bind prerequisites to it. */
-export function deriveVaultSafeProxyAddress(input: Pick<VaultPlanInput, "policy" | "deployer" | "startingNonce" | "safeProxySaltNonce" | "safeProxyCreationCode" | "deployments">): Address {
+export function deriveVaultSafeProxyAddress(input: Readonly<{ policy: VaultPolicy; deployer: Address; startingNonce: bigint; safeProxySaltNonce: bigint; safeProxyCreationCode: Hex; deployments: VerifiedDeploymentInfrastructure }>): Address {
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   const optionB = configuredOptionBSecondaries(input.policy);
   const setupHelperCalldata = encodeFunctionData({
@@ -267,14 +283,16 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   if (input.deployments.chainId !== input.policy.chainId) throw new Error("fail closed: policy chain does not match verified deployment infrastructure");
   if (!same(input.deployments.passkeySigner.address, input.policy.passkey)) throw new Error("fail closed: policy passkey does not match verified passkey signer");
   if (!input.deployments.safeSingleton.supportsModuleGuards) throw new Error("fail closed: Safe singleton lacks module guards");
+  if (!isReviewedVaultArtifacts(input.artifacts)) throw new Error("fail closed: vault artifacts must come from the reviewed resolver");
   for (const [label, code] of Object.entries({
-    setupHelper: input.setupHelperCreationCode,
-    guard: input.guardCreationCode,
-    delay: input.delayCreationCode,
-    maintenance: input.maintenanceCreationCode,
+    setupHelper: input.artifacts.setupHelperCreationCode,
+    guard: input.artifacts.guardCreationCode,
+    delay: input.artifacts.delayCreationCode,
+    maintenance: input.artifacts.maintenanceCreationCode,
   })) assertCreationCode(code as Hex, label);
-  assertCreationCode(input.safeProxyCreationCode, "Safe proxy");
-  for (const [label, runtimeHash] of Object.entries(input.prerequisiteRuntimeCodeHashes)) assertRuntimeHash(runtimeHash as Hex, label);
+  assertCreationCode(input.artifacts.safeProxyCreationCode, "Safe proxy");
+  for (const [label, runtimeHash] of Object.entries(input.artifacts.prerequisiteRuntimeCodeHashes)) assertRuntimeHash(runtimeHash as Hex, label);
+  assertRuntimeHash(input.artifacts.safeProxyRuntimeCodeHash, "Safe proxy");
 
   const components = deriveComponentAddresses({ deployer: input.deployer, startingNonce: input.startingNonce });
   if (!same(input.policy.delay, components.delay)) throw new Error("fail closed: policy Delay address does not match deterministic prerequisite address");
@@ -306,10 +324,10 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     functionName: "createProxyWithNonce",
     args: [input.deployments.safeSingleton.address, safeInitializer, input.safeProxySaltNonce],
   });
-  const derivedSafeProxy = deriveVaultSafeProxyAddress(input);
+  const derivedSafeProxy = deriveVaultSafeProxyAddress({ ...input, safeProxyCreationCode: input.artifacts.safeProxyCreationCode });
   if (!same(input.policy.safe, derivedSafeProxy)) throw new Error("fail closed: policy Safe does not match derived Safe proxy address");
 
-  return {
+  const plan = Object.freeze({
     unsigned: true,
     broadcast: false,
     chainId: input.policy.chainId,
@@ -317,10 +335,10 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
     startingNonce: input.startingNonce,
     safeProxySaltNonce: input.safeProxySaltNonce,
     prerequisites: {
-      setupHelper: deployTransaction("deploy SafeAtomicSetupHelper", input.deployer, input.startingNonce, input.setupHelperCreationCode, input.prerequisiteRuntimeCodeHashes.setupHelper, components.setupHelper),
-      guard: deployTransaction("deploy TieredSpendingGuard", input.deployer, input.startingNonce + 1n, input.guardCreationCode, input.prerequisiteRuntimeCodeHashes.guard, components.guard),
-      delay: deployTransaction("deploy Zodiac Delay", input.deployer, input.startingNonce + 2n, input.delayCreationCode, input.prerequisiteRuntimeCodeHashes.delay, components.delay),
-      maintenance: deployTransaction("deploy GuardReplacementMaintenance", input.deployer, input.startingNonce + 3n, input.maintenanceCreationCode, input.prerequisiteRuntimeCodeHashes.maintenance, components.maintenance),
+      setupHelper: deployTransaction("deploy SafeAtomicSetupHelper", input.deployer, input.startingNonce, input.artifacts.setupHelperCreationCode, input.artifacts.prerequisiteRuntimeCodeHashes.setupHelper, components.setupHelper),
+      guard: deployTransaction("deploy TieredSpendingGuard", input.deployer, input.startingNonce + 1n, input.artifacts.guardCreationCode, input.artifacts.prerequisiteRuntimeCodeHashes.guard, components.guard),
+      delay: deployTransaction("deploy Zodiac Delay", input.deployer, input.startingNonce + 2n, input.artifacts.delayCreationCode, input.artifacts.prerequisiteRuntimeCodeHashes.delay, components.delay),
+      maintenance: deployTransaction("deploy GuardReplacementMaintenance", input.deployer, input.startingNonce + 3n, input.artifacts.maintenanceCreationCode, input.artifacts.prerequisiteRuntimeCodeHashes.maintenance, components.maintenance),
     },
     safeProxyDeployment: {
       description: "create Vault Safe proxy with atomic helper initializer",
@@ -331,7 +349,7 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       data: factoryCall,
       expectedCreatedAddress: derivedSafeProxy,
       creationCodeHash: keccak256(factoryCall),
-      expectedRuntimeCodeHash: keccak256(factoryCall),
+      expectedRuntimeCodeHash: input.artifacts.safeProxyRuntimeCodeHash,
     },
     safeInitializer,
     setupHelperCalldata,
@@ -349,14 +367,16 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
       periodAnchor: input.policy.periodAnchor,
       policyHash: policyHash(input.policy),
       creationCodeHashes: {
-        setupHelper: keccak256(input.setupHelperCreationCode),
-        guard: keccak256(input.guardCreationCode),
-        delay: keccak256(input.delayCreationCode),
-        maintenance: keccak256(input.maintenanceCreationCode),
+        setupHelper: keccak256(input.artifacts.setupHelperCreationCode),
+        guard: keccak256(input.artifacts.guardCreationCode),
+        delay: keccak256(input.artifacts.delayCreationCode),
+        maintenance: keccak256(input.artifacts.maintenanceCreationCode),
       },
-      runtimeCodeHashes: input.prerequisiteRuntimeCodeHashes,
+      runtimeCodeHashes: input.artifacts.prerequisiteRuntimeCodeHashes,
     },
-  };
+  });
+  plannedVaultDeployments.add(plan);
+  return plan;
 }
 
 async function verifyCode(client: ReadOnlyDeploymentClient, name: VerifiedComponent["name"], address: Address, creationCodeHash: Hex, expectedRuntimeCodeHash: Hex): Promise<VerifiedComponent> {
@@ -417,7 +437,7 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "safe"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: maintenance Safe mismatch");
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "delay"), delay.address)) throw new Error("fail closed: maintenance Delay mismatch");
 
-  const result = Object.freeze({ stage, planHash: planHash(plan), setupHelper, guard, delay, maintenance });
+  const result = Object.freeze({ stage, planHash: planHash(plan), safeProxyRuntimeCodeHash: plan.safeProxyDeployment.expectedRuntimeCodeHash, setupHelper, guard, delay, maintenance });
   prerequisiteEvidence.add(result);
   return result;
 }

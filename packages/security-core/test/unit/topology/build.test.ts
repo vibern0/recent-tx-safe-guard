@@ -5,10 +5,12 @@ import {
   buildVaultPlan,
   decodeSafeFactoryCall,
   deriveVaultSafeProxyAddress,
+  isReviewedVaultDeploymentPlan,
   policyHash,
   verifyVaultPrerequisites,
   type VaultDeploymentPlan,
 } from "../../../src/topology/build";
+import { brandReviewedVaultArtifactsForTestsOnly } from "../../../src/topology/reviewed-artifacts";
 import {
   resolveDeploymentInfrastructureRegistry,
   brandVerifiedDeploymentInfrastructureForTestsOnly,
@@ -99,22 +101,22 @@ async function verifiedInfrastructure(): Promise<VerifiedDeploymentInfrastructur
 }
 
 async function productionPlan(policy: VaultPolicy = policyBase): Promise<VaultDeploymentPlan> {
-  return buildVaultPlan({
-    policy,
-    deployer,
-    startingNonce,
-    safeProxySaltNonce: 7n,
+  process.env.NODE_ENV = "test";
+  const artifacts = brandReviewedVaultArtifactsForTestsOnly({
     safeProxyCreationCode: code(44),
     setupHelperCreationCode: code(40),
     guardCreationCode: code(41),
     delayCreationCode: code(42),
     maintenanceCreationCode: code(43),
-    prerequisiteRuntimeCodeHashes: {
-      setupHelper: hash(code(80)),
-      guard: hash(code(81)),
-      delay: hash(code(82)),
-      maintenance: hash(code(83)),
-    },
+    prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) },
+    safeProxyRuntimeCodeHash: hash(code(84)),
+  });
+  return buildVaultPlan({
+    policy,
+    deployer,
+    startingNonce,
+    safeProxySaltNonce: 7n,
+    artifacts,
     deployments: await verifiedInfrastructure(),
   });
 }
@@ -164,6 +166,8 @@ describe("buildVaultPlan", () => {
 
     expect(json(first)).to.equal(json(second));
     expect(first.unsigned).to.equal(true);
+    expect(isReviewedVaultDeploymentPlan(first)).to.equal(true);
+    expect(isReviewedVaultDeploymentPlan({ ...first })).to.equal(false);
     expect(first.broadcast).to.equal(false);
     expect(json(first)).not.to.match(/signature|privateKey|secret|broadcast":true/i);
     const expectedOwners = [policy.passkey];
@@ -204,13 +208,36 @@ describe("buildVaultPlan", () => {
 
   it("fails closed on fabricated infrastructure, deployer nonce drift, and wrong deterministic Delay address", async () => {
     const deployments = await verifiedInfrastructure();
-    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments: { ...deployments } as never })).to.throw("verified resolver");
-    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments })).to.throw("nonce changed");
-    expect(() => buildVaultPlan({ policy: { ...policyBase, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, deployments })).to.throw("Delay address");
+    const artifacts = await (async () => { await productionPlan(await derivedPolicy()); return brandReviewedVaultArtifactsForTestsOnly({ safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, safeProxyRuntimeCodeHash: hash(code(84)) }); })();
+    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments: { ...deployments } as never })).to.throw("verified resolver");
+    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("nonce changed");
+    expect(() => buildVaultPlan({ policy: { ...policyBase, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("Delay address");
   });
 
   it("rejects a policy Safe that differs from the Safe 1.5 factory derivation", async () => {
     await expect(productionPlan(policyBase)).to.be.rejectedWith("derived Safe proxy address");
+  });
+
+  it("rejects caller-shaped artifact evidence before planning", async () => {
+    const policy = await derivedPolicy();
+    const plan = await productionPlan(policy);
+    const deployments = await verifiedInfrastructure();
+    expect(() => buildVaultPlan({
+      policy,
+      deployer,
+      startingNonce,
+      safeProxySaltNonce: 7n,
+      artifacts: {
+        safeProxyCreationCode: code(44),
+        setupHelperCreationCode: code(40),
+        guardCreationCode: code(41),
+        delayCreationCode: code(42),
+        maintenanceCreationCode: code(43),
+        prerequisiteRuntimeCodeHashes: plan.review.runtimeCodeHashes,
+        safeProxyRuntimeCodeHash: hash(code(84)),
+      },
+      deployments,
+    } as never)).to.throw("reviewed resolver");
   });
 
   it("policy hash binds configured secondary signer drift", () => {
