@@ -18,6 +18,7 @@ describe("vault prerequisite deployment payloads", () => {
       primaryPasskey: address(2),
       ecdsaSecondary: address(3),
       delay: address(4),
+      maintenance: address(5),
       periodAnchor: 0n,
       cooldownSeconds: 120n,
       expirationSeconds: 600n,
@@ -31,6 +32,6 @@ describe("vault prerequisite deployment payloads", () => {
       [{ type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }],
       `0x${result.delay.slice(-320)}`,
     )).to.deep.equal([address(1), address(1), address(1), 120n, 600n]);
-    expect(decodeAbiParameters([{ type: "address" }, { type: "address" }], `0x${result.maintenance.slice(-128)}`)).to.deep.equal([address(1), address(4)]);
+    expect(decodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "address" }], `0x${result.maintenance.slice(-192)}`)).to.deep.equal([address(1), address(4), address(5)]);
   });
 });

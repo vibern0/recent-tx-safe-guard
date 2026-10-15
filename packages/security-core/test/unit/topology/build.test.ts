@@ -214,6 +214,15 @@ describe("buildVaultPlan", () => {
     expect(() => buildVaultPlan({ policy: { ...policyBase, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("Delay address");
   });
 
+  it("permits a journaled resume only at the exact next prerequisite nonce", async () => {
+    const policy = await derivedPolicy();
+    const artifacts = brandReviewedVaultArtifactsForTestsOnly({ safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, safeProxyRuntimeCodeHash: hash(code(84)) });
+    const deployments = await verifiedInfrastructure();
+    const resumed = brandVerifiedDeploymentInfrastructureForTestsOnly({ ...deployments, observedDeployerNonce: startingNonce + 2n });
+    expect(() => buildVaultPlan({ policy, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments: resumed, completedPrerequisites: 2 })).not.to.throw();
+    expect(() => buildVaultPlan({ policy, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments: resumed, completedPrerequisites: 1 })).to.throw("resume nonce");
+  });
+
   it("rejects a policy Safe that differs from the Safe 1.5 factory derivation", async () => {
     await expect(productionPlan(policyBase)).to.be.rejectedWith("derived Safe proxy address");
   });

@@ -66,7 +66,7 @@ describe("reviewed vault deployment runner", () => {
     };
     const result = await executeVaultDeployment(value, {
       live, journal,
-      feeFor: () => ({ gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
+      feeFor: async () => ({ gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n }),
       waitForReceipt: async (transactionHash) => { calls.push(`receipt:${transactionHash}`); receipts.set(transactionHash, true); },
       verifyPrerequisites: async (_plan, stage) => { calls.push(stage); return evidence(value, stage); },
       verifyTopology: async () => ({ ok: true, failures: [], checked: ["all"] }),
@@ -76,5 +76,37 @@ describe("reviewed vault deployment runner", () => {
     expect(journal.entries.every((entry) => entry.status === "success")).to.equal(true);
     expect(calls).to.include.members(["before-setup", "after-setup"]);
     expect(signed.size).to.equal(5);
+  });
+
+  it("obtains each fee only when its nonce is ready to submit", async () => {
+    const value = plan();
+    const journal: LiveJournal = { chainId: 11155111, funder: account.address, entries: [] };
+    let nonce = 0;
+    const receipts = new Set<Hex>();
+    const feeCalls: string[] = [];
+    const live: LiveContext = {
+      funder: account.address,
+      chainId: async () => 11155111,
+      nonce: async () => nonce,
+      balance: async () => 50_000_000_000_000_000n,
+      verify: async () => undefined,
+      sign: async (intent) => account.signTransaction({ chainId: 11155111, type: "eip1559", to: intent.to, data: intent.data, value: intent.value, nonce: intent.nonce, gas: intent.gas, maxFeePerGas: intent.maxFeePerGas, maxPriorityFeePerGas: intent.maxPriorityFeePerGas }),
+      broadcast: async (raw) => { const transactionHash = keccak256(raw); nonce += 1; return transactionHash; },
+      receipt: async (transactionHash) => receipts.has(transactionHash) ? { transactionHash, status: "success" as const, gasUsed: 21_000n, effectiveGasPrice: 1n, blockNumber: 1n, blockHash: hash } : undefined,
+      persist: async () => undefined,
+    };
+    await executeVaultDeployment(value, {
+      live,
+      journal,
+      feeFor: async (transaction) => {
+        expect(journal.entries).to.have.length(Number(transaction.nonce));
+        feeCalls.push(transaction.description);
+        return { gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n };
+      },
+      waitForReceipt: async (transactionHash) => { receipts.add(transactionHash); },
+      verifyPrerequisites: async (_plan, stage) => evidence(value, stage),
+      verifyTopology: async () => ({ ok: true, failures: [], checked: ["all"] }),
+    });
+    expect(feeCalls).to.deep.equal(["test", "test", "test", "test", "test"]);
   });
 });

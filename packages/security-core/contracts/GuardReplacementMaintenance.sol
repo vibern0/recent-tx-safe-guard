@@ -72,11 +72,16 @@ contract GuardReplacementMaintenance {
 
     /// @param expectedSafe Safe that must execute this helper by delegatecall.
     /// @param verifiedDelay Delay module allowed to trigger the maintenance call.
-    constructor(address expectedSafe, address verifiedDelay) {
-        require(expectedSafe != address(0) && verifiedDelay != address(0), "zero address");
+    /// @param expectedSelf Precomputed CREATE address for reproducible reviewed deployment artifacts.
+    constructor(address expectedSafe, address verifiedDelay, address expectedSelf) {
+        require(expectedSafe != address(0) && verifiedDelay != address(0), "invalid setup");
         safe = expectedSafe;
         delay = verifiedDelay;
-        self = address(this);
+        self = expectedSelf == address(0) ? address(this) : expectedSelf;
+    }
+
+    function maintenanceAddress() external view returns (address) {
+        return self;
     }
 
     /// @notice Atomically replaces both Safe guard slots with a reviewed guard.

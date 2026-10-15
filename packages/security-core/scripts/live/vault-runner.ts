@@ -28,7 +28,7 @@ export type VaultDeploymentExecution = Readonly<{
 export type VaultDeploymentExecutionContext = Readonly<{
   live: LiveContext;
   journal: LiveJournal;
-  feeFor(transaction: PlannedStep["transaction"]): Readonly<{ gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
+  feeFor(transaction: PlannedStep["transaction"]): Promise<Readonly<{ gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>>;
   waitForReceipt(transactionHash: JournalEntry["transactionHash"]): Promise<void>;
   verifyPrerequisites(plan: VaultDeploymentPlan, stage: "before-setup" | "after-setup"): Promise<VerifiedVaultPrerequisites>;
   verifyTopology(plan: VaultDeploymentPlan, prerequisites: VerifiedVaultPrerequisites): Promise<TopologyReport>;
@@ -36,8 +36,8 @@ export type VaultDeploymentExecutionContext = Readonly<{
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
-function liveIntent(plan: VaultDeploymentPlan, step: PlannedStep, context: VaultDeploymentExecutionContext): LiveIntent {
-  const fees = context.feeFor(step.transaction);
+async function liveIntent(plan: VaultDeploymentPlan, step: PlannedStep, context: VaultDeploymentExecutionContext): Promise<LiveIntent> {
+  const fees = await context.feeFor(step.transaction);
   return Object.freeze({
     id: step.id,
     to: step.transaction.to.toLowerCase() === ZERO ? undefined : step.transaction.to,
@@ -52,7 +52,7 @@ function liveIntent(plan: VaultDeploymentPlan, step: PlannedStep, context: Vault
 
 async function reconcileStep(plan: VaultDeploymentPlan, step: PlannedStep, context: VaultDeploymentExecutionContext): Promise<JournalEntry> {
   if (step.transaction.nonce > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("fail closed: deployment nonce exceeds safe integer range");
-  const intent = liveIntent(plan, step, context);
+  const intent = await liveIntent(plan, step, context);
   let entry = await submitLiveIntent(intent, context.journal, context.live);
   if (entry.status === "pending") {
     await context.waitForReceipt(entry.transactionHash);

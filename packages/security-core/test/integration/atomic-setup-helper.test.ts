@@ -149,7 +149,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
 
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, ecdsaSecondary.account.address, delayAddress, 86400n, 0n]]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
-    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delay.address]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delay.address, ZERO]);
     expect(guard.address.toLowerCase()).to.equal(guardAddress.toLowerCase());
     expect(delay.address.toLowerCase()).to.equal(delayAddress.toLowerCase());
     expect(maintenance.address.toLowerCase()).to.equal(maintenanceAddress.toLowerCase());
@@ -232,7 +232,7 @@ describe("atomic Option B topology via SafeAtomicSetupHelper", () => {
     const predictedSafe = getContractAddress({ opcode: "CREATE2", from: factory.address, salt, bytecode: `${SAFE_PROXY_ARTIFACT.bytecode}${encodeAbiParameters([{ type: "address" }], [singleton.address]).slice(2)}` as Hex });
     await hre.viem.deployContract("TieredSpendingGuard", [[predictedSafe, passkey.address, overrides.guardEcdsaSecondary ?? ecdsaSecondary.account.address, delayAddress, 86400n, 0n]]);
     await hre.viem.deployContract("ZodiacDelayV1_1_1", [predictedSafe, predictedSafe, predictedSafe, 10n, 60n]);
-    await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delayAddress]);
+    await hre.viem.deployContract("GuardReplacementMaintenance", [predictedSafe, delayAddress, ZERO]);
     const createData = encodeFunctionData({ abi: FACTORY_ABI, functionName: "createProxyWithNonce", args: [singleton.address, initializer, saltNonce] });
 
     await expect(deployer.sendTransaction({ to: factory.address, data: createData })).to.be.rejected;

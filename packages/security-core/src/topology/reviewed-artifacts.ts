@@ -46,6 +46,7 @@ export async function resolveReviewedVaultArtifacts(input: Readonly<{
   primaryPasskey: Address;
   ecdsaSecondary: Address;
   delay: Address;
+  maintenance: Address;
   periodAnchor: bigint;
   cooldownSeconds: bigint;
   expirationSeconds: bigint;
@@ -66,6 +67,7 @@ export async function resolveReviewedVaultArtifacts(input: Readonly<{
     primaryPasskey: input.primaryPasskey,
     ecdsaSecondary: input.ecdsaSecondary,
     delay: input.delay,
+    maintenance: input.maintenance,
     periodAnchor: input.periodAnchor,
     cooldownSeconds: input.cooldownSeconds,
     expirationSeconds: input.expirationSeconds,

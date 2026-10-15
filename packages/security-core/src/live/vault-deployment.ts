@@ -22,6 +22,7 @@ export function buildVaultPrerequisiteCreationCodes(input: Readonly<{
   primaryPasskey: Address;
   ecdsaSecondary: Address;
   delay: Address;
+  maintenance: Address;
   periodAnchor: bigint;
   cooldownSeconds: bigint;
   expirationSeconds: bigint;
@@ -36,7 +37,7 @@ export function buildVaultPrerequisiteCreationCodes(input: Readonly<{
   ]);
   const maintenance = concatHex([
     maintenanceArtifact.bytecode,
-    encodeAbiParameters([{ type: "address" }, { type: "address" }], [input.safe, input.delay]),
+    encodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "address" }], [input.safe, input.delay, input.maintenance]),
   ]);
 
   return Object.freeze({

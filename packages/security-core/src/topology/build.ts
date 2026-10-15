@@ -46,6 +46,7 @@ const DELAY_ABI = [
 const MAINTENANCE_ABI = [
   { name: "safe", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { name: "delay", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { name: "maintenanceAddress", type: "function", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
 
 export type VaultPlanInput = Readonly<{
@@ -55,6 +56,8 @@ export type VaultPlanInput = Readonly<{
   safeProxySaltNonce: bigint;
   artifacts: ReviewedVaultArtifacts;
   deployments: VerifiedDeploymentInfrastructure;
+  /** Number of consecutively journaled prerequisite deployments being resumed. */
+  completedPrerequisites?: 0 | 1 | 2 | 3 | 4;
 }>;
 
 export type { ReviewedVaultArtifacts } from "./reviewed-artifacts";
@@ -279,7 +282,10 @@ export function buildVaultPlan(input: VaultPlanInput): VaultDeploymentPlan {
   assertValidVaultPolicy(input.policy);
   if (!isOfficialVerifiedDeployments(input.deployments)) throw new Error("fail closed: deployments must come from a verified resolver");
   if (!same(input.deployments.deployer, input.deployer)) throw new Error("fail closed: deployer does not match verified deployment infrastructure");
-  if (input.deployments.observedDeployerNonce !== input.startingNonce) throw new Error("fail closed: deployer nonce changed before planning");
+  const completedPrerequisites = input.completedPrerequisites ?? 0;
+  if (input.deployments.observedDeployerNonce !== input.startingNonce + BigInt(completedPrerequisites)) {
+    throw new Error("fail closed: deployer resume nonce does not match journaled prerequisites");
+  }
   if (input.deployments.chainId !== input.policy.chainId) throw new Error("fail closed: policy chain does not match verified deployment infrastructure");
   if (!same(input.deployments.passkeySigner.address, input.policy.passkey)) throw new Error("fail closed: policy passkey does not match verified passkey signer");
   if (!input.deployments.safeSingleton.supportsModuleGuards) throw new Error("fail closed: Safe singleton lacks module guards");
@@ -436,6 +442,7 @@ export async function verifyVaultPrerequisites(client: ReadOnlyDeploymentClient,
   if (await readBigInt(client, delay.address, DELAY_ABI, "txExpiration") !== BigInt(plan.review.delay.expirationSeconds)) throw new Error("fail closed: Delay expiration mismatch");
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "safe"), plan.safeProxyDeployment.expectedCreatedAddress)) throw new Error("fail closed: maintenance Safe mismatch");
   if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "delay"), delay.address)) throw new Error("fail closed: maintenance Delay mismatch");
+  if (!same(await readAddress(client, maintenance.address, MAINTENANCE_ABI, "maintenanceAddress"), maintenance.address)) throw new Error("fail closed: maintenance self mismatch");
 
   const result = Object.freeze({ stage, planHash: planHash(plan), safeProxyRuntimeCodeHash: plan.safeProxyDeployment.expectedRuntimeCodeHash, setupHelper, guard, delay, maintenance });
   prerequisiteEvidence.add(result);
