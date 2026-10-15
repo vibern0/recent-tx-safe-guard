@@ -94,8 +94,8 @@ export function buildDeploymentPlan(config: PublicDeploymentConfig) {
     safeContractSecondary: address(config.safeContractSecondary, "safeContractSecondary"),
     ecdsaSecondary: address(config.ecdsaSecondary, "ecdsaSecondary"),
   };
-  const ownerSet = new Set([deployments.passkey, deployments.safeContractSecondary, deployments.ecdsaSecondary]);
-  if (ownerSet.size !== 3) throw new Error("Option B owners must be distinct");
+  const signerSet = new Set([deployments.passkey, deployments.safeContractSecondary, deployments.ecdsaSecondary]);
+  if (signerSet.size !== 3) throw new Error("primary and secondary signers must be distinct");
   const singleton = record(config.safeSingleton, "safeSingleton");
   const delayDependency = record(config.delayDependency, "delayDependency");
   exactKeys(singleton, ["address", "runtimeCodeHash"], "safeSingleton");

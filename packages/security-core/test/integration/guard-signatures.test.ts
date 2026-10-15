@@ -24,12 +24,12 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
     const wrongSafeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const ownerCall = async (to: Address, data: Hex) => {
-      const signature = await signSafeTransaction(safe, ecdsaSecondary, to, data);
+      const signature = passkeySignature(passkey.address);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, yubiEnabled] }));
@@ -44,6 +44,8 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
 
   it("secondary signer matrix allows primary plus exactly one configured secondary", async () => {
     const f = await secondarySignerFixture();
+
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
 
     await f.exec(f.transfer(60n), passkeySignature(f.passkey.address));
     await expect(f.exec(f.transfer(50n), passkeySignature(f.passkey.address))).to.be.rejected;
@@ -73,7 +75,7 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     expect((await f.guard.read.spendState([f.token.address]))[2]).to.equal(300n);
   });
 
-  it("secondary signer Safe contract signatures accept Safe owner order when safe-contract secondary sorts before primary", async () => {
+  it("requires primary first even when a secondary address sorts before primary", async () => {
     const [deployer, ecdsaSecondary, recipient] = await hre.viem.getWalletClients();
     const firstSigner = await hre.viem.deployContract("Mock1271Signer");
     const secondSigner = await hre.viem.deployContract("Mock1271Signer");
@@ -81,12 +83,12 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
       ? [firstSigner, secondSigner]
       : [secondSigner, firstSigner];
     expect(safeContractSecondary.address.toLowerCase() < passkey.address.toLowerCase()).to.equal(true);
-    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
+    const { safe } = await deploySafeFixture(hre, deployer, [passkey.address]);
     const token = await hre.viem.deployContract("ERC20Mock", [safe.address, 10_000n]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
     const ownerCall = async (to: Address, data: Hex) => {
-      const signature = await signSafeTransaction(safe, ecdsaSecondary, to, data);
+      const signature = passkeySignature(passkey.address);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     await ownerCall(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
@@ -94,7 +96,8 @@ describe("TieredSpendingGuard against Safe 1.5", () => {
     await ownerCall(safe.address, encodeFunctionData({ abi: setGuardAbi, functionName: "setGuard", args: [guard.address] }));
 
     const data = encodeFunctionData({ abi: transferAbi, functionName: "transfer", args: [recipient.account.address, 300n] });
-    await safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(safeContractSecondary.address, passkey.address)], { account: deployer.account });
+    await expect(safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(safeContractSecondary.address, passkey.address)], { account: deployer.account })).to.be.rejected;
+    await safe.write.execTransaction([token.address, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, safeContractSignatures(passkey.address, safeContractSecondary.address)], { account: deployer.account });
 
     expect((await guard.read.spendState([token.address]))[2]).to.equal(300n);
   });

@@ -3,6 +3,7 @@ import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex } from "viem";
 import { queueFingerprint } from "../../src/queue/delay";
+import { encodeSafeContractSignature } from "../../src/signers/passkey-helpers";
 import { deploySafeFixture, ZERO, ecdsaSecondaryEnvelope, fn, passkeySignature, queueAbi, safeContractSignatures, signSafeTransaction, transferAbi } from "../helpers/safe";
 const setNonceAbi = fn("setTxNonce", [{ name: "nonce", type: "uint256" }]);
 const freezeAbi = fn("freeze", []);
@@ -32,13 +33,13 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     const [deployer, ecdsaSecondary, recipient, replacement, replacement2] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
-    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address, ZERO]);
     await deployer.sendTransaction({ to: safe.address, value: 500n });
     const ownerTx = async (to: Address, data: Hex, signer = ecdsaSecondary) => {
-      const signature = await signSafeTransaction(safe, signer, to, data);
+      const signature = passkeySignature(passkey.address);
       await safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signature], { account: deployer.account });
     };
     await ownerTx(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
@@ -158,17 +159,17 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect(queueFingerprint(item)).to.equal(await f.delay.read.getTransactionHash([item.to, item.value, item.data, item.operation]));
   });
 
-  it("rotates a delayed signer atomically in the Safe and keeps maintenance usable", async () => {
+  it("rotates a guard-only secondary after Delay without changing Safe ownership", async () => {
     const f = await fixture();
     const ecdsaSecondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.ecdsaSecondary.account.address.toLowerCase());
-    const previous = (ecdsaSecondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[ecdsaSecondaryIndex - 1]) as Address;
+    const previous = ZERO;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.ecdsaSecondary.account.address, f.replacement.account.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
     const signature = await f.passkeyAndSecondary(f.delay.address, queued);
     await f.execute(f.delay.address, queued, signature);
     await time.increase(10);
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
-    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(f.replacement.account.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.ecdsaSecondary.account.address.toLowerCase());
     expect((await f.guard.read.maintenance()).toLowerCase()).to.equal(f.maintenance.address.toLowerCase());
     expect((await f.guard.read.config())[2].toLowerCase()).to.equal(f.replacement.account.address.toLowerCase());
@@ -278,7 +279,31 @@ describe("pinned Zodiac Delay v1.1.1 integration", () => {
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).to.include(replacementPasskey.address.toLowerCase());
     expect((await f.safe.read.getOwners()).map((x) => x.toLowerCase())).not.to.include(f.passkey.address.toLowerCase());
     expect((await f.guard.read.config())[1].toLowerCase()).to.equal(replacementPasskey.address.toLowerCase());
+    await expect(f.safe.write.execTransaction([f.recipient.account.address, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, f.passkeySig])).to.be.rejected;
+    const nextHash = await f.safe.read.getTransactionHash([f.recipient.account.address, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, await f.safe.read.nonce()]);
+    await replacementPasskey.write.setAccepted([nextHash, proof]);
+    await f.safe.write.execTransaction([f.recipient.account.address, 1n, "0x", 0, 0n, 0n, 0n, ZERO, ZERO, encodeSafeContractSignature(replacementPasskey.address, proof)]);
   });
+
+  for (const mutation of ["proof", "domain", "old signer", "predecessor"] as const) {
+    it(`rolls back delayed primary rotation with wrong ${mutation}`, async () => {
+      const f = await fixture();
+      const candidate = await hre.viem.deployContract("HashBound1271Signer");
+      const proof = "0x1234" as Hex;
+      await candidate.write.setAccepted([passkeyRepairProofHash(mutation === "domain" ? 1n : 31337n, f.safe.address, f.delay.address, f.guard.address, f.passkey.address, candidate.address), proof]);
+      const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 0, mutation === "old signer" ? f.replacement.account.address : f.passkey.address, candidate.address, mutation === "predecessor" ? f.replacement.account.address : "0x0000000000000000000000000000000000000001", 1n, mutation === "proof" ? "0xabcd" : proof] });
+      const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
+      await f.execute(f.delay.address, queued, await f.passkeyAndSecondary(f.delay.address, queued));
+      const owners = await f.safe.read.getOwners();
+      const config = await f.guard.read.config();
+      const nonce = await f.delay.read.txNonce();
+      await time.increase(10);
+      await expect(f.executeNext(f.maintenance.address, 0n, repair, 1)).to.be.rejected;
+      expect(await f.safe.read.getOwners()).to.deep.equal(owners);
+      expect(await f.guard.read.config()).to.deep.equal(config);
+      expect(await f.delay.read.txNonce()).to.equal(nonce);
+    });
+  }
 
   it("permits only monotonic Delay tightening on the immediate owner path", async () => {
     const f = await fixture();

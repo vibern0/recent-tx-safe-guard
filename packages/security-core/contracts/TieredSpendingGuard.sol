@@ -194,7 +194,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
     /// @notice Configures the Safe-contract secondary signer used for step-up approvals.
     /// @dev Intended for atomic setup before the guard is installed, or future delayed maintenance.
-    /// @param signer Safe owner contract that must validate through Safe's contract-signature path.
+    /// @param signer Guard-only contract signer that validates exact Safe transaction digests.
     /// @param enabled Whether this secondary approval path may satisfy step-up and delayed authorization.
     function configureSafeContractSecondary(address signer, bool enabled) external onlySafe {
         if (signer != address(0) && (signer == config.passkey || signer == config.ecdsaSecondary)) revert InvalidSecondarySigner();
@@ -455,7 +455,7 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         if (firstSigner == secondSigner) revert DuplicateSecondarySignature();
         bool firstIsPrimary = firstSigner == config.passkey;
         bool secondIsPrimary = secondSigner == config.passkey;
-        if (firstIsPrimary == secondIsPrimary) revert InvalidPasskeySignature();
+        if (!firstIsPrimary || secondIsPrimary) revert InvalidPasskeySignature();
         address secondarySigner = firstIsPrimary ? secondSigner : firstSigner;
         if (secondarySigner != safeContractSecondary.signer || !safeContractSecondary.enabled || safeContractSecondary.kind != SignerKind.SafeContractSignature) revert InvalidSecondarySignature();
         if (secondarySigner == config.ecdsaSecondary) revert DuplicateSecondarySignature();
@@ -466,8 +466,11 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
 
         bytes memory primaryPayload = firstIsPrimary ? _contractSignaturePayload(signatures, firstOffset, firstEnd) : _contractSignaturePayload(signatures, secondOffset, secondEnd);
         bytes memory secondaryPayload = firstIsPrimary ? _contractSignaturePayload(signatures, secondOffset, secondEnd) : _contractSignaturePayload(signatures, firstOffset, firstEnd);
-        bytes memory safeSignatures = _orderedContractSignatures(config.passkey, primaryPayload, safeContractSecondary.signer, secondaryPayload);
-        try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, safeSignatures, 2) {} catch { revert InvalidSecondarySignature(); }
+        bytes memory primarySignature = abi.encodePacked(
+            bytes32(uint256(uint160(config.passkey))), bytes32(uint256(65)), bytes1(0), bytes32(primaryPayload.length), primaryPayload
+        );
+        try ISafe(payable(config.safe)).checkNSignatures(executor, txHash, primarySignature, 1) {} catch { revert InvalidPasskeySignature(); }
+        if (safeContractSecondary.signer.code.length == 0 || !SignatureChecker.isValidSignatureNow(safeContractSecondary.signer, txHash, secondaryPayload)) revert InvalidSecondarySignature();
         return true;
     }
 
@@ -492,31 +495,6 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
     /// @dev Copies one Safe contract signature payload from calldata.
     function _contractSignaturePayload(bytes calldata signatures, uint256 payloadOffset, uint256 payloadEnd) internal pure returns (bytes memory) {
         return signatures[payloadOffset + 32:payloadEnd];
-    }
-
-    /// @dev Rebuilds two contract signatures in Safe's required owner-address order.
-    function _orderedContractSignatures(address firstSigner, bytes memory firstPayload, address secondSigner, bytes memory secondPayload) internal pure returns (bytes memory) {
-        if (firstSigner == secondSigner) revert DuplicateSecondarySignature();
-        if (firstSigner < secondSigner) return _packContractSignatures(firstSigner, firstPayload, secondSigner, secondPayload);
-        return _packContractSignatures(secondSigner, secondPayload, firstSigner, firstPayload);
-    }
-
-    /// @dev Packs two Safe contract signatures with canonical dynamic offsets.
-    function _packContractSignatures(address firstSigner, bytes memory firstPayload, address secondSigner, bytes memory secondPayload) internal pure returns (bytes memory) {
-        uint256 firstOffset = 130;
-        uint256 secondOffset = firstOffset + 32 + firstPayload.length;
-        return abi.encodePacked(
-            bytes32(uint256(uint160(firstSigner))),
-            bytes32(firstOffset),
-            bytes1(0),
-            bytes32(uint256(uint160(secondSigner))),
-            bytes32(secondOffset),
-            bytes1(0),
-            bytes32(firstPayload.length),
-            firstPayload,
-            bytes32(secondPayload.length),
-            secondPayload
-        );
     }
 
     /// @dev Extracts the typed ECDSA secondary signature envelope after the Safe owner slot.
@@ -696,17 +674,13 @@ contract TieredSpendingGuard is ITransactionGuard, IModuleGuard {
         return keccak256(data) == keccak256(abi.encodeWithSelector(REPLACE_SIGNER_SELECTOR, guard, role, expectedOld, replacement, previousOwner, threshold, proof));
     }
 
-    /// @dev Allows immediate Safe-contract secondary disabling and post-disable Safe owner removal only.
+    /// @dev Allows immediate disabling of the guard-only contract secondary.
     function _isImmediateSecondaryTightening(address to, uint256 value, bytes calldata data, Enum.Operation operation) internal view returns (bool) {
         if (value != 0 || operation != Enum.Operation.Call || data.length < 4) return false;
         bytes4 selector = bytes4(data[:4]);
         if (to == address(this) && selector == CONFIGURE_SAFE_CONTRACT_SECONDARY_SELECTOR && data.length == 68) {
             (address signer, bool enabled) = abi.decode(data[4:], (address, bool));
             return !enabled && safeContractSecondary.signer != address(0) && (signer == safeContractSecondary.signer || signer == address(0));
-        }
-        if (to == config.safe && selector == SAFE_REMOVE_OWNER_SELECTOR && data.length == 100) {
-            (, address owner, uint256 threshold) = abi.decode(data[4:], (address, address, uint256));
-            return threshold == 1 && owner == safeContractSecondary.signer && safeContractSecondary.signer != address(0) && !safeContractSecondary.enabled;
         }
         return false;
     }

@@ -76,7 +76,7 @@ function validateSnapshot(value: unknown, plan: ReturnType<typeof buildDeploymen
   exact(safe, ["address", "singletonAddress", "owners", "threshold", "fallbackHandler", "transactionGuard", "moduleGuard", "enabledModules"], "snapshot.safe");
   if (address(safe.address, "snapshot.safe.address") !== plan.deployments.safe) throw new Error("Safe address mismatch");
   if (address(safe.singletonAddress, "snapshot.safe.singletonAddress") !== address(singleton.address, "snapshot.dependencies.safeSingleton.address")) throw new Error("Safe singleton topology binding mismatch");
-  const expectedOwners = [plan.deployments.passkey, plan.deployments.safeContractSecondary, plan.deployments.ecdsaSecondary].sort();
+  const expectedOwners = [plan.deployments.passkey];
   if (!equal(addresses(safe.owners, "snapshot.safe.owners"), expectedOwners)) throw new Error("owners mismatch");
   if (safe.threshold !== 1) throw new Error("threshold mismatch");
   if (address(safe.fallbackHandler, "snapshot.safe.fallbackHandler") !== ZERO_ADDRESS) throw new Error("fallback handler mismatch");

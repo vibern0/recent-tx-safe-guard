@@ -74,7 +74,7 @@ describe("submission transport", () => {
     const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, ecdsaSecondary.account.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
-    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address, ZERO]);
     await deployer.sendTransaction({ to: safe.address, value: 500n });
 
     const ownerTx = async (to: Address, data: Hex, signer = ecdsaSecondary) => {

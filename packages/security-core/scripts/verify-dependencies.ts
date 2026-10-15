@@ -3,17 +3,10 @@ import { sepolia } from "viem/chains";
 import {
   OFFICIAL_DEPLOYMENT_REGISTRY,
   resolveVerifiedDeploymentInfrastructure,
+  verifyOfficialDeploymentDependencies,
 } from "../src/config/deployments";
 
 const chain = OFFICIAL_DEPLOYMENT_REGISTRY[sepolia.id];
-const absent = chain ? Object.entries(chain).filter(([, record]) => record.evidence === "absent").map(([name]) => name) : [];
-
-if (absent.length > 0) {
-  console.log(`dependency evidence absent on Sepolia: ${absent.join(", ")}`);
-  console.log("guard, Delay, and maintenance instance verification is deferred to Task 4.");
-  process.exit(0);
-}
-
 const required = (name: string): string => {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required for live dependency verification`);
@@ -21,8 +14,15 @@ const required = (name: string): string => {
 };
 
 async function main(): Promise<void> {
-  const rpcUrl = required("SEPOLIA_RPC_URL");
+  if (!chain) throw new Error("Sepolia dependency registry missing");
+  const rpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
   const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+  const base = await verifyOfficialDeploymentDependencies(client, sepolia.id);
+  console.log(`verified ${Object.keys(base).length} pinned public dependencies on chain ${sepolia.id}`);
+  if (!process.env.PASSKEY_SIGNER_ADDRESS) {
+    console.log("credential-specific passkey signer verification deferred until bootstrap creates it");
+    return;
+  }
   const verified = await resolveVerifiedDeploymentInfrastructure(client, {
     chainId: sepolia.id,
     deployer: required("DEPLOYER_ADDRESS") as Address,

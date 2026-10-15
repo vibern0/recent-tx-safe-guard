@@ -43,22 +43,22 @@ const passkeyRepairProofHash = (chainId: bigint, safe: Address, delay: Address, 
     ["RecentTxSafeGuard.passkeyReplacement.v1", chainId, safe, delay, guard, expectedOld, replacement],
   ));
 
-describe("Option B guard maintenance", () => {
+describe("Single-owner guard maintenance", () => {
   async function fixture() {
     const [deployer, ecdsaSecondary, arbitrary, recipient, replacement] = await hre.viem.getWalletClients();
     const passkey = await hre.viem.deployContract("Mock1271Signer");
     const safeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
     const replacementSafeContractSecondary = await hre.viem.deployContract("Mock1271Signer");
-    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address, safeContractSecondary.address, ecdsaSecondary.account.address]);
+    const { safe, owners } = await deploySafeFixture(hre, deployer, [passkey.address]);
     const delay = await hre.viem.deployContract("ZodiacDelayV1_1_1", [safe.address, safe.address, safe.address, 10n, 60n]);
     const guard = await hre.viem.deployContract("TieredSpendingGuard", [[safe.address, passkey.address, ecdsaSecondary.account.address, delay.address, 86400n, 0n]]);
-    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address]);
+    const maintenance = await hre.viem.deployContract("GuardReplacementMaintenance", [safe.address, delay.address, ZERO]);
     const passkeySig = passkeySignature(passkey.address);
     const sign = async (to: Address, data: Hex, signer = ecdsaSecondary) => signSafeTransaction(safe, signer, to, data);
     const envelope = (signature: Hex) => ecdsaSecondaryEnvelope(passkey.address, signature);
     const execute = (to: Address, data: Hex, signatures: Hex) => safe.write.execTransaction([to, 0n, data, 0, 0n, 0n, 0n, ZERO, ZERO, signatures], { account: deployer.account });
     const passkeyAndSecondary = async (to: Address, data: Hex) => execute(to, data, envelope(await sign(to, data, ecdsaSecondary)));
-    const bootstrap = async (to: Address, data: Hex) => execute(to, data, await sign(to, data, ecdsaSecondary));
+    const bootstrap = async (to: Address, data: Hex) => execute(to, data, passkeySig);
     await bootstrap(delay.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [safe.address] }));
     await bootstrap(safe.address, encodeFunctionData({ abi: fn("enableModule", [{ name: "module", type: "address" }]), functionName: "enableModule", args: [delay.address] }));
     await bootstrap(guard.address, encodeFunctionData({ abi: configureSafeContractSecondaryAbi, functionName: "configureSafeContractSecondary", args: [safeContractSecondary.address, true] }));
@@ -69,11 +69,11 @@ describe("Option B guard maintenance", () => {
     return { deployer, ecdsaSecondary, arbitrary, recipient, replacement, replacementSafeContractSecondary, safe, passkey, safeContractSecondary, delay, guard, maintenance, owners, passkeySig, sign, envelope, execute, executeNext, passkeyAndSecondary };
   }
 
-  it("sets up the Safe with primary, safe-contract secondary, and ECDSA secondary owners at threshold one", async () => {
+  it("sets up the Safe with only the primary owner at threshold one", async () => {
     const f = await fixture();
     expect(await f.safe.read.getThreshold()).to.equal(1n);
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal(f.owners.map((owner) => owner.toLowerCase()));
-    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address, f.safeContractSecondary.address, f.ecdsaSecondary.account.address].map((owner) => owner.toLowerCase()).sort());
+    expect(f.owners.map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
   });
 
   it("rejects direct queued signer repair even when primary plus ECDSA secondary approve the queue", async () => {
@@ -124,7 +124,7 @@ describe("Option B guard maintenance", () => {
   it("rotates the safe-contract secondary only through delayed maintenance", async () => {
     const f = await fixture();
     const secondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.safeContractSecondary.address.toLowerCase());
-    const previous = (secondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[secondaryIndex - 1]) as Address;
+    const previous = ZERO;
     const proofHash = passkeyRepairProofHash(31337n, f.safe.address, f.delay.address, f.guard.address, f.safeContractSecondary.address, f.replacementSafeContractSecondary.address);
     expect(proofHash).to.match(/^0x[0-9a-f]{64}$/);
     const proof = "0x" as Hex;
@@ -138,7 +138,7 @@ describe("Option B guard maintenance", () => {
     await f.executeNext(f.maintenance.address, 0n, repair, 1);
 
     expect((await f.guard.read.safeContractSecondary())[0].toLowerCase()).to.equal(f.replacementSafeContractSecondary.address.toLowerCase());
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.safeContractSecondary.address.toLowerCase());
   });
 
@@ -149,7 +149,7 @@ describe("Option B guard maintenance", () => {
     expect((await f.guard.read.safeContractSecondary())[2]).to.equal(false);
 
     const secondaryIndex = f.owners.findIndex((owner) => owner.toLowerCase() === f.safeContractSecondary.address.toLowerCase());
-    const previous = (secondaryIndex === 0 ? "0x0000000000000000000000000000000000000001" : f.owners[secondaryIndex - 1]) as Address;
+    const previous = ZERO;
     const repair = encodeFunctionData({ abi: replaceSignerAbi, functionName: "replaceSigner", args: [f.guard.address, 1, f.safeContractSecondary.address, f.replacementSafeContractSecondary.address, previous, 1n, "0x"] });
     const queued = encodeFunctionData({ abi: queueAbi, functionName: "execTransactionFromModule", args: [f.maintenance.address, 0n, repair, 1] });
 
@@ -160,7 +160,7 @@ describe("Option B guard maintenance", () => {
     const secondaryConfig = await f.guard.read.safeContractSecondary();
     expect(secondaryConfig[0].toLowerCase()).to.equal(f.replacementSafeContractSecondary.address.toLowerCase());
     expect(secondaryConfig[2]).to.equal(true);
-    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.include(f.replacementSafeContractSecondary.address.toLowerCase());
+    expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).to.deep.equal([f.passkey.address.toLowerCase()]);
     expect((await f.safe.read.getOwners()).map((owner) => owner.toLowerCase())).not.to.include(f.safeContractSecondary.address.toLowerCase());
   });
 

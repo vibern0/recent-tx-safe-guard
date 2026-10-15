@@ -4,11 +4,17 @@
 **Date:** 2026-09-16
 **Repository:** `recent-tx-safe-guard`
 
-## 2026-10-01 supersession: Option B secondary-signer prototype
+## 2026-10-09 supersession: primary owner, guard-only secondaries
+
+The approved [guard validation plan](../superpowers/plans/2026-10-09-guard-live-validation.md) supersedes the three-owner topology below. The primary passkey is the sole Safe owner at threshold 1. Contract and ECDSA secondaries are configured and independently validated by `TieredSpendingGuard` over the exact Safe transaction; neither is a Safe owner. Primary rotation atomically swaps the owner and guard identity after Delay. Secondary rotation changes guard configuration only, after Delay. No recovery owner is installed.
+
+Ordinary Safe execution must pass real-cryptography local and live Ethereum Sepolia tests before ERC-4337 implementation. Automated credentials are not evidence of hardware/WebAuthn browser UX. Burner NFC remains deferred; supported secondary signature formats do not imply a working Burner integration. The remaining X/Y/Z, fail-closed execution, message restrictions, and no-WalletConnect rules remain binding.
+
+## 2026-10-01 supersession: Option B secondary-signer prototype (historical)
 
 The active secondary-signer design supersedes the earlier recovery-owner and Burner-specific topology for code, configuration, deployment examples, and verification. The prototype now uses exactly three Safe owners, ordered by Safe rules from the configured primary passkey, safe-contract secondary, and ECDSA secondary. `TieredSpendingGuard` remains the policy authority: base transfers require the primary passkey, while step-up transfers, delayed proposals, cancellation/freeze, and delayed maintenance require the primary plus exactly one enabled configured secondary signer over the exact Safe transaction.
 
-The two supported secondary forms are a Safe-native contract-signature secondary and an ECDSA-extension secondary. A YubiKey-backed passkey or Burner WalletConnect signer are examples of those forms, not role names. Direct Burner NFC/libhalo signing remains a future spike and is out of scope until documented HaLo signing proves the exact Safe transaction can be signed, recovered, and accepted without changing the custody graph. The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing the primary passkey or all configured secondary factors is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the active call graph.
+The two supported secondary forms are a Safe-native contract-signature secondary and an ECDSA-extension secondary. A YubiKey-backed passkey is an example of the safe-contract form. WalletConnect is not accepted for the prototype. Direct Burner NFC/libhalo signing remains a future spike and is out of scope until documented HaLo signing proves the exact Safe transaction can be signed, recovered, and accepted without changing the custody graph. The recovery owner described below is deferred until a separate reviewed design can restore control without adding an immediate withdrawal, signer-repair, owner, module, fallback, or message-signing bypass. For this testnet prototype, losing the primary passkey or all configured secondary factors is an accepted denial-of-service risk: funds may become unavailable until a future delayed recovery mechanism is designed, implemented, reviewed, and tested. This is preferable to shipping a recovery signer that silently weakens the active call graph.
 
 Historical analysis in this document is left intact as evidence and product direction. Where it conflicts with this supersession note, the active Option B secondary-signer baseline controls implementation.
 
@@ -152,7 +158,7 @@ The proposal remains an [open ERC pull request](https://github.com/ethereum/ERCs
 
 ## Burner NFC card assessment
 
-[Burner](https://www.burner.pro/) is an NFC secure-element hardware wallet. It can connect to dapps, including Safe, through WalletConnect. Its private key is designed to be non-extractable, it uses a PIN, and it supports encrypted card-to-card backup rather than a seed phrase. See Burner’s [key and backup explanation](https://help.burner.pro/articles/why-doesn-t-burner-have-a-seed-phrase-and-how-is-my-private-key-secured).
+[Burner](https://www.burner.pro/) is an NFC secure-element hardware wallet. Its private key is designed to be non-extractable, it uses a PIN, and it supports encrypted card-to-card backup rather than a seed phrase. See Burner’s [key and backup explanation](https://help.burner.pro/articles/why-doesn-t-burner-have-a-seed-phrase-and-how-is-my-private-key-secured). Its wallet-connection path is not accepted for this prototype under the current no-WalletConnect rule.
 
 The underlying [libhalo library](https://github.com/arx-research/libhalo) supports signing data, including EIP-191/EIP-712-related flows. This makes the card technically suitable as a secp256k1 Safe owner or signer exposed through a wallet connection.
 
@@ -170,7 +176,7 @@ For high-value use, a second device or display should verify the transaction fin
 
 ## Passkey and onboarding-provider assessment
 
-The security-core prototype should start with Safe-native signer paths rather than choosing an embedded-wallet vendor as a foundation. Safe's passkey module can make a WebAuthn credential a Safe owner, while a standard EIP-1193 or WalletConnect provider can represent Burner and other hardware wallets. These are the narrow signer primitives the vault needs.
+The security-core prototype should start with Safe-native signer paths rather than choosing an embedded-wallet vendor as a foundation. Safe's passkey module can make a WebAuthn credential a Safe owner, while a reviewed non-WalletConnect signer boundary can represent an ECDSA secondary if it preserves exact Safe transaction binding. These are the narrow signer primitives the vault needs.
 
 Pimlico and `permissionless.js` are useful account-abstraction infrastructure for bundlers, paymasters, gas sponsorship, and ERC-4337 user-operation transport. They should be treated as execution infrastructure, not as the authority for vault policy. The onchain Safe, `TieredSpendingGuard`, and Delay configuration remains the source of truth.
 
@@ -181,7 +187,7 @@ Other embedded-wallet and smart-wallet SDKs, including Privy, Dynamic, Turnkey, 
 The implementation should therefore expose a small signer boundary first:
 
 - Safe-native passkey adapter
-- Generic EIP-1193 / WalletConnect adapter for Burner and other hardware wallets
+- Reviewed non-WalletConnect adapter for ECDSA secondary hardware wallets
 - Optional future provider adapters, such as Cometh, only after conformance tests prove they sign the exact Safe transaction and cannot bypass the configured policy
 
 ## Recommended architecture
@@ -232,7 +238,7 @@ The contract is testnet research until its code, configured call graph, deployme
 
 For transfers, the Safe-validated threshold signature must include the configured primary passkey contract signature; pre-approved-hash signatures are rejected. The guard recognizes signer identity from the canonical Safe signature encoding after Safe has validated it.
 
-Step-up and delayed proposals carry exactly one configured secondary approval. A safe-contract secondary is another Safe-validated contract-signature slot. A ECDSA secondary is the versioned WalletConnect ECDSA terminal extension over the exact Safe transaction hash recomputed by the guard. The secondary approval is not trusted merely because it appears in the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
+Step-up and delayed proposals carry exactly one configured secondary approval. A safe-contract secondary is another Safe-validated contract-signature slot. An ECDSA secondary is the versioned ECDSA terminal extension over the exact Safe transaction hash recomputed by the guard, produced only through a reviewed non-WalletConnect boundary. The secondary approval is not trusted merely because it appears in the signatures bytes, and it cannot be replayed against another Safe, chain, nonce, destination, amount, calldata, or operation.
 
 Historical note: the recovery-owner rule above is superseded for the active prototype. There is no recovery owner. Cancellation, freeze, queued signer repair, and queued policy repair require the configured primary passkey plus exactly one enabled secondary signer. Loss of the primary or all configured secondary factors is an accepted testnet availability risk until a future delayed recovery design is separately written, reviewed, implemented, and rehearsed.
 
@@ -331,7 +337,7 @@ The interface presents one Safe and its three authorization tiers. Modules and g
 ### Onboarding
 
 1. Create or select a passkey.
-2. Connect a configured secondary signer: safe-contract secondary, ECDSA secondary through WalletConnect, or both for the active Option B testnet profile.
+2. Connect a configured secondary signer: safe-contract secondary, reviewed non-WalletConnect ECDSA secondary, or both for the active Option B testnet profile.
 3. Confirm no independent recovery signer is active in the security-core prototype.
 4. Choose conservative per-token base daily limits X, shared immediate daily limits Y, and per-transaction caps, with `0 < X < Y`.
 5. Choose the delay period Z and alert channel.
@@ -473,8 +479,8 @@ The first security-core prototype should include:
 - Explicit recipient/function permissions
 - A delayed tier with a default 24-hour cooldown and finite expiration
 - Queue listing, execution, and cancellation
-- Passkey and generic EIP-1193 hardware-wallet signer adapters
-- Burner through its supported WalletConnect path; direct Burner NFC/libhalo remains a future spike outside this prototype
+- Passkey and reviewed non-WalletConnect hardware-wallet signer adapters
+- Direct Burner NFC/libhalo remains a future spike outside this prototype
 - No default embedded-wallet SDK dependency; Cometh and similar providers are evaluated later through the signer-adapter boundary
 - Independent notifications for confirmed step-up executions and the delayed queue lifecycle
 - Full topology/configuration verification

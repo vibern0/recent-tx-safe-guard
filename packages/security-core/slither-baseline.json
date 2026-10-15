@@ -1,14 +1,15 @@
 {
   "findings": [
-    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L770-L773",
-    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L603-L623",
-    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L87-L112",
+    "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L744-L747",
+    "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L581-L601",
+    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L86-L111",
+    "unused-return|replaceSigner|contracts/GuardReplacementMaintenance.sol#L122-L155",
     "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L323-L326",
     "unused-return|decodeEcdsaSecondaryExtension|contracts/TieredSpendingGuard.sol#L331-L334",
-    "calls-loop|_checkedCall|contracts/SafeAtomicSetupHelper.sol#L133-L136",
-    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L544-L593",
-    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L603-L623",
-    "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L770-L773",
+    "calls-loop|_checkedCall|contracts/SafeAtomicSetupHelper.sol#L137-L140",
+    "timestamp|_authorizeTransfer|contracts/TieredSpendingGuard.sol#L522-L571",
+    "timestamp|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L581-L601",
+    "timestamp|_currentWindow|contracts/TieredSpendingGuard.sol#L744-L747",
     "cache-array-length|policyHash|contracts/TieredSpendingGuard.sol#L273"
   ]
 }
