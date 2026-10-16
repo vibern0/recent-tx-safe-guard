@@ -32,7 +32,7 @@ All responses are JSON with `cache-control: no-store`. Errors use `{ "error": st
 - `POST /v1/submissions/{id}/submit` verifies the role signature over the journaled Safe digest, requires primary before secondary, and relays only the unchanged prepared request.
 - `GET /v1/submissions/{id}` returns journal state. It never authorizes a retry.
 
-The backend relay account pays gas only. Safe owners, the spending guard, Delay, EURC metadata, topology, nonce, limits, recipient policy, receipts, and cancellation remain authoritative onchain or in reviewed security-core adapters.
+The backend relay account pays gas only. Safe owners, the spending guard, Delay, EURC metadata, topology, nonce, limits, recipient policy, receipts, and cancellation remain authoritative onchain or in reviewed security-core adapters. Preparation passes only recipient, amount, and idempotency intent from the browser; the adapter must derive the exact Safe transaction from the server-held vault and fresh chain reads.
 
 ## Verify
 

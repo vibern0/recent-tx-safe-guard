@@ -3,7 +3,6 @@ import type { BackendHandlers, VaultProvisioningResult } from "./server";
 import {
   provisionFreshVault,
   type FreshVaultProvisioner,
-  type PreparedEurcTransfer,
   type ReviewedDeploymentEvidence,
   type SafeExecutionRequest,
 } from "./vault";
@@ -15,7 +14,8 @@ export type BackendVaultRecord = Readonly<VaultProvisioningResult & {
   secondaryCredentialId: string;
 }>;
 
-export type BackendPreparation = (input: Readonly<{ vault: BackendVaultRecord; request: unknown }>) => Promise<SafeExecutionRequest>;
+export type BackendTransferIntent = Readonly<{ recipient: unknown; amount: unknown; idempotencyKey: unknown }>;
+export type BackendPreparation = (input: Readonly<{ vault: BackendVaultRecord; request: BackendTransferIntent }>) => Promise<SafeExecutionRequest>;
 export type BackendSubmission = (input: Readonly<{ vault: BackendVaultRecord; id: string; body: unknown }>) => Promise<unknown>;
 export type BackendSubmissionReader = (input: Readonly<{ vault: BackendVaultRecord; id: string }>) => unknown;
 
@@ -97,7 +97,9 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
 
   const prepareTransfer = async (input: unknown): Promise<SafeExecutionRequest> => {
     if (!options.prepareTransfer) throw new Error("submission preparation unavailable");
-    const prepared = await options.prepareTransfer({ vault: requireVault(), request: input as PreparedEurcTransfer });
+    const request = record(input, "transfer request");
+    const intent: BackendTransferIntent = { recipient: request.recipient, amount: request.amount, idempotencyKey: request.idempotencyKey };
+    const prepared = await options.prepareTransfer({ vault: requireVault(), request: intent });
     if (prepared.chainId !== options.config.chainId || prepared.safe.toLowerCase() !== requireVault().safe.toLowerCase() || prepared.asset.toLowerCase() !== requireVault().eurc.toLowerCase()) throw new Error("prepared request does not match the server-held vault");
     return prepared;
   };

@@ -35,7 +35,7 @@ describe("server-authoritative backend handlers", () => {
   });
 
   it("binds preparation to server-held Safe state and exposes receipt state only", async () => {
-    const prepare = vi.fn(async ({ vault }: { vault: typeof result; request: unknown }): Promise<SafeExecutionRequest> => ({
+    const prepare = vi.fn(async ({ vault }: { vault: typeof result; request: { recipient: unknown; amount: unknown; idempotencyKey: unknown } }): Promise<SafeExecutionRequest> => ({
       version: 1, kind: "safe-execution", idempotencyKey: HASH, chainId: 11155111, deploymentsHash: HASH, policyHash: HASH, safe: vault.safe, guard: vault.guard, asset: vault.eurc,
       transaction: { to: vault.eurc, value: 0n, data: "0x1234", operation: 0, safeTxGas: 0n, baseGas: 0n, gasPrice: 0n, gasToken: "0x0000000000000000000000000000000000000000", refundReceiver: "0x0000000000000000000000000000000000000000", nonce: 4n }, safeTxHash: HASH, expectedSpend: { window: 0n, baseSpent: 0n, instantSpent: 0n },
     }));
@@ -46,7 +46,7 @@ describe("server-authoritative backend handlers", () => {
 
     const request = await handlers.prepareTransfer({ safe: "0x9999999999999999999999999999999999999999", eurc: "0x9999999999999999999999999999999999999999", recipient: SAFE, amount: 1n, nonce: 999n });
     expect(request.safe).toBe(SAFE);
-    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ vault: expect.objectContaining(result), request: expect.objectContaining({ safe: "0x9999999999999999999999999999999999999999" }) }));
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ vault: expect.objectContaining(result), request: { recipient: SAFE, amount: 1n, idempotencyKey: undefined } }));
     expect(handlers.submission("request-1")).toEqual({ state: "confirmed", transactionHash: HASH });
   });
 });
