@@ -53,7 +53,7 @@
 - Produces: compatibility report `{ status: "blocked" | "passed", evidence, unresolved }`; `passed` requires every spec gate.
 - Produces after pass: exact selector/call graph, nested-check state machine, fallback restriction, permissionless Delay route, prerequisite deployment route, canonical addresses/hashes, and pinned bundler command.
 
-- [ ] **Step 1: Audit prior evidence**
+- [x] **Step 1: Audit prior evidence**
 
 Map ordinary Safe real-cryptography local/live requirements to recorded hashes/reports. Missing live evidence blocks ERC-4337 implementation; prepare only read-only investigation/report until separately authorized rehearsal completes. Do not execute live transactions from this plan automatically.
 
@@ -67,16 +67,18 @@ Run: `npm --prefix packages/security-core test -- test/integration/aa-compatibil
 
 Expected initially: FAIL for unresolved integration/restriction proofs. Record real failures and exact upstream source/package/audit evidence. Check EntryPoint validation/storage/staking constraints with chosen local bundler; record image/package digest and exact invocation in compatibility report.
 
-- [ ] **Step 4: Resolve disposition**
+- [x] **Step 4: Resolve disposition**
 
 Choose only reviewed existing primitives plus scoped guard/helper changes. Report exact workable bootstrap, fallback restriction, nested-check design, and permissionless Delay route. If none exists, mark `blocked`, write focused proposal, and stop Tasks 2–10. No mock fallback, extra contract, broad module exception, external private key, or weakened message policy.
 
-- [ ] **Step 5: Commit report and probe**
+- [x] **Step 5: Commit report and probe**
 
 ```bash
 git add packages/security-core/docs/security packages/security-core/test packages/security-core/package.json pnpm-lock.yaml
 git commit -m "docs: assess guarded Safe Pimlico compatibility"
 ```
+
+**2026-10-16 disposition:** `blocked`. [Compatibility report](../../security/pimlico-compatibility.md) records missing ordinary-Safe live evidence and source-level conflicts. Step 1 permits read-only investigation/report only; Steps 2–3 were not run, Step 4 produced the [focused proposal](../specs/2026-10-16-pimlico-blocker-resolution.md), and Step 5 delivers the report/docs commit for review only; no probe was authorized or added. Tasks 2–10 remain gated. No probe, dependency installation, implementation or live transaction occurred.
 
 ### Task 2: Pin Profile And Prove Guarded ERC-4337 Execution
 
