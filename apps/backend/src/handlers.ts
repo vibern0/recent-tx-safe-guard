@@ -8,6 +8,7 @@ import {
   type SafeExecutionRequest,
 } from "./vault";
 import type { BackendPasskeyRole, StoredCredential } from "./webauthn";
+import type { Address } from "viem";
 
 export type BackendVaultRecord = Readonly<VaultProvisioningResult & {
   primaryCredentialId: string;
@@ -21,6 +22,7 @@ export type BackendSubmissionReader = (input: Readonly<{ vault: BackendVaultReco
 export type BackendHandlerOptions = Readonly<{
   config: BackendConfig;
   artifacts: ReviewedDeploymentEvidence;
+  eurc: Address;
   provisioner: FreshVaultProvisioner;
   prepareTransfer?: BackendPreparation;
   submit?: BackendSubmission;
@@ -72,13 +74,12 @@ export function createBackendHandlers(options: BackendHandlerOptions): BackendHa
   const provisionVault = async (input: unknown): Promise<VaultProvisioningResult> => {
     const body = record(input, "vault request") as ProvisioningInput;
     if (body.chainId !== options.config.chainId) throw new Error("only Sepolia vault provisioning is supported");
-    const eurc = stringField(body.eurc, "EURC address") as `0x${string}`;
     const primaryCredentialId = stringField(body.primaryCredentialId, "primary credential ID");
     const secondaryCredentialId = stringField(body.secondaryCredentialId, "secondary credential ID");
     if (credentials.get("primary")?.id !== primaryCredentialId || credentials.get("secondary")?.id !== secondaryCredentialId) throw new Error("verified primary and secondary credentials are required");
     const result = await provisionFreshVault({
       chainId: options.config.chainId,
-      eurc,
+      eurc: options.eurc,
       primaryCredentialId,
       secondaryCredentialId,
       relayPrivateKey: options.config.relayPrivateKey,

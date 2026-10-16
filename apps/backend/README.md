@@ -18,7 +18,7 @@ export BACKEND_ORIGIN=http://localhost:5173
 npm --prefix apps/backend run dev
 ```
 
-The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export a reviewed provisioner plus exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing.
+The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export the pinned Sepolia EURC address, a reviewed provisioner, and exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing. The browser's EURC field is advisory and is never selected for deployment.
 
 ## HTTP contract
 

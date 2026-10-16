@@ -38,6 +38,7 @@ export function loadReviewedDeploymentEvidence(path: string): ReviewedDeployment
 }
 
 export type ReviewedBackendModule = Readonly<{
+  eurc: Address;
   provisioner: FreshVaultProvisioner;
   prepareTransfer: BackendPreparation;
   submit: BackendSubmission;
@@ -48,6 +49,7 @@ export async function loadReviewedBackendModule(path: string): Promise<ReviewedB
   outsideRepository(path);
   const imported = await import(pathToFileURL(path).href) as {
     createBackendModule?: () => ReviewedBackendModule | Promise<ReviewedBackendModule>;
+    eurc?: Address;
     createProvisioner?: () => FreshVaultProvisioner;
     provisioner?: FreshVaultProvisioner;
     prepareTransfer?: BackendPreparation;
@@ -55,12 +57,13 @@ export async function loadReviewedBackendModule(path: string): Promise<ReviewedB
     submission?: BackendSubmissionReader;
   };
   const module = imported.createBackendModule ? await imported.createBackendModule() : {
+    eurc: imported.eurc,
     provisioner: imported.createProvisioner?.() ?? imported.provisioner,
     prepareTransfer: imported.prepareTransfer,
     submit: imported.submit,
     submission: imported.submission,
   };
-  if (!module.provisioner || typeof module.provisioner.deploy !== "function" || typeof module.prepareTransfer !== "function" || typeof module.submit !== "function" || typeof module.submission !== "function") throw new Error("reviewed backend module must provide provisioner, prepareTransfer, submit, and submission");
+  if (!module.eurc || !isAddress(module.eurc) || !module.provisioner || typeof module.provisioner.deploy !== "function" || typeof module.prepareTransfer !== "function" || typeof module.submit !== "function" || typeof module.submission !== "function") throw new Error("reviewed backend module must provide pinned EURC, provisioner, prepareTransfer, submit, and submission");
   return module as ReviewedBackendModule;
 }
 
