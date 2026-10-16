@@ -100,27 +100,27 @@ git commit -m "feat: add verified vault chain reads"
 - Produces: `createVaultPasskey(options: PasskeyRegistrationOptions): Promise<PasskeyRegistration>`.
 - Produces: `signSafeDigest(options: SafeAssertionOptions): Promise<EncodedSafeWebAuthnSignature>`.
 
-- [ ] **Step 1: Write failing passkey encoding tests**
+- [x] **Step 1: Write failing passkey encoding tests**
 
 Test WebAuthn registration serialization and Safe’s `abi.encode(authenticatorData, clientDataFields, r, s)` assertion shape. Test that a changed challenge, RP ID, origin, credential ID, or required user verification is rejected.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- webauthn-passkey.test.ts`
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement browser registration and signing**
+- [x] **Step 3: Implement browser registration and signing**
 
 Use `@simplewebauthn/browser`. Require platform authenticator and user verification; use bridge-provided challenges only. Never persist private key material, passkey assertions, or relay secrets in browser storage.
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- webauthn-passkey.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app packages/security-core/docs/security/signer-provider-evaluation.md

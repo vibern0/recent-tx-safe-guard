@@ -17,6 +17,7 @@ This allowlist pins exact npm versions. Integrity values are the npm registry `d
 | `viem` | `2.56.7` | `sha512-8YXhttIOKikDnTLj4byvGQmF43Gi0FtEfxUWd6OqSJiuz9bxNYNGmzlS8ZaNiYSKUEfs5vmNprvwPIki9Lk4YA==` | npm `2.56.7` | Client library; no smart-contract audit claim | Testnet tooling only | Not applicable | Not applicable |
 | `apps/app` direct `viem` dependency | `2.56.7` | `sha512-8YXhttIOKikDnTLj4byvGQmF43Gi0FtEfxUWd6OqSJiuz9bxNYNGmzlS8ZaNiYSKUEfs5vmNprvwPIki9Lk4YA==` | npm `2.56.7` | Client library; no smart-contract audit claim | Sepolia demo reads only | Not applicable | Not applicable |
 | `@simplewebauthn/browser` | `14.0.0` | `sha512-1odWVqeEBTl7lJ9zMKLEsmTlnyrDO5iRcTvfMKKk1WThUnp/i8JJdffdj2icP+tty159s4PgwE3BiMoEW9NFow==` | npm `14.0.0`; https://github.com/MasterKale/SimpleWebAuthn | Browser WebAuthn transport; no custody or contract-audit claim | Sepolia demo browser only | Not applicable | Not applicable |
+| `@simplewebauthn/server` | `14.0.3` | `sha512-D39/0fiDiYmGV+nraY9s63D1Ho2AX/waMLy22/9gUadTUuvbAnstfb4bpbHYbwZuV5ZLDYN1SmzDKuiHzKAA4Q==` | npm `14.0.3`; https://github.com/MasterKale/SimpleWebAuthn | Bridge WebAuthn verification; no custody or contract-audit claim | Loopback bridge only | Not applicable | Not applicable |
 
 Safe v1.5 module guards are a hard requirement for later integration. The old `@gnosis.pm/safe-contracts@1.3.0` dependency is deliberately rejected and removed because the historical prototype predates module guards and is not an acceptable security baseline.
 

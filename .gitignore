@@ -2,6 +2,8 @@ node_modules
 .env
 .sepolia-local/
 .worktrees/
+apps/demo-bridge/.data/
+apps/demo-bridge/*.local.json
 
 # Hardhat files
 /cache

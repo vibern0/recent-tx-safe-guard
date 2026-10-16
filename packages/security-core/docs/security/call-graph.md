@@ -107,6 +107,14 @@ Read-only log polling → RPC chain identity/address/topic/confirmation checks �
 
 The notifier boundary accepts only public `ActivityAlert` data and exposes only `notify`. Stdout and webhook implementations cannot sign, send, execute, mutate chain state, or retain passkey, Burner, RPC-write, or session credentials. Unknown and malformed events fail closed; monitoring never changes guard, Safe, Delay, queue, signer, or policy state.
 
+## EURC Browser Demo Boundary
+
+Browser `@simplewebauthn/browser` registration/assertion → loopback-only demo bridge → server-side WebAuthn verification bound to configured RP ID, localhost origin, credential, Sepolia chain, Safe, and exact Safe transaction digest. The browser emits only the Safe WebAuthn ABI payload; it never receives the relay key or deployment credentials.
+
+Bridge `prepare` → exact EURC `transfer(address,uint256)` calldata → zero Safe value, `CALL`, zero gas/refund fields, configured Safe/guard/EURC, allowlisted recipient, and current Safe nonce → Safe transaction hash. Bridge `submit` → durable public request journal → existing verified Safe/guard/Delay transport → external gas key only broadcasts the exact already-signed Safe execution. The gas key is not an owner, secondary signer, policy authority, or browser input.
+
+Bridge `vault` provisioning → reviewed deployment evidence and two distinct browser credentials → existing unsigned/reconciled deployment runner and topology verifier → `VaultProvisioningResult` containing only public addresses and transaction/report evidence. Missing local secret, unreviewed artifact, unknown session, non-loopback request, arbitrary target/selector, approval/Permit/Permit2, batch, delegate call, direct module call, or uncertain duplicate submission is rejected before any broadcast.
+
 ## Task 10 end-to-end proof matrix
 
 The local security gate is `npm run security:check`. It is a reproducible testnet-prototype gate: compilation, the complete Hardhat suite, the call-graph invariant suite, coverage, Slither, a time-controlled local rehearsal, and whitespace validation must all pass. It does not deploy, sign, broadcast, use a secret, or claim an audit.

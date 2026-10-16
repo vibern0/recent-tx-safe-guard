@@ -2,8 +2,8 @@
   "findings": [
     "divide-before-multiply|_currentWindow|contracts/TieredSpendingGuard.sol#L744-L747",
     "incorrect-equality|_authorizeQueueProposal|contracts/TieredSpendingGuard.sol#L581-L601",
-    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L86-L111",
-    "unused-return|replaceSigner|contracts/GuardReplacementMaintenance.sol#L122-L155",
+    "reentrancy-no-eth|replaceGuards|contracts/GuardReplacementMaintenance.sol#L91-L116",
+    "unused-return|replaceSigner|contracts/GuardReplacementMaintenance.sol#L127-L160",
     "unused-return|decodePasskeySignature|contracts/TieredSpendingGuard.sol#L323-L326",
     "unused-return|decodeEcdsaSecondaryExtension|contracts/TieredSpendingGuard.sol#L331-L334",
     "calls-loop|_checkedCall|contracts/SafeAtomicSetupHelper.sol#L137-L140",

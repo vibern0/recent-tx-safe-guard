@@ -1,0 +1,17 @@
+{
+  "name": "@recent-tx-safe-guard/demo-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "14.0.3",
+    "viem": "2.56.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.16.5",
+    "typescript": "5.8.3",
+    "vitest": "4.1.10"
+  }
+}
