@@ -32,15 +32,14 @@ const STEPS: { key: keyof Onboarding; title: string; icon: typeof Fingerprint }[
 const EXERCISES = ["Everyday transfer", "Second-signer approval", "Scheduled withdrawal", "Notification", "Cancellation", "Recovery"];
 
 function OnboardingPage() {
-  const { state, provision, loading } = useVault();
+  const { state, provision, loading, finishSetup } = useVault();
   const nav = useNavigate();
   const { busy, approve } = useApproval();
   const ob = state.onboarding;
   const current = STEPS.find((s) => !ob[s.key])?.key;
   const done = (k: keyof Onboarding) => {
     if (k !== "rehearsed") return;
-    localStorage.setItem("eurc-vault-ui-v1", JSON.stringify({ notifications: state.notifications, rehearsed: true }));
-    window.location.reload();
+    finishSetup();
   };
 
   const [x, setX] = useState(formatEuro(state.policy.firstSignerDaily).slice(1));

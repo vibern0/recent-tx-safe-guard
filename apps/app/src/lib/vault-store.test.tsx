@@ -10,8 +10,9 @@ vi.mock("viem", async (importOriginal) => ({
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
+  localStorage.clear();
 });
-import { checkBackendHealth, useVault, VaultProvider } from "./vault-store";
+import { checkBackendHealth, useVault, VaultProvider, type VaultBackend } from "./vault-store";
 import type { VaultConfig } from "./vault-chain";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
@@ -76,7 +77,9 @@ function makeClient(
   } as unknown as PublicClient;
 }
 
-function wrapper(options: { client?: PublicClient; config?: VaultConfig } = {}) {
+function wrapper(
+  options: { client?: PublicClient; config?: VaultConfig; backend?: VaultBackend } = {},
+) {
   return ({ children }: { children: ReactNode }) =>
     createElement(VaultProvider, { ...options, children }, children);
 }
@@ -185,4 +188,59 @@ it("keeps the configured RPC client stable across provider rerenders", async () 
   await waitFor(() => expect(result.current.state.writable).toBe(true));
   rerender();
   expect(createPublicClient).toHaveBeenCalledTimes(1);
+});
+
+it("keeps newly provisioned signer references when finishing setup", async () => {
+  const backend: VaultBackend = {
+    registerPasskey: async (role) => ({
+      role,
+      credentialId: `${role}-credential`,
+      challenge: "challenge",
+      rpId: "localhost",
+      origin: "http://localhost:5173",
+      response: {
+        id: `${role}-credential`,
+        rawId: `${role}-credential`,
+        type: "public-key",
+        clientExtensionResults: {},
+        response: { clientDataJSON: "e30", attestationObject: "e30" },
+      },
+    }),
+    provisionVault: async () => ({
+      chainId: 11155111,
+      safe: SAFE,
+      guard: GUARD,
+      delay: DELAY,
+      eurc: EURC,
+      primaryPasskey: SAFE,
+      secondaryPasskey: GUARD,
+      evidence: { setupTransactionHash: "0x11", verificationReportHash: "0x22" },
+    }),
+    prepareTransfer: vi.fn(),
+    submitPrimary: vi.fn(),
+    submitSecondary: vi.fn(),
+  };
+  const { result } = renderHook(() => useVault(), {
+    wrapper: wrapper({ client: makeClient(), config, backend }),
+  });
+  await waitFor(() => expect(result.current.hydrated).toBe(true));
+  await act(async () => {
+    await result.current.provision();
+  });
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem("eurc-vault-ui-v1") ?? "{}")).toMatchObject({
+      primaryCredentialId: "primary-credential",
+      secondaryCredentialId: "secondary-credential",
+    }),
+  );
+  act(() => result.current.finishSetup());
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem("eurc-vault-ui-v1") ?? "{}")).toMatchObject({
+      primaryCredentialId: "primary-credential",
+      secondaryCredentialId: "secondary-credential",
+      deploymentHash: "0x11",
+      policyHash: "0x22",
+      rehearsed: true,
+    }),
+  );
 });

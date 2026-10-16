@@ -166,7 +166,7 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   return { lane: "base" };
 }
 
-type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
+type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; finishSetup: () => void; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
 const VaultCtx = createContext<Ctx | null>(null);
 
 export function VaultProvider({ children, client: providedClient, config: providedConfig, backend: providedBackend }: VaultProviderProps) {
@@ -174,7 +174,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
   const [config, setConfig] = useState<VaultConfig | undefined>(providedConfig);
   const client = useMemo(() => providedClient ?? defaultClient(), [providedClient]);
   const backend = useMemo(() => providedBackend ?? defaultBackend(), [providedBackend]);
-  const ui = useMemo(readUiState, []);
+  const [ui, setUi] = useState(readUiState);
   const refresh = useCallback(async () => {
     if (!config || !client) { const blank = emptyState(); setState({ ...blank, notifications: ui.notifications, onboarding: { ...blank.onboarding, rehearsed: ui.rehearsed } }); setLoading(false); return; }
     setLoading(true);
@@ -184,14 +184,15 @@ export function VaultProvider({ children, client: providedClient, config: provid
   }, [client, config, ui]);
   useEffect(() => { const stored = providedConfig ?? readConfig(); setConfig(stored); setHydrated(true); }, [providedConfig]);
   useEffect(() => { if (hydrated) void refresh(); }, [config, hydrated, refresh]);
-  useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, notifications: state.notifications, rehearsed: state.onboarding.rehearsed })); }, [hydrated, state.notifications, state.onboarding.rehearsed, ui]);
+  useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify(ui)); }, [hydrated, ui]);
+  const finishSetup = useCallback(() => { setUi((current) => ({ ...current, rehearsed: true })); }, []);
   const provision = useCallback(async () => {
     if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
     await backend.health?.();
     const primary = await backend.registerPasskey("primary"); const secondary = await backend.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
     const result = await backend.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
-    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc, eurcCandidates: [DEFAULT_EURC] }; saveConfig(next); localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
+    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc, eurcCandidates: [DEFAULT_EURC] }; saveConfig(next); setUi((current) => ({ ...current, rehearsed: false, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
   }, [backend, client, providedConfig, ui]);
   const sendEurc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
     if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");
@@ -207,7 +208,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
     const secondary = await backend.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
     await refresh(); return secondary;
   }, [backend, refresh, state, ui]);
-  const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, refresh, provision, sendEurc }), [state, hydrated, loading, config, refresh, provision, sendEurc]);
+  const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, finishSetup, refresh, provision, sendEurc }), [state, hydrated, loading, config, finishSetup, refresh, provision, sendEurc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }
 
