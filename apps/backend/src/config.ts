@@ -9,6 +9,8 @@ export type BackendConfig = Readonly<{
   rpcUrl: string;
   relayPrivateKey: `0x${string}`;
   journalPath: string;
+  reviewedArtifactsPath: string;
+  provisionerModulePath: string;
 }>;
 
 export type BackendEnvironment = Readonly<Record<string, string | undefined>>;
@@ -24,7 +26,11 @@ export function loadBackendConfig(env: BackendEnvironment = process.env): Backen
   if (!/^https?:\/\/localhost(?::\d+)?$/.test(origin)) throw new Error("backend origin must be localhost");
   const journalPath = env["BACKEND_JOURNAL_PATH"];
   if (!journalPath || !journalPath.startsWith("/")) throw new Error("BACKEND_JOURNAL_PATH must point outside the repository");
-  return Object.freeze({ host: "127.0.0.1", port, chainId: 11155111, rpId: "localhost", origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath });
+  const reviewedArtifactsPath = env["BACKEND_REVIEWED_ARTIFACTS"];
+  if (!reviewedArtifactsPath || !reviewedArtifactsPath.startsWith("/")) throw new Error("BACKEND_REVIEWED_ARTIFACTS must point to reviewed artifacts outside the repository");
+  const provisionerModulePath = env["BACKEND_PROVISIONER_MODULE"];
+  if (!provisionerModulePath || !provisionerModulePath.startsWith("/")) throw new Error("BACKEND_PROVISIONER_MODULE must point to a reviewed adapter outside the repository");
+  return Object.freeze({ host: "127.0.0.1", port, chainId: 11155111, rpId: "localhost", origin, rpcUrl, relayPrivateKey: relayPrivateKey as `0x${string}`, journalPath, reviewedArtifactsPath, provisionerModulePath });
 }
 
 export function assertConfiguredAddress(value: string, label: string): Address {

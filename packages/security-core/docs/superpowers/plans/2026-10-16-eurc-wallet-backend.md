@@ -88,29 +88,29 @@ git commit -m "refactor: rename demo bridge to backend"
 - Consumes: reviewed deployment evidence, local secret config, server-held registration/vault records, authoritative chain adapter.
 - Produces: `createBackendHandlers`, `startBackend`, `GET /health`, server-authoritative `/v1/vaults`, `/v1/submissions/prepare`, `/v1/submissions/{id}/submit`, and `/v1/submissions/{id}`.
 
-- [ ] **Step 1: Write failing handler/server tests**
+- [x] **Step 1: Write failing handler/server tests**
 
 Cover health response, origin/loopback rejection, malformed JSON, unknown routes, duplicate sessions, server-held vault binding, ignored client deployment fields, exact digest binding, duplicate IDs, role ordering, uncertain broadcast reconciliation, and receipt-confirmed/reverted status.
 
-- [ ] **Step 2: Run focused tests to verify failure**
+- [x] **Step 2: Run focused tests to verify failure**
 
 Run: `npm --prefix apps/backend test -- server.test.ts handlers.test.ts config.test.ts`
 
 Expected: FAIL because the entrypoint, handlers, readiness, and server-held state do not exist.
 
-- [ ] **Step 3: Implement validated config and readiness**
+- [x] **Step 3: Implement validated config and readiness**
 
 Require `BACKEND_RELAY_PRIVATE_KEY`, `BACKEND_RPC_URL`, `BACKEND_JOURNAL_PATH`, reviewed artifact config, exact chain/origin, and a non-repository journal path. Refuse startup on missing/invalid values. Add `GET /health` without secrets.
 
-- [ ] **Step 4: Implement server-held records and handlers**
+- [x] **Step 4: Implement server-held records and handlers**
 
 Store verified credential metadata and the provisioned vault record on the backend boundary. Ignore browser addresses/hashes; use the record plus chain adapter for preparation. Re-read nonce, EURC metadata, topology, policy, and receipt state before writes. Return bounded JSON errors with `no-store`.
 
-- [ ] **Step 5: Implement `main.ts`**
+- [x] **Step 5: Implement `main.ts`**
 
 Load config, construct reviewed provisioner/chain adapters, start only on `127.0.0.1`, and fail startup before listening when readiness validation fails. Never log secrets or credential material.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run: `npm --prefix apps/backend test -- server.test.ts handlers.test.ts config.test.ts`
 

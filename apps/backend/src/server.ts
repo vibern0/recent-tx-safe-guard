@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RegistrationSessionStore } from "./session";
 import { verifyPasskeyRegistration, type RegistrationResponse } from "./webauthn";
-import { prepareEurcTransfer, type PreparedEurcTransfer, type SafeExecutionRequest } from "./vault";
+import type { PreparedEurcTransfer, SafeExecutionRequest } from "./vault";
 import { SubmissionJournal } from "./journal";
 
 export type VaultProvisioningResult = Readonly<{
@@ -18,7 +18,8 @@ export type VaultProvisioningResult = Readonly<{
 
 export type BackendHandlers = Readonly<{
   provisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
-  prepareTransfer?: (body: PreparedEurcTransfer) => Promise<SafeExecutionRequest>;
+  storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
+  prepareTransfer?: (body: unknown) => Promise<SafeExecutionRequest>;
   submit?: (id: string, body: unknown) => Promise<unknown>;
   submission?: (id: string) => unknown;
 }>;
@@ -62,6 +63,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         res.setHeader("vary", "Origin");
       }
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") return json(res, 200, { ok: true, chainId: config.chainId, origin: config.origin });
       const segments = pathSegments(req.url ?? "/");
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";
@@ -74,6 +76,7 @@ export function createBackendServer(config: BackendConfig, handlers: BackendHand
         if (!input.sessionId || !input.registration) throw new Error("registration session and response are required");
         const session = sessions.consume(input.sessionId, role);
         const credential = await verifyPasskeyRegistration({ ...input.registration, role, challenge: session.challenge, rpId: session.rpId, origin: session.origin });
+        handlers.storeCredential?.(credential);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));

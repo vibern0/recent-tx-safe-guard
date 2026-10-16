@@ -12,11 +12,13 @@ Keep relay keys, RPC URLs, credential metadata, and journal data outside the rep
 export BACKEND_RELAY_PRIVATE_KEY=0x...
 export BACKEND_RPC_URL=https://...
 export BACKEND_JOURNAL_PATH=/absolute/path/outside/repository/backend-journal.json
+export BACKEND_REVIEWED_ARTIFACTS=/absolute/path/outside/repository/reviewed-artifacts.json
+export BACKEND_PROVISIONER_MODULE=/absolute/path/outside/repository/reviewed-backend-adapter.mjs
 export BACKEND_ORIGIN=http://localhost:5173
 npm --prefix apps/backend run dev
 ```
 
-The server binds to `127.0.0.1:8787`. Startup must fail when required configuration or reviewed deployment evidence is missing.
+The server binds to `127.0.0.1:8787`. `BACKEND_PROVISIONER_MODULE` must export a reviewed provisioner plus exact preparation, submission, and receipt-reconciliation adapters. Startup must fail when any required configuration, reviewed deployment evidence, or adapter is missing.
 
 ## HTTP contract
 
