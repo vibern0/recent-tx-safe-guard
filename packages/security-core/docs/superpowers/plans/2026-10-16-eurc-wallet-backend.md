@@ -68,7 +68,7 @@ Run: `npm --prefix apps/backend test`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/backend apps/demo-bridge .gitignore packages/security-core/docs/superpowers/plans/2026-10-15-eurc-passkey-wallet-demo.md
@@ -116,7 +116,7 @@ Run: `npm --prefix apps/backend test -- server.test.ts handlers.test.ts config.t
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/backend
@@ -161,7 +161,7 @@ Run: `npm --prefix apps/app test -- provisioning-errors.test.ts vault-store.test
 
 Expected: PASS and successful build.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/app
@@ -195,7 +195,7 @@ Run: `npm --prefix packages/security-core run security:check`
 
 Expected: PASS with no unreviewed dependency or call-graph drift.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add AGENTS.md packages/security-core/docs
@@ -207,13 +207,13 @@ git commit -m "docs: record wallet backend trust boundary"
 **Files:**
 - Modify: plan checkboxes and execution ledger only as evidence requires.
 
-- [ ] **Step 1: Run full acceptance gates**
+- [x] **Step 1: Run full acceptance gates**
 
 Run: `npm --prefix apps/backend test && npm --prefix apps/app test && npm --prefix apps/app run build && npm --prefix packages/security-core run security:check && npm test`
 
 Expected: all commands exit 0; record exact counts and any known baseline warnings.
 
-- [ ] **Step 2: Run fresh review**
+- [x] **Step 2: Run fresh review**
 
 Review the complete diff against the spec, with special focus on server authority, exact digest binding, loopback/origin isolation, journal uncertainty, and app failure states. Fix Important/Critical findings with RED→GREEN tests.
 
