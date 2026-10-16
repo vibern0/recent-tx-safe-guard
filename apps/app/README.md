@@ -21,6 +21,12 @@ npm i
 npm run dev
 ```
 
+## Local wallet backend
+
+The wallet requires the loopback backend for passkey registration, reviewed vault provisioning, and Safe submissions. Set `VITE_SEPOLIA_RPC_URL` for direct Sepolia reads and `VITE_BACKEND_ORIGIN` for the backend origin. Default backend origin: `http://127.0.0.1:8787`.
+
+Backend errors, unhealthy readiness, stale chain state, passkey cancellation, and onchain policy denial stay visible. The browser never receives relay keys or credential material.
+
 ## Built with
 
 - TanStack Start

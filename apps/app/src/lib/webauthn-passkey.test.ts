@@ -53,7 +53,7 @@ const registrationOptions = {
 describe("createVaultPasskey", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("serializes a bridge challenge registration without persisting credential material", async () => {
+  it("serializes a backend challenge registration without persisting credential material", async () => {
     startRegistrationMock.mockResolvedValue({
       id: CREDENTIAL,
       rawId: encoded("raw-credential"),

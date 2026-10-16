@@ -40,8 +40,8 @@ and freeze state. EURC values preserve all six decimals using bigint arithmetic.
 The Limits screen keeps displaying active onchain values beneath the sheet.
 Chain snapshot changes remount the editor, discarding stale drafts.
 
-**Integration boundary:** the existing transfer bridge and the separate backend
-design do not define a settings-change API. This editor can review a proposal;
+**Integration boundary:** the existing transfer backend and its HTTP
+contract do not define a settings-change API. This editor can review a proposal;
 it cannot apply one. The review explicitly says "Draft only — not applied".
 No local success, optimistic active-policy update, fabricated transaction,
 settings HTTP endpoint, or new signing path is added by this UI work.

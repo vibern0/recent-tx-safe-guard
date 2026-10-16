@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { isLoopbackAddress, type BridgeConfig } from "./config";
+import { isLoopbackAddress, type BackendConfig } from "./config";
 import { RegistrationSessionStore } from "./session";
 import { verifyPasskeyRegistration, type RegistrationResponse } from "./webauthn";
-import { prepareEurcTransfer, type PreparedEurcTransfer, type SafeExecutionRequest } from "./vault";
+import type { PreparedEurcTransfer, SafeExecutionRequest } from "./vault";
 import { SubmissionJournal } from "./journal";
 
 export type VaultProvisioningResult = Readonly<{
@@ -16,14 +16,15 @@ export type VaultProvisioningResult = Readonly<{
   evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}` }>;
 }>;
 
-export type BridgeHandlers = Readonly<{
+export type BackendHandlers = Readonly<{
   provisionVault: (body: unknown) => Promise<VaultProvisioningResult>;
-  prepareTransfer?: (body: PreparedEurcTransfer) => Promise<SafeExecutionRequest>;
+  storeCredential?: (credential: Awaited<ReturnType<typeof verifyPasskeyRegistration>>) => void;
+  prepareTransfer?: (body: unknown) => Promise<SafeExecutionRequest>;
   submit?: (id: string, body: unknown) => Promise<unknown>;
   submission?: (id: string) => unknown;
 }>;
 
-export type BridgeServer = Readonly<{ server: Server; sessions: RegistrationSessionStore; journal: SubmissionJournal; close: () => Promise<void> }>;
+export type BackendServer = Readonly<{ server: Server; sessions: RegistrationSessionStore; journal: SubmissionJournal; close: () => Promise<void> }>;
 
 async function body(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -47,7 +48,7 @@ function pathSegments(value: string): string[] {
   return value.split("/").filter(Boolean);
 }
 
-export function createBridgeServer(config: BridgeConfig, handlers: BridgeHandlers): BridgeServer {
+export function createBackendServer(config: BackendConfig, handlers: BackendHandlers): BackendServer {
   const sessions = new RegistrationSessionStore(config.origin);
   const journal = new SubmissionJournal(config.journalPath);
   const server = createServer(async (req, res) => {
@@ -62,6 +63,7 @@ export function createBridgeServer(config: BridgeConfig, handlers: BridgeHandler
         res.setHeader("vary", "Origin");
       }
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+      if (req.method === "GET" && (req.url ?? "/").split("?", 1)[0] === "/health") return json(res, 200, { ok: true, chainId: config.chainId, origin: config.origin });
       const segments = pathSegments(req.url ?? "/");
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";
@@ -74,6 +76,7 @@ export function createBridgeServer(config: BridgeConfig, handlers: BridgeHandler
         if (!input.sessionId || !input.registration) throw new Error("registration session and response are required");
         const session = sessions.consume(input.sessionId, role);
         const credential = await verifyPasskeyRegistration({ ...input.registration, role, challenge: session.challenge, rpId: session.rpId, origin: session.origin });
+        handlers.storeCredential?.(credential);
         return json(res, 200, { role, credentialId: credential.credentialId, counter: credential.counter });
       }
       if (req.method === "POST" && segments.join("/") === "v1/vaults") return json(res, 200, await handlers.provisionVault(await body(req)));
@@ -94,7 +97,7 @@ export function createBridgeServer(config: BridgeConfig, handlers: BridgeHandler
       }
       return json(res, 404, { error: "not found" });
     } catch (error) {
-      return json(res, 400, { error: error instanceof Error ? error.message : "bridge request failed" });
+      return json(res, 400, { error: error instanceof Error ? error.message : "backend request failed" });
     }
   });
   return Object.freeze({ server, sessions, journal, close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())) });

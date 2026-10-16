@@ -23,12 +23,13 @@ export type VaultProvisioningResult = Readonly<{
   evidence: Readonly<{ setupTransactionHash: `0x${string}`; verificationReportHash: `0x${string}` }>;
 }>;
 
-export type BridgeRegistrationOptions = Readonly<{
+export type BackendRegistrationOptions = Readonly<{
   sessionId: string; challenge: string; rpId: string; origin: string; role: "primary" | "secondary";
   userVerification: "required"; authenticatorAttachment: "platform";
 }>;
 
-export type VaultBridge = Readonly<{
+export type VaultBackend = Readonly<{
+  health?: () => Promise<void>;
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
   provisionVault: (input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string; eurc: Address; chainId: 11155111 }>) => Promise<VaultProvisioningResult>;
   prepareTransfer: (input: PreparedTransferInput) => Promise<SafeExecutionRequest>;
@@ -44,7 +45,7 @@ export type PreparedTransferInput = Readonly<{
 export type SafeExecutionRequest = Readonly<{ idempotencyKey: Hex; safeTxHash: Hex; safe: Address; chainId: 11155111; transaction: Readonly<{ to: Address; value: bigint; data: Hex; operation: 0; nonce: bigint }>; requiredApprovals?: "primary" | "secondary" | "delayed" }>;
 export type SubmissionStatus = Readonly<{ id: Hex; state: "awaiting_secondary" | "queued" | "confirmed" | "reverted"; requiredApprovals: "primary" | "secondary" | "delayed"; safeTxHash: Hex; transactionHash?: Hex }>;
 
-export type VaultProviderProps = { children: ReactNode; client?: PublicClient; config?: VaultConfig; bridge?: VaultBridge };
+export type VaultProviderProps = { children: ReactNode; client?: PublicClient; config?: VaultConfig; backend?: VaultBackend };
 
 const KEY = "eurc-vault-demo-v1";
 const UI_KEY = "eurc-vault-ui-v1";
@@ -92,17 +93,25 @@ function defaultClient(): PublicClient | undefined {
   return rpcUrl ? createPublicClient({ chain: sepolia, transport: http(rpcUrl) }) : undefined;
 }
 
-function defaultBridge(): VaultBridge {
-  const origin = ((import.meta.env["VITE_DEMO_BRIDGE_ORIGIN"] as string | undefined)?.trim() || "http://127.0.0.1:8787").replace(/\/$/, "");
+export async function checkBackendHealth(origin: string, requester: typeof fetch = fetch): Promise<void> {
+  const response = await requester(`${origin.replace(/\/$/, "")}/health`, { headers: { accept: "application/json" } });
+  let payload: { ok?: unknown; error?: unknown } = {};
+  try { payload = await response.json() as typeof payload; } catch { /* bounded error below */ }
+  if (!response.ok || payload.ok !== true) throw new Error(`Backend health check failed: ${typeof payload.error === "string" ? payload.error : `HTTP ${response.status}`}`);
+}
+
+function defaultBackend(): VaultBackend {
+  const origin = ((import.meta.env["VITE_BACKEND_ORIGIN"] as string | undefined)?.trim() || "http://127.0.0.1:8787").replace(/\/$/, "");
   const json = async (url: string, init?: RequestInit): Promise<any> => {
     const response = await fetch(`${origin}${url}`, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
     const payload = JSON.parse(await response.text(), (key, value) => ["amount", "nonce", "window", "baseSpent", "instantSpent", "safeTxGas", "baseGas", "gasPrice"].includes(key) && typeof value === "string" && /^\d+n$/.test(value) ? BigInt(value.slice(0, -1)) : value) as { error?: string; request?: SafeExecutionRequest };
-    if (!response.ok) throw new Error(payload.error ?? `Bridge request failed (${response.status})`);
+    if (!response.ok) throw new Error(payload.error ?? `Backend request failed (${response.status})`);
     return payload;
   };
   return {
+    async health() { await checkBackendHealth(origin); },
     async registerPasskey(role) {
-      const options = await json(`/v1/registrations/${role}/options`, { method: "POST", body: "{}" }) as BridgeRegistrationOptions;
+      const options = await json(`/v1/registrations/${role}/options`, { method: "POST", body: "{}" }) as BackendRegistrationOptions;
       const registrationOptions = {
         challenge: options.challenge, rp: { id: options.rpId, name: "EURC Vault Demo" },
         user: { id: `${role}-${options.sessionId}`, name: `${role}@localhost`, displayName: role === "primary" ? "First signer" : "Second signer" },
@@ -160,11 +169,11 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
 type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
 const VaultCtx = createContext<Ctx | null>(null);
 
-export function VaultProvider({ children, client: providedClient, config: providedConfig, bridge: providedBridge }: VaultProviderProps) {
+export function VaultProvider({ children, client: providedClient, config: providedConfig, backend: providedBackend }: VaultProviderProps) {
   const [state, setState] = useState<VaultState>(emptyState); const [hydrated, setHydrated] = useState(false); const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<VaultConfig | undefined>(providedConfig);
   const client = useMemo(() => providedClient ?? defaultClient(), [providedClient]);
-  const bridge = useMemo(() => providedBridge ?? defaultBridge(), [providedBridge]);
+  const backend = useMemo(() => providedBackend ?? defaultBackend(), [providedBackend]);
   const ui = useMemo(readUiState, []);
   const refresh = useCallback(async () => {
     if (!config || !client) { const blank = emptyState(); setState({ ...blank, notifications: ui.notifications, onboarding: { ...blank.onboarding, rehearsed: ui.rehearsed } }); setLoading(false); return; }
@@ -178,24 +187,26 @@ export function VaultProvider({ children, client: providedClient, config: provid
   useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, notifications: state.notifications, rehearsed: state.onboarding.rehearsed })); }, [hydrated, state.notifications, state.onboarding.rehearsed, ui]);
   const provision = useCallback(async () => {
     if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
-    const primary = await bridge.registerPasskey("primary"); const secondary = await bridge.registerPasskey("secondary");
+    await backend.health?.();
+    const primary = await backend.registerPasskey("primary"); const secondary = await backend.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
-    const result = await bridge.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
+    const result = await backend.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
     const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc, eurcCandidates: [DEFAULT_EURC] }; saveConfig(next); localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
-  }, [bridge, client, providedConfig, ui]);
+  }, [backend, client, providedConfig, ui]);
   const sendEurc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
     if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");
+    await backend.health?.();
     if (!ui.primaryCredentialId || !ui.deploymentHash || !ui.policyHash) throw new Error("passkey session and reviewed deployment evidence are required");
     const idempotencyKey = keccak256(toHex(`${state.safe}:${recipient}:${amount.toString()}:${state.safeNonce?.toString() ?? ""}:${Date.now()}`));
-    const prepared = await bridge.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, eurc: state.eurc as Address, configuredEurc: state.eurc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
+    const prepared = await backend.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, eurc: state.eurc as Address, configuredEurc: state.eurc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
     const origin = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
     const assertion = (role: "primary" | "secondary", credentialId: string) => signSafeDigest({ role, safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash, challenge: challengeForSafeDigest(prepared.safeTxHash), challengeBinding: { safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash }, rpId: "localhost", origin, credentialId });
-    const primary = await bridge.submitPrimary(prepared.idempotencyKey, await assertion("primary", ui.primaryCredentialId));
+    const primary = await backend.submitPrimary(prepared.idempotencyKey, await assertion("primary", ui.primaryCredentialId));
     if (primary.state !== "awaiting_secondary") { await refresh(); return primary; }
     if (!ui.secondaryCredentialId) throw new Error("secondary passkey session is required for this tier");
-    const secondary = await bridge.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
+    const secondary = await backend.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
     await refresh(); return secondary;
-  }, [bridge, refresh, state, ui]);
+  }, [backend, refresh, state, ui]);
   const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, refresh, provision, sendEurc }), [state, hydrated, loading, config, refresh, provision, sendEurc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }

@@ -26,7 +26,7 @@ const input = {
   allowedRecipients: [RECIPIENT],
 };
 
-describe("bounded bridge vault requests", () => {
+describe("bounded backend vault requests", () => {
   it("prepares exactly one EURC transfer Safe call", async () => {
     const request = await prepareEurcTransfer(input);
     expect(request.safe).toBe(SAFE);

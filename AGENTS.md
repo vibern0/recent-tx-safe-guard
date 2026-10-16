@@ -54,6 +54,7 @@ Preserve the prototype under `legacy/` when executing the plan. Do not deploy it
 - Use test-driven development for policy, encoding, topology, queue, signer, and monitoring behavior.
 - Every new execution path requires a corresponding update to `packages/security-core/docs/security/call-graph.md` and adversarial tests.
 - Every security dependency change requires an update to `packages/security-core/docs/security/dependency-review.md`.
+- `apps/backend` is the required loopback write boundary for browser provisioning and Safe submissions; keep `BACKEND_*` secrets/config outside the repository and use `VITE_BACKEND_ORIGIN` in the browser.
 - Keep private keys, passkey material, Burner PINs, RPC secrets, and provider credentials out of the repository and logs.
 - Generated deployment plans must be unsigned and reproducible before human review.
 - Prefer read-only verification scripts that fail closed on missing or inconsistent RPC data.
