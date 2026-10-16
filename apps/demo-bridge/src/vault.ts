@@ -105,6 +105,15 @@ const exactRequest = (request: SafeExecutionRequest): SafeExecutionRequest => Ob
   expectedSpend: Object.freeze({ ...request.expectedSpend }),
 });
 
+function assertCanonicalRequest(request: SafeExecutionRequest): void {
+  if (request.chainId !== 11155111 || request.transaction.operation !== 0 || request.transaction.value !== 0n) throw new Error("only zero-value CALLs on Sepolia are supported");
+  if (request.asset.toLowerCase() !== request.transaction.to.toLowerCase()) throw new Error("Safe target must be the configured EURC asset");
+  if (request.transaction.safeTxGas !== 0n || request.transaction.baseGas !== 0n || request.transaction.gasPrice !== 0n || request.transaction.gasToken !== ZERO || request.transaction.refundReceiver !== ZERO) throw new Error("Safe gas and refund fields must be zero");
+  const digest = hashTypedData({ domain: { chainId: request.chainId, verifyingContract: request.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: request.transaction });
+  if (digest.toLowerCase() !== request.safeTxHash.toLowerCase()) throw new Error("Safe transaction digest does not match the exact request");
+  if (request.expectedSpend.window < 0n || request.expectedSpend.baseSpent < 0n || request.expectedSpend.instantSpent < 0n) throw new Error("spend state cannot be negative");
+}
+
 export class SafeSubmissionService {
   readonly broadcast: SafeSubmissionServiceOptions["broadcast"];
   private readonly options: SafeSubmissionServiceOptions;
@@ -117,6 +126,7 @@ export class SafeSubmissionService {
   }
 
   prepare(request: SafeExecutionRequest): SafeExecutionRequest {
+    assertCanonicalRequest(request);
     const frozen = exactRequest(request);
     const existing = this.requests.get(request.idempotencyKey);
     if (existing && existing.safeTxHash !== frozen.safeTxHash) throw new Error("submission ID is already bound to another Safe digest");

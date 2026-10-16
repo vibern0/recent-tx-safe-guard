@@ -136,7 +136,7 @@ export type VaultSnapshot = Readonly<{
   observedBlock?: bigint;
 }>;
 
-type ChainReader = Pick<PublicClient, "getChainId" | "getBytecode" | "getBalance" | "getTransactionCount" | "getStorageAt" | "readContract"> &
+type ChainReader = Pick<PublicClient, "getChainId" | "getBytecode" | "getBalance" | "getStorageAt" | "readContract"> &
   Partial<Pick<PublicClient, "getBlockNumber">>;
 
 const read = async <T>(client: ChainReader, address: Address, abi: readonly unknown[], functionName: string, args: readonly unknown[] = []): Promise<T> =>
@@ -186,7 +186,7 @@ export async function readVaultSnapshot(client: PublicClient, config: VaultConfi
     const [nativeBalance, eurcBalance, safeNonce, guardSlot, moduleGuardSlot, fallbackSlot, modulesPage, guardConfig, frozen, configuredTokens, delayOwner, delayAvatar, delayTarget, cooldownSeconds, expirationSeconds, txNonce, queueNonce, observedBlock] = await Promise.all([
       reader.getBalance({ address: config.safe }),
       read<bigint>(reader, config.eurc, ERC20_ABI, "balanceOf", [config.safe]),
-      reader.getTransactionCount({ address: config.safe }),
+      read<bigint>(reader, config.safe, SAFE_ABI, "nonce"),
       reader.getStorageAt({ address: config.safe, slot: GUARD_SLOT }),
       reader.getStorageAt({ address: config.safe, slot: MODULE_GUARD_SLOT }),
       reader.getStorageAt({ address: config.safe, slot: FALLBACK_HANDLER_SLOT }),

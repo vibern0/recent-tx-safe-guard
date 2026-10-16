@@ -23,6 +23,7 @@ function client(overrides: Record<string, unknown> = {}): PublicClient {
         symbol: "EURC",
         decimals: 6,
         balanceOf: 12_345_678n,
+        nonce: 7n,
         getGuard: GUARD,
         getModuleGuard: GUARD,
         getModulesPaginated: [[DELAY], "0x0000000000000000000000000000000000000001"],

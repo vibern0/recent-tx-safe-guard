@@ -29,6 +29,7 @@ function makeClient(values: { balance?: bigint; baseSpent?: bigint; safeNonce?: 
         symbol: "EURC",
         decimals: 6,
         balanceOf: 12_345_678n,
+        nonce: BigInt(values.safeNonce ?? 7),
         getModulesPaginated: [[DELAY], "0x0000000000000000000000000000000000000001"],
         config: [SAFE, "0x5555555555555555555555555555555555555555", "0x6666666666666666666666666666666666666666", DELAY, 86400n, 0n],
         frozen: false,
@@ -92,17 +93,23 @@ describe("VaultProvider", () => {
 
   it("replaces stale chain state on refresh instead of merging local simulation", async () => {
     const first = makeClient({ balance: 12_000_000n, baseSpent: 1_000_000n, safeNonce: 7 });
-    const second = makeClient({ balance: 8_000_000n, baseSpent: 3_000_000n, safeNonce: 8 });
+    const fallback = makeClient();
     const client = first as PublicClient;
+    let nonce = 7n; let baseSpent = 1_000_000n; let eurcBalance = 12_345_678n;
     const getBalance = vi.spyOn(client, "getBalance").mockResolvedValueOnce(2_000_000_000_000_000n).mockResolvedValueOnce(3_000_000_000_000_000n);
-    const getTransactionCount = vi.spyOn(client, "getTransactionCount").mockResolvedValueOnce(7).mockResolvedValueOnce(8);
     const readContract = vi.spyOn(client, "readContract");
-    readContract.mockImplementationOnce(first.readContract as never).mockImplementationOnce(second.readContract as never);
+    readContract.mockImplementation(async (args) => {
+      if (args.functionName === "nonce") return nonce as never;
+      if (args.functionName === "spendState") return [0n, baseSpent, 0n] as never;
+      if (args.functionName === "balanceOf") return eurcBalance as never;
+      return (fallback.readContract as unknown as (input: unknown) => Promise<unknown>)(args) as never;
+    });
 
     const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client, config }) });
     await waitFor(() => expect(result.current.state.writable).toBe(true));
     const before = result.current.state.safeNonce;
 
+    nonce = 8n; baseSpent = 3_000_000n; eurcBalance = 8_000_000n;
     await act(async () => { await result.current.refresh(); });
 
     expect(before).toBe(7n);
@@ -110,6 +117,5 @@ describe("VaultProvider", () => {
     expect(result.current.state.nativeBalance).toBe(3_000_000_000_000_000n);
     expect(result.current.state.activity).toEqual([]);
     expect(getBalance).toHaveBeenCalledTimes(2);
-    expect(getTransactionCount).toHaveBeenCalledTimes(2);
   });
 });
