@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } from "lucide-react";
 import { useState } from "react";
-import { Card, DRow, PrimaryButton, TestPill } from "@/components/wallet/ui";
+import { Card, DRow, PrimaryButton, NetworkPill } from "@/components/wallet/ui";
 import { formatEuro, parseEuro } from "@/lib/euro";
 import { describeProvisioningError } from "@/lib/provisioning-errors";
 import { useApproval } from "@/lib/use-approval";
@@ -32,15 +32,14 @@ const STEPS: { key: keyof Onboarding; title: string; icon: typeof Fingerprint }[
 const EXERCISES = ["Everyday transfer", "Second-signer approval", "Scheduled withdrawal", "Notification", "Cancellation", "Recovery"];
 
 function OnboardingPage() {
-  const { state, provision, loading } = useVault();
+  const { state, provision, loading, finishSetup } = useVault();
   const nav = useNavigate();
   const { busy, approve } = useApproval();
   const ob = state.onboarding;
   const current = STEPS.find((s) => !ob[s.key])?.key;
   const done = (k: keyof Onboarding) => {
     if (k !== "rehearsed") return;
-    localStorage.setItem("eurc-vault-ui-v1", JSON.stringify({ notifications: state.notifications, rehearsed: true }));
-    window.location.reload();
+    finishSetup();
   };
 
   const [x, setX] = useState(formatEuro(state.policy.firstSignerDaily).slice(1));
@@ -87,7 +86,7 @@ function OnboardingPage() {
     <div className="space-y-4 pt-6">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-2xl font-bold">Set up your account</h1>
-        <TestPill />
+        <NetworkPill />
       </div>
       <p className="text-sm text-muted-foreground">Your progress is saved. No passwords, keys or PINs are stored here.</p>
 

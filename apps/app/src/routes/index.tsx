@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertCircle, ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from "lucide-react";
-import { ActivityRow, Card, TestPill } from "@/components/wallet/ui";
+import { ActivityRow, Card, NetworkPill } from "@/components/wallet/ui";
 import { TopologyAlert } from "@/components/wallet/topology-alert";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
 import { formatEuro } from "@/lib/euro";
@@ -39,7 +39,7 @@ function HomePage() {
             <p className="font-semibold">Personal account</p>
           </div>
         </div>
-        <TestPill />
+        <NetworkPill />
       </header>
 
       {!setupDone && (

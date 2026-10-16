@@ -159,7 +159,7 @@ function SendPage() {
             <dl className="space-y-2 border-t border-border pt-3 text-sm">
               <DRow k="Full address" v={to.address} />
               <DRow k="Network" v={state.network} />
-              <DRow k="Fee" v="Covered by the test account" />
+              <DRow k="Fee" v="Paid by the relay on Sepolia" />
               <DRow k="Approvers" v={lane === "base" ? "First signer" : `First signer + ${state.secondSignerName}`} />
               <DRow
                 k="Timing"

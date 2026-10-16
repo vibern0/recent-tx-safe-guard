@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "@/routeTree.gen";
@@ -18,6 +18,7 @@ async function renderAt(path: string) {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -37,4 +38,37 @@ describe("App routing", () => {
 
     await waitFor(() => expect(container.firstChild).not.toBeNull());
   });
+});
+
+describe("Account access", () => {
+  it.each(["/", "/send", "/receive", "/activity", "/limits", "/profile", "/unknown"])(
+    "requires account creation before showing %s",
+    async (path) => {
+      await renderAt(path);
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: "Set up your account" })).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Wallet writes are disabled")).not.toBeInTheDocument();
+    },
+  );
+});
+
+it("keeps an existing account accessible when RPC is unavailable", async () => {
+  localStorage.setItem(
+    "eurc-vault-demo-v1",
+    JSON.stringify({
+      safe: "0x1111111111111111111111111111111111111111",
+      guard: "0x2222222222222222222222222222222222222222",
+      delay: "0x3333333333333333333333333333333333333333",
+      eurc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+    }),
+  );
+  await renderAt("/limits");
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Limits & security" })).toBeInTheDocument(),
+  );
+  expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Profile" })).not.toBeInTheDocument();
+  expect(screen.getByText("Sepolia testnet")).toBeInTheDocument();
 });

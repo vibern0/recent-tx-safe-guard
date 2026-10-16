@@ -44,7 +44,7 @@ function ActivityPage() {
   return (
     <div>
       <PageHeader title="Activity" />
-      <div className="-mx-5 mb-4 flex gap-2 overflow-x-auto px-5" role="tablist" aria-label="Filter activity">
+      <div className="mb-4 grid grid-cols-2 gap-2" role="tablist" aria-label="Filter activity">
         {FILTERS.map((f) => (
           <Link
             key={f.id}
@@ -53,7 +53,7 @@ function ActivityPage() {
             role="tab"
             aria-selected={filter === f.id}
             className={cn(
-              "shrink-0 rounded-full px-4 py-2 text-sm font-semibold",
+              "rounded-2xl px-3 py-2.5 text-center text-sm font-semibold",
               filter === f.id ? "bg-foreground text-background" : "bg-card text-muted-foreground shadow-card",
             )}
           >
