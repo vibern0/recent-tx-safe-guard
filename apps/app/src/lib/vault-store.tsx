@@ -81,11 +81,11 @@ function readConfig(): VaultConfig | undefined {
     const parsed = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<Record<keyof VaultConfig, string>> | null;
     if (!parsed || !parsed.safe || !parsed.guard || !parsed.delay || !parsed.eurc) return undefined;
     if (![parsed.safe, parsed.guard, parsed.delay, parsed.eurc].every((value) => typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value))) return undefined;
-    return { chainId: 11155111, safe: parsed.safe as Address, guard: parsed.guard as Address, delay: parsed.delay as Address, eurc: parsed.eurc as Address };
+    return { chainId: 11155111, safe: parsed.safe as Address, guard: parsed.guard as Address, delay: parsed.delay as Address, eurc: parsed.eurc as Address, eurcCandidates: [DEFAULT_EURC] };
   } catch { return undefined; }
 }
 
-function saveConfig(config: VaultConfig): void { localStorage.setItem(KEY, JSON.stringify({ chainId: config.chainId, safe: config.safe, guard: config.guard, delay: config.delay, eurc: config.eurc })); }
+function saveConfig(config: VaultConfig): void { localStorage.setItem(KEY, JSON.stringify({ chainId: config.chainId, safe: config.safe, guard: config.guard, delay: config.delay, eurc: config.eurc, eurcCandidates: config.eurcCandidates })); }
 
 function defaultClient(): PublicClient | undefined {
   const rpcUrl = (import.meta.env["VITE_SEPOLIA_RPC_URL"] as string | undefined)?.trim();
@@ -178,7 +178,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
     const primary = await bridge.registerPasskey("primary"); const secondary = await bridge.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
     const result = await bridge.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
-    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc }; saveConfig(next); localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
+    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc, eurcCandidates: [DEFAULT_EURC] }; saveConfig(next); localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
   }, [bridge, client, providedConfig, ui]);
   const sendEurc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
     if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");

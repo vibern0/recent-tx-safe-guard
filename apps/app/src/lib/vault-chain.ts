@@ -59,8 +59,8 @@ export type VaultConfig = Readonly<{
   guard: Address;
   delay: Address;
   eurc: Address;
-  /** Optional allowlist of reviewed token candidates. */
-  eurcCandidates?: readonly Address[];
+  /** Reviewed Sepolia EURC candidates; an omitted candidate set is unhealthy. */
+  eurcCandidates: readonly Address[];
   fromBlock?: bigint;
 }>;
 
@@ -179,7 +179,7 @@ export async function readVaultSnapshot(client: PublicClient, config: VaultConfi
   try {
     const chainId = await reader.getChainId();
     if (chainId !== config.chainId) throw new VaultHealthError("wrong-chain", `Connected chain is ${chainId}, expected ${config.chainId}`);
-    if (config.eurcCandidates && !config.eurcCandidates.some((candidate) => sameAddress(candidate, config.eurc))) {
+    if (config.eurcCandidates.length === 0 || !config.eurcCandidates.some((candidate) => sameAddress(candidate, config.eurc))) {
       throw new VaultHealthError("eurc-address-unapproved", "EURC address is not in the reviewed candidate set");
     }
     const eurc = await validateEurc(client, config.eurc);

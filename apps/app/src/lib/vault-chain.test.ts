@@ -54,6 +54,7 @@ const config: VaultConfig = {
   guard: GUARD,
   delay: DELAY,
   eurc: EURC,
+  eurcCandidates: [EURC],
 };
 
 describe("validateEurc", () => {

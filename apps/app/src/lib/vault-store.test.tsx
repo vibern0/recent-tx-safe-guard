@@ -11,7 +11,7 @@ const DELAY = "0x3333333333333333333333333333333333333333" as Address;
 const EURC = "0x4444444444444444444444444444444444444444" as Address;
 const RECIPIENT = "0x7777777777777777777777777777777777777777" as Address;
 
-const config: VaultConfig = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, eurc: EURC };
+const config: VaultConfig = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, eurc: EURC, eurcCandidates: [EURC] };
 
 function makeClient(values: { balance?: bigint; baseSpent?: bigint; safeNonce?: number; chainId?: number } = {}): PublicClient {
   return {
