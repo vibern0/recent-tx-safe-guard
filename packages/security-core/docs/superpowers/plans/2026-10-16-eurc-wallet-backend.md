@@ -137,25 +137,25 @@ git commit -m "feat: add authoritative backend handlers"
 - Consumes: backend `/health`, registration, provisioning, preparation, submit, and status endpoints.
 - Produces: `VITE_BACKEND_ORIGIN` configuration and visible backend-unavailable/unhealthy/error states with no simulated success.
 
-- [ ] **Step 1: Write failing app contract tests**
+- [x] **Step 1: Write failing app contract tests**
 
 Assert the client uses `VITE_BACKEND_ORIGIN`, checks `/health`, preserves server error bodies/statuses, and renders actionable backend-unavailable/backend-error setup state.
 
-- [ ] **Step 2: Run focused tests to verify failure**
+- [x] **Step 2: Run focused tests to verify failure**
 
 Run: `npm --prefix apps/app test -- provisioning-errors.test.ts vault-store.test.tsx`
 
 Expected: FAIL because the app still uses demo-bridge naming and does not check backend readiness.
 
-- [ ] **Step 3: Implement backend client wiring**
+- [x] **Step 3: Implement backend client wiring**
 
 Rename env/error copy, add health check before provisioning/submission, retain chain-derived state as authority, and do not persist secrets/assertions/relay credentials. Keep exact request unchanged through signing and submission.
 
-- [ ] **Step 4: Update UI failure states and docs**
+- [x] **Step 4: Update UI failure states and docs**
 
 Show backend unavailable/unhealthy, passkey cancellation, stale chain, and policy denial distinctly; never render local simulated confirmation. Document `VITE_BACKEND_ORIGIN`.
 
-- [ ] **Step 5: Run focused app tests and build**
+- [x] **Step 5: Run focused app tests and build**
 
 Run: `npm --prefix apps/app test -- provisioning-errors.test.ts vault-store.test.tsx && npm --prefix apps/app run build`
 

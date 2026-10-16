@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
 import type { Address, PublicClient } from "viem";
-import { useVault, VaultProvider } from "./vault-store";
+import { checkBackendHealth, useVault, VaultProvider } from "./vault-store";
 import type { VaultConfig } from "./vault-chain";
 
 const SAFE = "0x1111111111111111111111111111111111111111" as Address;
@@ -56,6 +56,10 @@ function wrapper(options: { client?: PublicClient; config?: VaultConfig } = {}) 
 }
 
 describe("VaultProvider", () => {
+  it("blocks writes when backend readiness is unhealthy", async () => {
+    await expect(checkBackendHealth("http://127.0.0.1:8787", async () => new Response(JSON.stringify({ error: "RPC unavailable" }), { status: 503 }))).rejects.toThrow(/Backend health check failed: RPC unavailable/);
+  });
+
   it("starts unprovisioned and directs the user to onboarding", async () => {
     const { result } = renderHook(() => useVault(), { wrapper: wrapper() });
 
