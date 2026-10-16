@@ -4,9 +4,7 @@ import { ArrowLeft, Check, Copy, ExternalLink, Gift, Wallet } from "lucide-react
 import { useState } from "react";
 import { z } from "zod";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton } from "@/components/wallet/ui";
-import { euro } from "@/lib/euro";
-import { fingerprintOf } from "@/lib/activity-model";
-import { newId, useVault } from "@/lib/vault-store";
+import { useVault } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/receive")({
@@ -74,7 +72,7 @@ function CopyAddress() {
 }
 
 function TopUp() {
-  const { update } = useVault();
+  const { refresh } = useVault();
   const [phase, setPhase] = useState<"idle" | "waiting" | "arrived">("idle");
   return (
     <Card className="space-y-4">
@@ -97,23 +95,7 @@ function TopUp() {
         <div className="space-y-3 rounded-2xl bg-approval-soft p-4 text-sm text-approval-ink">
           <p className="font-semibold">Waiting for funds to arrive</p>
           <p>We haven't seen a transfer yet. If the faucet says you've hit its limit, try again later.</p>
-          <button
-            className="font-semibold underline"
-            onClick={() => {
-              const amount = euro(100);
-              update((s) => ({
-                ...s,
-                balance: s.balance + amount,
-                activity: [
-                  { id: newId(), direction: "in", amount, counterparty: "Test euros", address: "0xfaucet", lane: "base", status: "executed", createdAt: Date.now(), approvers: [], fingerprint: fingerprintOf([Date.now(), amount]) },
-                  ...s.activity,
-                ],
-              }));
-              setPhase("arrived");
-            }}
-          >
-            Prototype: simulate €100.00 arriving
-          </button>
+          <button className="font-semibold underline" onClick={async () => { await refresh(); setPhase("arrived"); }}>Refresh verified balance</button>
         </div>
       )}
       {phase === "arrived" && (

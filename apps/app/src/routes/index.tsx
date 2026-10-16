@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertCircle, ArrowDownLeft, ArrowUpRight, ChevronRight, Plus } from "lucide-react";
 import { ActivityRow, Card, TestPill } from "@/components/wallet/ui";
+import { TopologyAlert } from "@/components/wallet/topology-alert";
 import { effectiveStatus, needsAttention } from "@/lib/activity-model";
 import { formatEuro } from "@/lib/euro";
 import { useNow, useVault } from "@/lib/vault-store";
@@ -20,7 +21,7 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  const { state } = useVault();
+  const { state, canWrite } = useVault();
   const now = useNow();
   const ob = state.onboarding;
   const setupDone = ob.firstSigner && ob.secondSigner && ob.limits && ob.rehearsed;
@@ -48,12 +49,14 @@ function HomePage() {
         </Link>
       )}
 
+      <TopologyAlert />
+
       <Card className="p-6">
         <p className="text-sm text-muted-foreground">Balance</p>
         <p className="mt-1 font-display text-4xl font-extrabold tabular-nums tracking-tight">{formatEuro(state.balance)}</p>
         {funded ? (
           <div className="mt-6 grid grid-cols-2 gap-3">
-            <Link to="/send" className="flex items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 font-semibold text-primary-foreground">
+            <Link to="/send" aria-disabled={!canWrite} className="flex items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 font-semibold text-primary-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50">
               <ArrowUpRight className="size-5" aria-hidden /> Send
             </Link>
             <Link to="/receive" className="flex items-center justify-center gap-2 rounded-2xl bg-primary-soft py-3.5 font-semibold text-primary">
@@ -69,6 +72,15 @@ function HomePage() {
           </div>
         )}
       </Card>
+
+      {state.safe && (
+        <Card className="grid grid-cols-2 gap-3 p-4 text-sm">
+          <div><p className="text-muted-foreground">Native gas</p><p className="font-semibold tabular-nums">{state.nativeBalance.toString()} wei</p></div>
+          <div><p className="text-muted-foreground">Safe nonce</p><p className="font-semibold tabular-nums">{state.safeNonce?.toString() ?? "—"}</p></div>
+          <div><p className="text-muted-foreground">First signer today</p><p className="font-semibold tabular-nums">{formatEuro(state.spentFirstSigner)} / {formatEuro(state.policy.firstSignerDaily)}</p></div>
+          <div><p className="text-muted-foreground">Instant today</p><p className="font-semibold tabular-nums">{formatEuro(state.spentInstant)} / {formatEuro(state.policy.instantDaily)}</p></div>
+        </Card>
+      )}
 
       {attention > 0 && (
         <Link

@@ -2,10 +2,10 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, Clock, Fingerprint, KeyRound, Ban } from "lucide-react";
 import { useState } from "react";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton } from "@/components/wallet/ui";
-import { LANE_COPY, fingerprintOf, type ActivityItem, type Lane } from "@/lib/activity-model";
+import { LANE_COPY, fingerprintOf, type Lane } from "@/lib/activity-model";
 import { formatEuro, parseEuro } from "@/lib/euro";
 import { useApproval } from "@/lib/use-approval";
-import { classify, isAddress, newId, shortAddr, useVault, type Recipient } from "@/lib/vault-store";
+import { classify, isAddress, shortAddr, useVault, type Recipient } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/send")({
@@ -25,9 +25,9 @@ export const Route = createFileRoute("/send")({
 const LANE_ICON: Record<Lane, typeof Fingerprint> = { base: Fingerprint, "step-up": KeyRound, delayed: Clock, blocked: Ban };
 
 function SendPage() {
-  const { state, update } = useVault();
+  const { state } = useVault();
   const nav = useNavigate();
-  const { busy, approve } = useApproval();
+  const { busy } = useApproval();
   const [step, setStep] = useState<"to" | "amount" | "review">("to");
   const [to, setTo] = useState<Recipient | null>(null);
   const [manual, setManual] = useState("");
@@ -60,31 +60,7 @@ function SendPage() {
       setStep("amount");
       return;
     }
-    await approve("first");
-    const base: ActivityItem = {
-      id: newId(),
-      direction: "out",
-      amount,
-      counterparty: to.name,
-      address: to.address,
-      lane,
-      status: "awaiting_second_signer",
-      createdAt: Date.now(),
-      approvers: ["First signer"],
-      fingerprint: fp,
-    };
-    if (lane === "base") {
-      update((s) => ({
-        ...s,
-        balance: s.balance - amount,
-        spentFirstSigner: s.spentFirstSigner + amount,
-        spentInstant: s.spentInstant + amount,
-        activity: [{ ...base, status: "executed", txHash: "0x" + fp.replace(/-/g, "").toLowerCase() }, ...s.activity],
-      }));
-    } else {
-      update((s) => ({ ...s, activity: [base, ...s.activity] }));
-    }
-    nav({ to: "/activity/$id", params: { id: base.id } });
+    setError("Exact Safe submission is not available until the reviewed bridge execution path is connected.");
   };
 
   return (

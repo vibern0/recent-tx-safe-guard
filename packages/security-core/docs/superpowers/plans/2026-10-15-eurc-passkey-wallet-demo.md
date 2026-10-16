@@ -141,27 +141,27 @@ git commit -m "feat: add browser passkey primitives"
 - Produces: `POST /v1/registrations/{role}/options`, `POST /v1/registrations/{role}/verify`, `POST /v1/vaults`, `POST /v1/submissions/prepare`, `POST /v1/submissions/{id}/submit`, and `GET /v1/submissions/{id}`.
 - Produces: `VaultProvisioningResult` with Safe, guard, Delay, passkey signer addresses, EURC address, and transaction evidence.
 
-- [ ] **Step 1: Write failing bridge tests**
+- [x] **Step 1: Write failing bridge tests**
 
 Cover distinct primary/secondary credentials; RP ID, origin, user verification, and credential binding; invalid P-256 assertions; an unreviewed artifact; missing local secret; arbitrary deployment payload fields; and duplicate/uncertain submission reconciliation.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 Run: `npm --prefix apps/demo-bridge test`
 
 Expected: FAIL because the bridge does not exist.
 
-- [ ] **Step 3: Implement the local-only bridge**
+- [x] **Step 3: Implement the local-only bridge**
 
 Bind only `127.0.0.1`/`localhost`; reject non-local origins and unknown sessions. Persist encrypted or OS-protected registration/session and journal metadata outside the repository. Use existing reviewed deployment runners and topology verification to deploy passkey signer contracts, a fresh Safe, guard, Delay, and initial EURC policy. The bridge’s funded account pays deployment/relay gas but never acts as owner or secondary authorizer.
 
-- [ ] **Step 4: Run bridge tests and security-core gates**
+- [x] **Step 4: Run bridge tests and security-core gates**
 
 Run: `npm --prefix apps/demo-bridge test && npm --prefix packages/security-core run security:check`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/demo-bridge .gitignore packages/security-core/docs/security
@@ -180,21 +180,21 @@ git commit -m "feat: add local passkey vault bridge"
 - Consumes: `readVaultSnapshot`, `VaultProvisioningResult`, and bridge submission state.
 - Produces: `useVault(): VaultStore` with chain-derived balances, policy, health, refresh, provision, and no simulated mutation methods.
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 Assert an unprovisioned app displays onboarding; a healthy snapshot exposes balances and policy; every blocking health failure disables write actions; and refresh replaces stale state rather than merging simulated activity.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- vault-store.test.tsx`
 
 Expected: FAIL against the current simulated provider.
 
-- [ ] **Step 3: Implement chain-backed store and onboarding**
+- [x] **Step 3: Implement chain-backed store and onboarding**
 
 Store only non-secret vault addresses and UI session identifiers. Provision primary then secondary passkeys through the bridge; render topology and EURC verification before enabling the wallet. Make the dashboard show EURC and native gas balances, period usage, Safe nonce, and active policy.
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- vault-store.test.tsx`
 

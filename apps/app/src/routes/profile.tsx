@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Switch } from "@/components/ui/switch";
-import { Card, DRow, Details, PageHeader, SecondaryButton, TestPill } from "@/components/wallet/ui";
-import { demoState, emptyState, useVault } from "@/lib/vault-store";
+import { Card, DRow, Details, PageHeader, TestPill } from "@/components/wallet/ui";
+import { useVault } from "@/lib/vault-store";
+import { useState } from "react";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -18,8 +19,8 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { state, update, reset } = useVault();
-  const n = state.notifications;
+  const { state } = useVault();
+  const [n, setN] = useState(state.notifications);
   return (
     <div className="space-y-4">
       <PageHeader title="Profile" right={<TestPill />} />
@@ -32,7 +33,7 @@ function ProfilePage() {
         {(["email", "push"] as const).map((k) => (
           <label key={k} className="flex items-center justify-between text-sm">
             {k === "email" ? "Email alerts for scheduled withdrawals" : "Push alerts for approvals"}
-            <Switch checked={n[k]} onCheckedChange={(v) => update((s) => ({ ...s, notifications: { ...s.notifications, [k]: v } }))} />
+            <Switch checked={n[k]} onCheckedChange={(v) => setN((current) => ({ ...current, [k]: v }))} />
           </label>
         ))}
       </Card>
@@ -50,11 +51,6 @@ function ProfilePage() {
         <DRow k="Guard" v="TieredSpendingGuard" />
         <DRow k="Delay module" v="Zodiac Delay" />
       </Details>
-      <Card className="space-y-3">
-        <h2 className="font-semibold">Prototype tools</h2>
-        <SecondaryButton onClick={() => reset(demoState())}>Load funded demo account</SecondaryButton>
-        <SecondaryButton onClick={() => reset(emptyState())}>Start over (empty account)</SecondaryButton>
-      </Card>
     </div>
   );
 }

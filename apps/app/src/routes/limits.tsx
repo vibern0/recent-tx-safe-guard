@@ -36,7 +36,7 @@ function Usage({ label, used, limit, hint }: { label: string; used: bigint; limi
 }
 
 function LimitsPage() {
-  const { state, update } = useVault();
+  const { state } = useVault();
   const now = useNow();
   const p = state.policy;
   return (
@@ -70,12 +70,10 @@ function LimitsPage() {
           </div>
         ))}
       </Card>
-      <SecondaryButton
-        onClick={() => update((s) => ({ ...s, frozen: !s.frozen }))}
-        className={state.frozen ? "" : "bg-danger-soft text-danger-ink hover:bg-danger-soft/70"}
-      >
+      <SecondaryButton disabled className={state.frozen ? "" : "bg-danger-soft text-danger-ink hover:bg-danger-soft/70"}>
         <Snowflake className="size-4" aria-hidden /> {state.frozen ? "Unfreeze account" : "Freeze account"}
       </SecondaryButton>
+      <p className="text-center text-xs text-muted-foreground">Freeze and policy changes are available through the reviewed delayed control path.</p>
       {state.frozen && <p className="text-center text-sm text-danger-ink">Frozen — no transfers can be approved.</p>}
     </div>
   );

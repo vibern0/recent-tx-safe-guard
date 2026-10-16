@@ -14,7 +14,7 @@ describe("euro", () => {
 });
 
 describe("classify", () => {
-  const s = { ...emptyState(), balance: euro(5000) };
+  const s = { ...emptyState(), balance: euro(5000), writable: true, health: [], safe: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", recipients: [{ name: "Test", address: "0x1111111111111111111111111111111111111111" }] };
   const to = s.recipients[0]?.address ?? "0x1111111111111111111111111111111111111111";
   it("assigns lanes", () => {
     expect(classify(s, to, euro(100)).lane).toBe("base");

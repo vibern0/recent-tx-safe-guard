@@ -1,0 +1,115 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { createElement, type ReactNode } from "react";
+import type { Address, PublicClient } from "viem";
+import { useVault, VaultProvider } from "./vault-store";
+import type { VaultConfig } from "./vault-chain";
+
+const SAFE = "0x1111111111111111111111111111111111111111" as Address;
+const GUARD = "0x2222222222222222222222222222222222222222" as Address;
+const DELAY = "0x3333333333333333333333333333333333333333" as Address;
+const EURC = "0x4444444444444444444444444444444444444444" as Address;
+const RECIPIENT = "0x7777777777777777777777777777777777777777" as Address;
+
+const config: VaultConfig = { chainId: 11155111, safe: SAFE, guard: GUARD, delay: DELAY, eurc: EURC };
+
+function makeClient(values: { balance?: bigint; baseSpent?: bigint; safeNonce?: number; chainId?: number } = {}): PublicClient {
+  return {
+    getChainId: vi.fn().mockResolvedValue(values.chainId ?? 11155111),
+    getBytecode: vi.fn().mockResolvedValue("0x6001600155"),
+    getBalance: vi.fn().mockResolvedValue(values.balance ?? 2_000_000_000_000_000n),
+    getTransactionCount: vi.fn().mockResolvedValue(values.safeNonce ?? 7),
+    getStorageAt: vi.fn().mockImplementation(async ({ slot }: { slot: string }) => {
+      if (slot.endsWith("c34c8") || slot.endsWith("9947")) return `0x${GUARD.slice(2).padStart(64, "0")}`;
+      return "0x0000000000000000000000000000000000000000000000000000000000000000";
+    }),
+    readContract: vi.fn().mockImplementation(async ({ functionName }: { functionName: string }) => {
+      const valuesByFunction: Record<string, unknown> = {
+        name: "Euro Coin",
+        symbol: "EURC",
+        decimals: 6,
+        balanceOf: 12_345_678n,
+        getModulesPaginated: [[DELAY], "0x0000000000000000000000000000000000000001"],
+        config: [SAFE, "0x5555555555555555555555555555555555555555", "0x6666666666666666666666666666666666666666", DELAY, 86400n, 0n],
+        frozen: false,
+        getConfiguredTokens: [EURC],
+        assetPolicy: [100_000_000n, 200_000_000n, 250_000_000n, 1_000_000_000n],
+        getPolicyRecipients: [RECIPIENT],
+        spendState: [0n, values.baseSpent ?? 0n, 0n],
+        owner: SAFE,
+        avatar: SAFE,
+        target: SAFE,
+        txCooldown: 120n,
+        txExpiration: 600n,
+        txNonce: 0n,
+        queueNonce: 0n,
+      };
+      return valuesByFunction[functionName];
+    }),
+  } as unknown as PublicClient;
+}
+
+function wrapper(options: { client?: PublicClient; config?: VaultConfig } = {}) {
+  return ({ children }: { children: ReactNode }) =>
+    createElement(VaultProvider, { ...options, children }, children);
+}
+
+describe("VaultProvider", () => {
+  it("starts unprovisioned and directs the user to onboarding", async () => {
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.hydrated).toBe(true));
+
+    expect(result.current.state.onboarding.firstSigner).toBe(false);
+    expect(result.current.state.safe).toBe("");
+    expect(result.current.state.writable).toBe(false);
+    expect(result.current.state.health[0]?.code).toBe("unprovisioned");
+  });
+
+  it("exposes balances, policy, native gas, and nonce from a healthy snapshot", async () => {
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient(), config }) });
+
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+
+    expect(result.current.state.safe).toBe(SAFE);
+    expect(result.current.state.eurc).toBe(EURC);
+    expect(result.current.state.balance).toBe(12_345_678n);
+    expect(result.current.state.nativeBalance).toBe(2_000_000_000_000_000n);
+    expect(result.current.state.safeNonce).toBe(7n);
+    expect(result.current.state.policy).toMatchObject({ firstSignerDaily: 250_000_000n, instantDaily: 1_000_000_000n, delayHours: 1 });
+    expect(result.current.state.recipients).toEqual([{ name: RECIPIENT, address: RECIPIENT }]);
+  });
+
+  it("disables writes for every blocking health failure", async () => {
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client: makeClient({ chainId: 1 }), config }) });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.state.writable).toBe(false);
+    expect(result.current.canWrite).toBe(false);
+    expect(result.current.state.health).toEqual([expect.objectContaining({ code: "wrong-chain", blocking: true })]);
+  });
+
+  it("replaces stale chain state on refresh instead of merging local simulation", async () => {
+    const first = makeClient({ balance: 12_000_000n, baseSpent: 1_000_000n, safeNonce: 7 });
+    const second = makeClient({ balance: 8_000_000n, baseSpent: 3_000_000n, safeNonce: 8 });
+    const client = first as PublicClient;
+    const getBalance = vi.spyOn(client, "getBalance").mockResolvedValueOnce(2_000_000_000_000_000n).mockResolvedValueOnce(3_000_000_000_000_000n);
+    const getTransactionCount = vi.spyOn(client, "getTransactionCount").mockResolvedValueOnce(7).mockResolvedValueOnce(8);
+    const readContract = vi.spyOn(client, "readContract");
+    readContract.mockImplementationOnce(first.readContract as never).mockImplementationOnce(second.readContract as never);
+
+    const { result } = renderHook(() => useVault(), { wrapper: wrapper({ client, config }) });
+    await waitFor(() => expect(result.current.state.writable).toBe(true));
+    const before = result.current.state.safeNonce;
+
+    await act(async () => { await result.current.refresh(); });
+
+    expect(before).toBe(7n);
+    expect(result.current.state.safeNonce).toBe(8n);
+    expect(result.current.state.nativeBalance).toBe(3_000_000_000_000_000n);
+    expect(result.current.state.activity).toEqual([]);
+    expect(getBalance).toHaveBeenCalledTimes(2);
+    expect(getTransactionCount).toHaveBeenCalledTimes(2);
+  });
+});

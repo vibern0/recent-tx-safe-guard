@@ -1,9 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { Card, DRow, Details, PrimaryButton, SecondaryButton, StatusBadge } from "@/components/wallet/ui";
-import { LANE_COPY, effectiveStatus, formatCountdown, type ActivityItem } from "@/lib/activity-model";
+import { LANE_COPY, effectiveStatus, formatCountdown } from "@/lib/activity-model";
 import { formatEuro } from "@/lib/euro";
-import { useApproval } from "@/lib/use-approval";
 import { useNow, useVault } from "@/lib/vault-store";
 
 export const Route = createFileRoute("/activity/$id")({
@@ -24,10 +23,9 @@ const fmt = (t?: number) => (t ? new Date(t).toLocaleString("en-IE", { dateStyle
 
 function DetailPage() {
   const { id } = Route.useParams();
-  const { state, update } = useVault();
+  const { state } = useVault();
   const now = useNow(10_000);
   const nav = useNavigate();
-  const { busy, approve } = useApproval();
   const item = state.activity.find((a) => a.id === id);
 
   if (!item)
@@ -39,45 +37,7 @@ function DetailPage() {
     );
 
   const status = effectiveStatus(item, now);
-  const patch = (p: Partial<ActivityItem>) =>
-    update((s) => ({ ...s, activity: s.activity.map((a) => (a.id === id ? { ...a, ...p } : a)) }));
-
-  const executeNow = (extra: Partial<ActivityItem> = {}) =>
-    update((s) => {
-      const instant = item.lane !== "delayed";
-      return {
-        ...s,
-        balance: s.balance - item.amount,
-        spentFirstSigner: item.lane === "base" ? s.spentFirstSigner + item.amount : s.spentFirstSigner,
-        spentInstant: instant ? s.spentInstant + item.amount : s.spentInstant,
-        activity: s.activity.map((a) =>
-          a.id === id ? { ...a, ...extra, status: "executed", txHash: "0x" + item.fingerprint.replace(/-/g, "").toLowerCase() } : a,
-        ),
-      };
-    });
-
-  const onFirstSigner = async () => {
-    await approve("first");
-    if (item.lane === "base") executeNow({ approvers: ["First signer"] });
-    else patch({ status: "awaiting_second_signer", approvers: ["First signer"] });
-  };
-  const onSecondSigner = async () => {
-    await approve("second");
-    const approvers = [...item.approvers, state.secondSignerName];
-    if (item.lane === "delayed")
-      patch({
-        status: "queued",
-        approvers,
-        earliestExecution: Date.now() + state.policy.delayHours * 3_600_000,
-        expiresAt: Date.now() + (state.policy.delayHours + 7 * 24) * 3_600_000,
-        queueNonce: state.activity.filter((a) => a.queueNonce !== undefined).length + 1,
-      });
-    else executeNow({ approvers });
-  };
-  const onCancel = async () => {
-    await approve("first");
-    patch({ status: "cancelled" });
-  };
+  const onUnavailable = () => undefined;
 
   return (
     <div className="space-y-4">
@@ -107,18 +67,18 @@ function DetailPage() {
 
       <div className="space-y-3">
         {status === "awaiting_first_signer" && (
-          <PrimaryButton onClick={onFirstSigner} disabled={!!busy}>{busy ? "Waiting for first signer…" : "Approve with first signer"}</PrimaryButton>
+          <PrimaryButton onClick={onUnavailable} disabled>Approve with first signer</PrimaryButton>
         )}
         {status === "awaiting_second_signer" && (
-          <PrimaryButton onClick={onSecondSigner} disabled={!!busy}>{busy ? "Waiting for second signer…" : `Approve with ${state.secondSignerName}`}</PrimaryButton>
+          <PrimaryButton onClick={onUnavailable} disabled>Approve with {state.secondSignerName}</PrimaryButton>
         )}
         {status === "ready" && (
-          <PrimaryButton onClick={async () => { await approve("first"); executeNow(); }} disabled={!!busy}>
-            {busy ? "Submitting…" : "Execute withdrawal"}
+          <PrimaryButton onClick={onUnavailable} disabled>
+            Execute withdrawal
           </PrimaryButton>
         )}
         {(status === "queued" || status === "ready" || status === "awaiting_first_signer" || status === "awaiting_second_signer") && (
-          <SecondaryButton onClick={onCancel} disabled={!!busy} className="bg-danger-soft text-danger-ink hover:bg-danger-soft/70">
+          <SecondaryButton onClick={onUnavailable} disabled className="bg-danger-soft text-danger-ink hover:bg-danger-soft/70">
             {status === "queued" || status === "ready" ? "Cancel withdrawal" : "Discard request"}
           </SecondaryButton>
         )}

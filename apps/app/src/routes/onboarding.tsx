@@ -31,12 +31,16 @@ const STEPS: { key: keyof Onboarding; title: string; icon: typeof Fingerprint }[
 const EXERCISES = ["Everyday transfer", "Second-signer approval", "Scheduled withdrawal", "Notification", "Cancellation", "Recovery"];
 
 function OnboardingPage() {
-  const { state, update } = useVault();
+  const { state, provision, loading } = useVault();
   const nav = useNavigate();
   const { busy, approve } = useApproval();
   const ob = state.onboarding;
   const current = STEPS.find((s) => !ob[s.key])?.key;
-  const done = (k: keyof Onboarding) => update((s) => ({ ...s, onboarding: { ...s.onboarding, [k]: true } }));
+  const done = (k: keyof Onboarding) => {
+    if (k !== "rehearsed") return;
+    localStorage.setItem("eurc-vault-ui-v1", JSON.stringify({ notifications: state.notifications, rehearsed: true }));
+    window.location.reload();
+  };
 
   const [x, setX] = useState(formatEuro(state.policy.firstSignerDaily).slice(1));
   const [y, setY] = useState(formatEuro(state.policy.instantDaily).slice(1));
@@ -52,7 +56,7 @@ function OnboardingPage() {
     if (C < Y) return setErr("The per-transfer maximum must be at least the instant limit.");
     if (!Number.isInteger(Z) || Z < 1 || Z > 168) return setErr("Waiting period must be 1–168 hours.");
     setErr(null);
-    update((s) => ({ ...s, policy: { firstSignerDaily: X, instantDaily: Y, perTxCap: C, delayHours: Z }, onboarding: { ...s.onboarding, limits: true } }));
+    setErr("Limits are read from the verified onchain guard. Change requests use the delayed policy flow.");
   };
 
   const field = (id: string, label: string, v: string, set: (s: string) => void, suffix = "€") => (
@@ -87,15 +91,15 @@ function OnboardingPage() {
                 {s.key === "firstSigner" && (
                   <>
                     <p className="text-sm text-muted-foreground">Your first signer approves everyday transfers. Its method depends on the signer you connect.</p>
-                    <PrimaryButton disabled={!!busy} onClick={async () => { await approve("first"); done("firstSigner"); }}>
-                      <Fingerprint className="size-5" aria-hidden /> {busy ? "Waiting for first signer…" : "Set up first signer"}
+                    <PrimaryButton disabled={loading || !!busy} onClick={async () => { await provision(); }}>
+                      <Fingerprint className="size-5" aria-hidden /> {loading ? "Reading vault…" : "Create passkey vault"}
                     </PrimaryButton>
                   </>
                 )}
                 {s.key === "secondSigner" && (
                   <>
                     <p className="text-sm text-muted-foreground">Your second signer adds approval for larger and delayed transfers. It may use a security key, wallet, or another supported method.</p>
-                    <PrimaryButton disabled={!!busy} onClick={async () => { await approve("second"); done("secondSigner"); }}>
+                    <PrimaryButton disabled={true} onClick={async () => { await approve("second"); }}>
                       <KeyRound className="size-5" aria-hidden /> {busy ? "Waiting for second signer…" : "Set up second signer"}
                     </PrimaryButton>
                   </>
