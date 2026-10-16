@@ -1,9 +1,9 @@
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { hexToBytes, type Address, type Hex } from "viem";
 
-export type BridgePasskeyRole = "primary" | "secondary";
+export type BackendPasskeyRole = "primary" | "secondary";
 export type RegistrationResponse = Readonly<{
-  role: BridgePasskeyRole;
+  role: BackendPasskeyRole;
   credentialId: string;
   challenge: string;
   rpId: string;
@@ -13,7 +13,7 @@ export type RegistrationResponse = Readonly<{
 
 export type StoredCredential = Readonly<{ id: string; publicKey: Uint8Array | string; counter: number }>;
 export type AssertionInput = Readonly<{
-  role: BridgePasskeyRole;
+  role: BackendPasskeyRole;
   safe: Address;
   chainId: number;
   safeTxHash: Hex;
@@ -33,7 +33,7 @@ export type AssertionVerifier = (input: Readonly<{ response: unknown; credential
 
 const challengeForDigest = (digest: Hex): string => Buffer.from(hexToBytes(digest)).toString("base64url");
 
-function role(role: string): asserts role is BridgePasskeyRole {
+function role(role: string): asserts role is BackendPasskeyRole {
   if (role !== "primary" && role !== "secondary") throw new Error("unsupported passkey role");
 }
 
@@ -71,7 +71,7 @@ async function defaultAssertionVerifier(input: Readonly<{ response: unknown; cre
   return { verified: result.verified, authenticationInfo: result.authenticationInfo && { newCounter: result.authenticationInfo.newCounter } };
 }
 
-export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ role: BridgePasskeyRole; credentialId: string }>> {
+export async function verifyPasskeyRegistration(input: RegistrationResponse, verifier: RegistrationVerifier = defaultRegistrationVerifier): Promise<StoredCredential & Readonly<{ role: BackendPasskeyRole; credentialId: string }>> {
   role(input.role);
   if (input.rpId !== "localhost" || !/^https?:\/\/localhost(?::\d+)?$/.test(input.origin)) throw new Error("registration RP or origin is not local and configured");
   if (!input.credentialId || input.credentialId !== (input.response as { id?: unknown })["id"]) throw new Error("registration credential binding mismatch");

@@ -1,8 +1,9 @@
 {
-  "name": "@recent-tx-safe-guard/demo-bridge",
+  "name": "@recent-tx-safe-guard/backend",
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx src/main.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -11,6 +12,7 @@
   },
   "devDependencies": {
     "@types/node": "22.16.5",
+    "tsx": "4.19.4",
     "typescript": "5.8.3",
     "vitest": "4.1.10"
   }

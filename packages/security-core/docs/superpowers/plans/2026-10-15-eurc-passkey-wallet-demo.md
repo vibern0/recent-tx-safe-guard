@@ -4,7 +4,7 @@
 
 **Goal:** Build a local Ethereum Sepolia EURC wallet demo that creates browser passkeys, deploys a fresh guarded Safe, sends Circle EURC, reads balances and history, and warns on policy or topology drift.
 
-**Architecture:** Keep the web app unprivileged. A loopback-only demo bridge creates the browser-bound passkey signer contracts, provisions a fresh Safe topology, and relays only exact reviewed Safe executions while its external gas key stays outside the browser and repository. The app reads chain state directly and treats bridge responses as submission evidence, never as policy authority.
+**Architecture:** Keep web app unprivileged. A loopback-only backend creates browser-bound passkey signer contracts, provisions fresh Safe topology, relays only exact reviewed Safe executions while external gas key stays outside browser/repository. App reads chain state directly, treats backend responses as submission evidence, never policy authority.
 
 **Tech Stack:** TanStack Start, React, TypeScript, viem, `@simplewebauthn/browser`, `@simplewebauthn/server`, Safe 1.5, Safe passkey contracts, Zodiac Delay, Circle EURC, existing `security-core` deployment and verification tooling.
 
@@ -15,8 +15,8 @@
 - Ethereum Sepolia only: chain ID `11155111`. No WalletConnect dependency, adapter, connection flow, or signing path.
 - Provision a fresh disposable browser-passkey Safe. The existing automated-credential Safe is test evidence, not a user wallet.
 - Register distinct primary and secondary WebAuthn credentials. Primary is the Safe owner; secondary is only a `TieredSpendingGuard` co-approver. Recovery is out of scope.
-- The bridge binds registration and assertion verification to the configured RP ID, origin, credential, Safe, chain, and exact transaction digest; it never exports credential material.
-- The bridge binds all submissions to Safe `execTransaction` calls admitted by the current guard policy. It must reject direct spending, approvals, Permit/Permit2, batches, delegate calls, arbitrary messages, unlisted modules, and arbitrary bridge targets.
+- Backend binds registration and assertion verification to configured RP ID, origin, credential, Safe, chain, exact transaction digest; it never exports credential material.
+- Backend binds all submissions to Safe `execTransaction` calls admitted by current guard policy. It rejects direct spending, approvals, Permit/Permit2, batches, delegate calls, arbitrary messages, unlisted modules, arbitrary backend targets.
 - The relay gas key is a local secret, not an owner or co-authorizer. Do not expose it in browser bundles, arguments, logs, evidence, or the repository.
 - Resolve Circle EURC from a pinned candidate configuration, then fail closed unless Sepolia runtime code and `name`, `symbol`, and `decimals` match the reviewed metadata. Use token base units (`bigint`) and display 6 decimals only after that check.
 - Initial recipient additions and every policy weakening must use the existing delayed `repairPolicy` path. The send screen must present an unapproved recipient as a pending policy change, not as an instant send.
@@ -28,7 +28,7 @@
 ## Review Focus
 
 1. A cryptographically valid P-256 assertion with the wrong Safe, digest, chain, RP ID, origin, credential, or user-verification state must be rejected before a Safe call is submitted.
-2. A browser or bridge request for an arbitrary target, selector, approval, Permit/Permit2, batch, delegate call, module invocation, or direct Safe4337 path must fail closed.
+2. A browser or backend request for an arbitrary target, selector, approval, Permit/Permit2, batch, delegate call, module invocation, or direct Safe4337 path must fail closed.
 3. Partial RPC responses, a wrong chain, a reorged receipt, absent runtime bytecode, or mismatched EURC metadata must make the wallet unhealthy and block writes.
 4. A recipient or limit increase shown in the UI before its Delay item executes must remain blocked or marked pending; a user must not infer that it is immediately usable.
 5. A bridge restart, duplicate click, uncertain broadcast, or lost response must reconcile Safe nonces and receipts before it offers another submission.
@@ -40,12 +40,12 @@
 - Create: `apps/app/src/lib/vault-chain.ts` - typed Sepolia chain reads and EURC metadata validation.
 - Create: `apps/app/src/lib/vault-activity.ts` - event-to-activity and alert projection.
 - Create: `apps/app/src/lib/webauthn-passkey.ts` - browser registration and Safe assertion encoding.
-- Modify: `apps/app/src/lib/vault-store.tsx` - replace simulation with chain snapshots and bridge commands.
+- Modify: `apps/app/src/lib/vault-store.tsx` - replace simulation with chain snapshots and backend commands.
 - Modify: `apps/app/src/routes/{index,send,activity,limits}.tsx` - onboarding, real wallet send, history, policy state.
 - Create: `apps/app/src/components/wallet/topology-alert.tsx` - persistent read-only health and policy alerts.
-- Create: `apps/demo-bridge/src/{server,config,session,webauthn,vault,journal}.ts` - local bounded provisioning and execution service.
-- Create: `apps/demo-bridge/tests/**/*.test.ts` - bridge and WebAuthn adversarial coverage.
-- Modify: `packages/security-core/docs/security/{call-graph,dependency-review}.md` - browser and bridge trust boundaries.
+- Create: `apps/backend/src/{server,config,session,webauthn,vault,journal}.ts` - local bounded provisioning and execution service.
+- Create: `apps/backend/tests/**/*.test.ts` - backend and WebAuthn adversarial coverage.
+- Modify: `packages/security-core/docs/security/{call-graph,dependency-review}.md` - browser and backend trust boundaries.
 
 ### Task 1: Pin EURC And Build Read-Only Chain State
 
@@ -96,7 +96,7 @@ git commit -m "feat: add verified vault chain reads"
 - Modify: `packages/security-core/docs/security/signer-provider-evaluation.md`
 
 **Interfaces:**
-- Consumes: bridge registration and assertion challenge payloads.
+- Consumes: backend registration and assertion challenge payloads.
 - Produces: `createVaultPasskey(options: PasskeyRegistrationOptions): Promise<PasskeyRegistration>`.
 - Produces: `signSafeDigest(options: SafeAssertionOptions): Promise<EncodedSafeWebAuthnSignature>`.
 
@@ -112,7 +112,7 @@ Expected: FAIL because the module does not exist.
 
 - [x] **Step 3: Implement browser registration and signing**
 
-Use `@simplewebauthn/browser`. Require platform authenticator and user verification; use bridge-provided challenges only. Never persist private key material, passkey assertions, or relay secrets in browser storage.
+Use `@simplewebauthn/browser`. Require platform authenticator and user verification; use backend-provided challenges only. Never persist private key material, passkey assertions, or relay secrets in browser storage.
 
 - [x] **Step 4: Run the focused tests**
 
@@ -127,12 +127,12 @@ git add apps/app packages/security-core/docs/security/signer-provider-evaluation
 git commit -m "feat: add browser passkey primitives"
 ```
 
-### Task 3: Add The Bounded Local Demo Bridge And Fresh Vault Provisioning
+### Task 3: Add The Bounded Local Backend And Fresh Vault Provisioning
 
 **Files:**
-- Create: `apps/demo-bridge/src/{server,config,session,webauthn,vault,journal}.ts`
-- Create: `apps/demo-bridge/tests/{webauthn,vault,journal}.test.ts`
-- Create: `apps/demo-bridge/package.json`
+- Create: `apps/backend/src/{server,config,session,webauthn,vault,journal}.ts`
+- Create: `apps/backend/tests/{webauthn,vault,journal}.test.ts`
+- Create: `apps/backend/package.json`
 - Modify: `.gitignore`
 - Modify: `packages/security-core/docs/security/{call-graph,dependency-review}.md`
 
@@ -141,30 +141,30 @@ git commit -m "feat: add browser passkey primitives"
 - Produces: `POST /v1/registrations/{role}/options`, `POST /v1/registrations/{role}/verify`, `POST /v1/vaults`, `POST /v1/submissions/prepare`, `POST /v1/submissions/{id}/submit`, and `GET /v1/submissions/{id}`.
 - Produces: `VaultProvisioningResult` with Safe, guard, Delay, passkey signer addresses, EURC address, and transaction evidence.
 
-- [x] **Step 1: Write failing bridge tests**
+- [x] **Step 1: Write failing backend tests**
 
 Cover distinct primary/secondary credentials; RP ID, origin, user verification, and credential binding; invalid P-256 assertions; an unreviewed artifact; missing local secret; arbitrary deployment payload fields; and duplicate/uncertain submission reconciliation.
 
 - [x] **Step 2: Run the focused tests**
 
-Run: `npm --prefix apps/demo-bridge test`
+Run: `npm --prefix apps/backend test`
 
-Expected: FAIL because the bridge does not exist.
+Expected: FAIL because backend does not exist.
 
-- [x] **Step 3: Implement the local-only bridge**
+- [x] **Step 3: Implement the local-only backend**
 
-Bind only `127.0.0.1`/`localhost`; reject non-local origins and unknown sessions. Persist encrypted or OS-protected registration/session and journal metadata outside the repository. Use existing reviewed deployment runners and topology verification to deploy passkey signer contracts, a fresh Safe, guard, Delay, and initial EURC policy. The bridge’s funded account pays deployment/relay gas but never acts as owner or secondary authorizer.
+Bind only `127.0.0.1`/`localhost`; reject non-local origins and unknown sessions. Persist encrypted or OS-protected registration/session and journal metadata outside the repository. Use existing reviewed deployment runners and topology verification to deploy passkey signer contracts, a fresh Safe, guard, Delay, and initial EURC policy. Backend funded account pays deployment/relay gas but never acts as owner or secondary authorizer.
 
-- [x] **Step 4: Run bridge tests and security-core gates**
+- [x] **Step 4: Run backend tests and security-core gates**
 
-Run: `npm --prefix apps/demo-bridge test && npm --prefix packages/security-core run security:check`
+Run: `npm --prefix apps/backend test && npm --prefix packages/security-core run security:check`
 
 Expected: PASS.
 
 - [x] **Step 5: Commit**
 
 ```bash
-git add apps/demo-bridge .gitignore packages/security-core/docs/security
+git add apps/backend .gitignore packages/security-core/docs/security
 git commit -m "feat: add local passkey vault bridge"
 ```
 
@@ -177,7 +177,7 @@ git commit -m "feat: add local passkey vault bridge"
 - Modify: `apps/app/src/routes/index.tsx`
 
 **Interfaces:**
-- Consumes: `readVaultSnapshot`, `VaultProvisioningResult`, and bridge submission state.
+- Consumes: `readVaultSnapshot`, `VaultProvisioningResult`, and backend submission state.
 - Produces: `useVault(): VaultStore` with chain-derived balances, policy, health, refresh, provision, and no simulated mutation methods.
 
 - [x] **Step 1: Write failing store tests**
@@ -192,7 +192,7 @@ Expected: FAIL against the current simulated provider.
 
 - [x] **Step 3: Implement chain-backed store and onboarding**
 
-Store only non-secret vault addresses and UI session identifiers. Provision primary then secondary passkeys through the bridge; render topology and EURC verification before enabling the wallet. Make the dashboard show EURC and native gas balances, period usage, Safe nonce, and active policy.
+Store only non-secret vault addresses and UI session identifiers. Provision primary then secondary passkeys through backend; render topology and EURC verification before enabling wallet. Make dashboard show EURC/native gas balances, period usage, Safe nonce, active policy.
 
 - [x] **Step 4: Run the focused tests**
 
@@ -210,8 +210,8 @@ git commit -m "feat: connect wallet demo to vault state"
 ### Task 5: Submit Constrained EURC Sends Through Exact Safe Transactions
 
 **Files:**
-- Modify: `apps/demo-bridge/src/vault.ts`
-- Create: `apps/demo-bridge/tests/submit.test.ts`
+- Modify: `apps/backend/src/vault.ts`
+- Create: `apps/backend/tests/submit.test.ts`
 - Modify: `apps/app/src/routes/send.tsx`
 - Create: `apps/app/src/routes/send.test.tsx`
 
@@ -226,7 +226,7 @@ Assert an allowlisted EURC `transfer` within X can submit with the primary passk
 
 - [x] **Step 2: Run focused bridge and send-screen tests**
 
-Run: `npm --prefix apps/demo-bridge test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
+Run: `npm --prefix apps/backend test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
 
 Expected: FAIL because no exact-send path exists.
 
@@ -236,14 +236,14 @@ Accept only one selected, verified EURC `transfer(address,uint256)` with `operat
 
 - [x] **Step 4: Run focused tests**
 
-Run: `npm --prefix apps/demo-bridge test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
+Run: `npm --prefix apps/backend test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
 
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/app/src/routes/send.tsx apps/demo-bridge
+git add apps/app/src/routes/send.tsx apps/backend
 git commit -m "feat: send EURC with passkey Safe approvals"
 ```
 
@@ -303,7 +303,7 @@ Include: EURC runtime/metadata validation; fresh topology verification; funding;
 
 - [x] **Step 2: Run local release gates**
 
-Run: `npm --prefix apps/app test && npm --prefix apps/app run build && npm --prefix apps/demo-bridge test && npm --prefix packages/security-core run security:check`
+Run: `npm --prefix apps/app test && npm --prefix apps/app run build && npm --prefix apps/backend test && npm --prefix packages/security-core run security:check`
 
 Expected: PASS before live submission.
 
