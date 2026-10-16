@@ -297,11 +297,11 @@ git commit -m "feat: show vault history and policy alerts"
 - Consumes: provisioned demo vault, bridge journal, exact Safe request/receipt evidence, public Sepolia RPC.
 - Produces: a redacted evidence report with explorer links, receipts, state before/after, gas cost, alert state, and limitations.
 
-- [ ] **Step 1: Write the live matrix checklist before submitting**
+- [x] **Step 1: Write the live matrix checklist before submitting**
 
 Include: EURC runtime/metadata validation; fresh topology verification; funding; base X transfer; modified-digest denial; Y step-up with both browser passkeys; above-Y queue, early rejection, cancellation, expiry, and elapsed-Z execution; policy-repair recipient addition; and rejected approval, Permit/Permit2, batch, delegate-call, direct module, unknown recipient, wrong-chain, and duplicate submission attempts.
 
-- [ ] **Step 2: Run local release gates**
+- [x] **Step 2: Run local release gates**
 
 Run: `npm --prefix apps/app test && npm --prefix apps/app run build && npm --prefix apps/demo-bridge test && npm --prefix packages/security-core run security:check`
 
