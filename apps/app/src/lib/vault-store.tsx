@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createPublicClient, http, type Address, type PublicClient } from "viem";
+import { createPublicClient, http, keccak256, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { sepolia } from "viem/chains";
 import { euro } from "./euro";
 import { fingerprintOf, type ActivityItem, type Lane } from "./activity-model";
 import { readVaultSnapshot, type HealthFailure, type VaultConfig, type VaultSnapshot } from "./vault-chain";
-import { createVaultPasskey, type PasskeyRegistration } from "./webauthn-passkey";
+import { challengeForSafeDigest, createVaultPasskey, signSafeDigest, type PasskeyRegistration } from "./webauthn-passkey";
 
 export type Recipient = { name: string; address: string };
 export type Policy = { firstSignerDaily: bigint; instantDaily: bigint; perTxCap: bigint; delayHours: number; delaySeconds: bigint };
@@ -15,7 +15,7 @@ export type VaultState = {
   balance: bigint; nativeBalance: bigint; safeNonce: bigint | null; policy: Policy;
   spentFirstSigner: bigint; spentInstant: bigint; resetsAt: number; secondSignerName: string; frozen: boolean;
   writable: boolean; health: readonly HealthFailure[]; onboarding: Onboarding; recipients: Recipient[];
-  activity: ActivityItem[]; notifications: { email: boolean; push: boolean };
+  activity: ActivityItem[]; notifications: { email: boolean; push: boolean }; deploymentHash: Hex; policyHash: Hex;
 };
 
 export type VaultProvisioningResult = Readonly<{
@@ -31,7 +31,18 @@ export type BridgeRegistrationOptions = Readonly<{
 export type VaultBridge = Readonly<{
   registerPasskey: (role: "primary" | "secondary") => Promise<PasskeyRegistration>;
   provisionVault: (input: Readonly<{ primaryCredentialId: string; secondaryCredentialId: string; eurc: Address; chainId: 11155111 }>) => Promise<VaultProvisioningResult>;
+  prepareTransfer: (input: PreparedTransferInput) => Promise<SafeExecutionRequest>;
+  submitPrimary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
+  submitSecondary: (id: Hex, signature: Hex) => Promise<SubmissionStatus>;
 }>;
+
+export type PreparedTransferInput = Readonly<{
+  chainId: 11155111; safe: Address; guard: Address; eurc: Address; configuredEurc: Address; recipient: Address; amount: bigint; nonce: bigint;
+  deploymentHash: Hex; policyHash: Hex; idempotencyKey: Hex; expectedSpend: Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
+  allowedRecipients: readonly Address[];
+}>;
+export type SafeExecutionRequest = Readonly<{ idempotencyKey: Hex; safeTxHash: Hex; safe: Address; chainId: 11155111; transaction: Readonly<{ to: Address; value: bigint; data: Hex; operation: 0; nonce: bigint }>; requiredApprovals?: "primary" | "secondary" | "delayed" }>;
+export type SubmissionStatus = Readonly<{ id: Hex; state: "awaiting_secondary" | "queued" | "confirmed" | "reverted"; requiredApprovals: "primary" | "secondary" | "delayed"; safeTxHash: Hex; transactionHash?: Hex }>;
 
 export type VaultProviderProps = { children: ReactNode; client?: PublicClient; config?: VaultConfig; bridge?: VaultBridge };
 
@@ -47,7 +58,7 @@ export function emptyState(): VaultState {
     chainId: 11155111, network: "Ethereum Sepolia (testnet)", safe: "", guard: "", delay: "", eurc: "", balance: 0n, nativeBalance: 0n, safeNonce: null,
     policy: { firstSignerDaily: euro(250), instantDaily: euro(1000), perTxCap: euro(2500), delayHours: 24, delaySeconds: 86_400n },
     spentFirstSigner: 0n, spentInstant: 0n, resetsAt: nextReset(), secondSignerName: "Second signer", frozen: false, writable: false,
-    health: unprovisionedHealth, onboarding: { firstSigner: false, secondSigner: false, limits: false, rehearsed: false }, recipients: [], activity: [], notifications: { email: true, push: false },
+    health: unprovisionedHealth, onboarding: { firstSigner: false, secondSigner: false, limits: false, rehearsed: false }, recipients: [], activity: [], notifications: { email: true, push: false }, deploymentHash: "0x", policyHash: "0x",
   };
 }
 
@@ -58,10 +69,10 @@ export function demoState(): VaultState {
   return { ...s, balance: euro(100), activity: [item] };
 }
 
-function readUiState(): { notifications: VaultState["notifications"]; rehearsed: boolean } {
+function readUiState(): { notifications: VaultState["notifications"]; rehearsed: boolean; primaryCredentialId?: string | undefined; secondaryCredentialId?: string | undefined; deploymentHash?: Hex | undefined; policyHash?: Hex | undefined } {
   try {
-    const parsed = JSON.parse(localStorage.getItem(UI_KEY) ?? "null") as Partial<{ notifications: VaultState["notifications"]; rehearsed: boolean }> | null;
-    return { notifications: parsed?.notifications ?? { email: true, push: false }, rehearsed: parsed?.rehearsed === true };
+    const parsed = JSON.parse(localStorage.getItem(UI_KEY) ?? "null") as Partial<{ notifications: VaultState["notifications"]; rehearsed: boolean; primaryCredentialId: string; secondaryCredentialId: string; deploymentHash: Hex; policyHash: Hex }> | null;
+    return { notifications: parsed?.notifications ?? { email: true, push: false }, rehearsed: parsed?.rehearsed === true, primaryCredentialId: parsed?.primaryCredentialId, secondaryCredentialId: parsed?.secondaryCredentialId, deploymentHash: parsed?.deploymentHash as Hex | undefined, policyHash: parsed?.policyHash as Hex | undefined };
   } catch { return { notifications: { email: true, push: false }, rehearsed: false }; }
 }
 
@@ -103,6 +114,9 @@ function defaultBridge(): VaultBridge {
       return registration;
     },
     async provisionVault(input) { return json("/v1/vaults", { method: "POST", body: JSON.stringify(input) }) as Promise<VaultProvisioningResult>; },
+    async prepareTransfer(input) { return json("/v1/submissions/prepare", { method: "POST", body: JSON.stringify(input, (_key, value) => typeof value === "bigint" ? `${value}n` : value) }) as Promise<SafeExecutionRequest>; },
+    async submitPrimary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "primary", signature }) }) as Promise<SubmissionStatus>; },
+    async submitSecondary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "secondary", signature }) }) as Promise<SubmissionStatus>; },
   };
 }
 
@@ -116,7 +130,7 @@ function project(snapshot: VaultSnapshot, ui: { notifications: VaultState["notif
     balance: snapshot.eurcBalance ?? 0n, nativeBalance: snapshot.nativeBalance ?? 0n, safeNonce: snapshot.safeNonce ?? null,
     policy: { firstSignerDaily: configured?.baseDailyLimit ?? 0n, instantDaily: configured?.instantDailyLimit ?? 0n, perTxCap: configured?.stepUpPerTransaction ?? 0n, delayHours, delaySeconds },
     spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n, spentInstant: snapshot.spendState?.instantSpent ?? 0n, resetsAt: periodAnchor && periodAnchor > 0n ? Number(periodAnchor) * 1000 : nextReset(),
-    secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity: [], notifications: ui.notifications,
+    secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity: [], notifications: ui.notifications, deploymentHash: "0x", policyHash: "0x",
   };
 }
 
@@ -133,7 +147,7 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   return { lane: "base" };
 }
 
-type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void> };
+type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
 const VaultCtx = createContext<Ctx | null>(null);
 
 export function VaultProvider({ children, client: providedClient, config: providedConfig, bridge: providedBridge }: VaultProviderProps) {
@@ -148,15 +162,28 @@ export function VaultProvider({ children, client: providedClient, config: provid
   }, [client, config, ui]);
   useEffect(() => { const stored = providedConfig ?? readConfig(); setConfig(stored); setHydrated(true); }, [providedConfig]);
   useEffect(() => { if (hydrated) void refresh(); }, [config, hydrated, refresh]);
-  useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify({ notifications: state.notifications, rehearsed: state.onboarding.rehearsed })); }, [hydrated, state.notifications, state.onboarding.rehearsed]);
+  useEffect(() => { if (hydrated) localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, notifications: state.notifications, rehearsed: state.onboarding.rehearsed })); }, [hydrated, state.notifications, state.onboarding.rehearsed, ui]);
   const provision = useCallback(async () => {
     if (!client) throw new Error("Set VITE_SEPOLIA_RPC_URL before provisioning the demo vault");
     const primary = await bridge.registerPasskey("primary"); const secondary = await bridge.registerPasskey("secondary");
     if (primary.credentialId === secondary.credentialId) throw new Error("Primary and secondary passkeys must be distinct");
     const result = await bridge.provisionVault({ chainId: 11155111, eurc: providedConfig?.eurc ?? DEFAULT_EURC, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId });
-    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc }; saveConfig(next); setConfig(next);
-  }, [bridge, client, providedConfig]);
-  const value = useMemo(() => ({ state, hydrated, loading, canWrite: state.writable && state.health.length === 0, refresh, provision }), [state, hydrated, loading, refresh, provision]);
+    const next: VaultConfig = { chainId: 11155111, safe: result.safe, guard: result.guard, delay: result.delay, eurc: result.eurc }; saveConfig(next); localStorage.setItem(UI_KEY, JSON.stringify({ ...ui, primaryCredentialId: primary.credentialId, secondaryCredentialId: secondary.credentialId, deploymentHash: result.evidence.setupTransactionHash, policyHash: result.evidence.verificationReportHash })); setConfig(next);
+  }, [bridge, client, providedConfig, ui]);
+  const sendEurc = useCallback(async ({ recipient, amount }: Readonly<{ recipient: Address; amount: bigint }>) => {
+    if (!state.writable || state.health.length > 0) throw new Error("vault health checks are blocking writes");
+    if (!ui.primaryCredentialId || !ui.deploymentHash || !ui.policyHash) throw new Error("passkey session and reviewed deployment evidence are required");
+    const idempotencyKey = keccak256(toHex(`${state.safe}:${recipient}:${amount.toString()}:${state.safeNonce?.toString() ?? ""}:${Date.now()}`));
+    const prepared = await bridge.prepareTransfer({ chainId: 11155111, safe: state.safe as Address, guard: state.guard as Address, eurc: state.eurc as Address, configuredEurc: state.eurc as Address, recipient, amount, nonce: state.safeNonce ?? 0n, deploymentHash: ui.deploymentHash, policyHash: ui.policyHash, idempotencyKey, expectedSpend: { window: BigInt(Math.max(0, Math.floor(state.resetsAt / 1000) - 86_400)), baseSpent: state.spentFirstSigner, instantSpent: state.spentInstant }, allowedRecipients: state.recipients.map((entry) => entry.address as Address) });
+    const origin = typeof window === "undefined" ? "http://localhost:5173" : window.location.origin;
+    const assertion = (role: "primary" | "secondary", credentialId: string) => signSafeDigest({ role, safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash, challenge: challengeForSafeDigest(prepared.safeTxHash), challengeBinding: { safe: state.safe as Address, chainId: 11155111, safeTxHash: prepared.safeTxHash }, rpId: "localhost", origin, credentialId });
+    const primary = await bridge.submitPrimary(prepared.idempotencyKey, await assertion("primary", ui.primaryCredentialId));
+    if (primary.state !== "awaiting_secondary") { await refresh(); return primary; }
+    if (!ui.secondaryCredentialId) throw new Error("secondary passkey session is required for this tier");
+    const secondary = await bridge.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
+    await refresh(); return secondary;
+  }, [bridge, refresh, state, ui]);
+  const value = useMemo(() => ({ state, hydrated, loading, canWrite: state.writable && state.health.length === 0, refresh, provision, sendEurc }), [state, hydrated, loading, refresh, provision, sendEurc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }
 

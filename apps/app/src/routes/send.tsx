@@ -25,7 +25,7 @@ export const Route = createFileRoute("/send")({
 const LANE_ICON: Record<Lane, typeof Fingerprint> = { base: Fingerprint, "step-up": KeyRound, delayed: Clock, blocked: Ban };
 
 function SendPage() {
-  const { state } = useVault();
+  const { state, sendEurc } = useVault();
   const nav = useNavigate();
   const { busy } = useApproval();
   const [step, setStep] = useState<"to" | "amount" | "review">("to");
@@ -35,6 +35,7 @@ function SendPage() {
   const [error, setError] = useState<string | null>(null);
   const amount = parseEuro(amountStr);
   const [snapshot, setSnapshot] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
 
   const pickManual = () => {
     if (!isAddress(manual)) return setError("That doesn't look like a valid account address.");
@@ -60,7 +61,15 @@ function SendPage() {
       setStep("amount");
       return;
     }
-    setError("Exact Safe submission is not available until the reviewed bridge execution path is connected.");
+    setSubmitting(true);
+    try {
+      await sendEurc({ recipient: to.address as `0x${string}`, amount });
+      nav({ to: "/activity" });
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "The Safe submission was rejected.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -165,8 +174,8 @@ function SendPage() {
             <DRow k="Chain ID" v={state.chainId} />
             <DRow k="Call" v={`EURC.transfer(${to.address.slice(0, 10)}…, ${amount.toString()})`} />
           </Details>
-          <PrimaryButton onClick={submit} disabled={!!busy}>
-            <Fingerprint className="size-5" aria-hidden /> {busy ? "Waiting for first signer…" : "Approve with first signer"}
+          <PrimaryButton onClick={submit} disabled={!!busy || submitting}>
+            <Fingerprint className="size-5" aria-hidden /> {submitting ? "Signing exact Safe transaction…" : "Approve with first signer"}
           </PrimaryButton>
         </>
       )}

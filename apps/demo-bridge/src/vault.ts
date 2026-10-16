@@ -1,4 +1,5 @@
-import { encodeFunctionData, hashTypedData, parseAbi, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, hashTypedData, parseAbi, type Address, type Hex } from "viem";
+import { SubmissionJournal, type Reconciliation } from "./journal";
 import type { VaultProvisioningResult } from "./server";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -20,7 +21,7 @@ export type SafeExecutionRequest = Readonly<{
   asset: Address;
   transaction: Readonly<{ to: Address; value: bigint; data: Hex; operation: 0; safeTxGas: 0n; baseGas: 0n; gasPrice: 0n; gasToken: Address; refundReceiver: Address; nonce: bigint }>;
   safeTxHash: Hex;
-  signatures: Hex;
+  signatures?: Hex;
   expectedSpend: Readonly<{ window: bigint; baseSpent: bigint; instantSpent: bigint }>;
 }>;
 
@@ -74,12 +75,131 @@ export async function prepareEurcTransfer(input: PreparedEurcTransfer): Promise<
   if (input.eurc.toLowerCase() !== input.configuredEurc.toLowerCase()) throw new Error("EURC address is not the configured Circle EURC candidate");
   if (input.eurc === ZERO || input.recipient === ZERO || input.amount <= 0n || input.nonce < 0n) throw new Error("invalid EURC transfer bounds");
   if (!input.allowedRecipients.some((address) => address.toLowerCase() === input.recipient.toLowerCase())) throw new Error("recipient is not allowlisted");
-  assertHex(input.deploymentHash, "deploymentHash"); assertHex(input.policyHash, "policyHash"); assertHex(input.idempotencyKey, "idempotencyKey"); assertHex(input.signatures, "signatures");
-  if (input.signatures.length < 132) throw new Error("primary Safe signature is required before submission");
+  assertHex(input.deploymentHash, "deploymentHash"); assertHex(input.policyHash, "policyHash"); assertHex(input.idempotencyKey, "idempotencyKey");
+  if (input.signatures !== undefined) { assertHex(input.signatures, "signatures"); if (input.signatures.length < 132) throw new Error("primary Safe signature is invalid"); }
   const data = encodeFunctionData({ abi: EURC_ABI, functionName: "transfer", args: [input.recipient, input.amount] });
   const transaction = { to: input.eurc, value: 0n, data, operation: 0 as const, safeTxGas: 0n as const, baseGas: 0n as const, gasPrice: 0n as const, gasToken: ZERO, refundReceiver: ZERO, nonce: input.nonce };
   const safeTxHash = hashTypedData({ domain: { chainId: input.chainId, verifyingContract: input.safe }, types: { SafeTx: SAFE_TX_TYPES }, primaryType: "SafeTx", message: transaction });
-  return Object.freeze({ version: 1, kind: "safe-execution", idempotencyKey: input.idempotencyKey, chainId: input.chainId, deploymentsHash: input.deploymentHash, policyHash: input.policyHash, safe: input.safe, guard: input.guard, asset: input.eurc, transaction, safeTxHash, signatures: input.signatures, expectedSpend: input.expectedSpend });
+  return Object.freeze({ version: 1, kind: "safe-execution", idempotencyKey: input.idempotencyKey, chainId: input.chainId, deploymentsHash: input.deploymentHash, policyHash: input.policyHash, safe: input.safe, guard: input.guard, asset: input.eurc, transaction, safeTxHash, signatures: input.signatures ?? "0x", expectedSpend: input.expectedSpend });
+}
+
+export type SubmissionStatus = Readonly<{
+  id: Hex;
+  state: "awaiting_secondary" | "queued" | "confirmed" | "reverted";
+  requiredApprovals: "primary" | "secondary" | "delayed";
+  safeTxHash: Hex;
+  transactionHash?: Hex;
+}>;
+
+export type SafeSubmissionServiceOptions = Readonly<{
+  journal: SubmissionJournal;
+  limits: Readonly<{ baseDailyLimit: bigint; instantDailyLimit: bigint }>;
+  verifySignature: (role: "primary" | "secondary", request: SafeExecutionRequest, signature: Hex) => Promise<boolean>;
+  broadcast: (request: SafeExecutionRequest, signatures: Readonly<{ role: "primary" | "secondary"; signature: Hex }[]>) => Promise<Hex>;
+  reconcile?: (request: SafeExecutionRequest) => Promise<Reconciliation | undefined>;
+}>;
+
+const exactRequest = (request: SafeExecutionRequest): SafeExecutionRequest => Object.freeze({
+  ...request,
+  transaction: Object.freeze({ ...request.transaction }),
+  expectedSpend: Object.freeze({ ...request.expectedSpend }),
+});
+
+export class SafeSubmissionService {
+  readonly broadcast: SafeSubmissionServiceOptions["broadcast"];
+  private readonly options: SafeSubmissionServiceOptions;
+  private readonly requests = new Map<string, SafeExecutionRequest>();
+  private readonly approvals = new Map<string, { primary?: Hex; secondary?: Hex }>();
+
+  constructor(options: SafeSubmissionServiceOptions) {
+    this.options = options;
+    this.broadcast = options.broadcast;
+  }
+
+  prepare(request: SafeExecutionRequest): SafeExecutionRequest {
+    const frozen = exactRequest(request);
+    const existing = this.requests.get(request.idempotencyKey);
+    if (existing && existing.safeTxHash !== frozen.safeTxHash) throw new Error("submission ID is already bound to another Safe digest");
+    this.options.journal.prepare(request.idempotencyKey, request.safeTxHash);
+    this.requests.set(request.idempotencyKey, existing ?? frozen);
+    return existing ?? frozen;
+  }
+
+  async submitPrimary(id: Hex, signature: Hex): Promise<SubmissionStatus> {
+    const request = this.require(id);
+    const required = this.requiredApprovals(request);
+    const approvals = this.approvals.get(id) ?? {};
+    if (approvals.primary) {
+      if (this.options.journal.get(id)?.state === "uncertain") return this.broadcastOnce(request, required, approvals);
+      return this.statusFromJournal(request, required);
+    }
+    await this.verify("primary", request, signature);
+    approvals.primary = signature;
+    this.approvals.set(id, approvals);
+    if (required !== "primary") return { id, state: "awaiting_secondary", requiredApprovals: required, safeTxHash: request.safeTxHash };
+    return this.broadcastOnce(request, required, approvals);
+  }
+
+  async submitSecondary(id: Hex, signature: Hex): Promise<SubmissionStatus> {
+    const request = this.require(id);
+    const required = this.requiredApprovals(request);
+    const approvals = this.approvals.get(id);
+    if (!approvals?.primary) throw new Error("primary approval is required before secondary approval");
+    await this.verify("secondary", request, signature);
+    approvals.secondary = signature;
+    this.approvals.set(id, approvals);
+    return this.broadcastOnce(request, required, approvals);
+  }
+
+  private async broadcastOnce(request: SafeExecutionRequest, required: SubmissionStatus["requiredApprovals"], approvals: { primary?: Hex; secondary?: Hex }): Promise<SubmissionStatus> {
+    const existing = this.options.journal.get(request.idempotencyKey);
+    if (existing?.state === "uncertain") {
+      if (!this.options.reconcile) throw new Error("reconcile uncertain broadcast before retry");
+      const reconciled = await this.options.reconcile(request);
+      if (!reconciled) throw new Error("broadcast remains uncertain");
+      this.options.journal.reconcile(request.idempotencyKey, reconciled);
+      return { id: request.idempotencyKey, state: reconciled.status, requiredApprovals: required, safeTxHash: request.safeTxHash, transactionHash: reconciled.transactionHash as Hex };
+    }
+    if (existing?.state === "confirmed" || existing?.state === "reverted") return this.statusFromJournal(request, required);
+    try {
+      if (!approvals.primary || (required !== "primary" && !approvals.secondary)) throw new Error("required approvals are incomplete");
+      const transactionHash = await this.broadcast(request, [
+        { role: "primary", signature: approvals.primary },
+        ...(approvals.secondary ? [{ role: "secondary" as const, signature: approvals.secondary }] : []),
+      ]);
+      this.options.journal.markSubmitted(request.idempotencyKey, transactionHash);
+      this.options.journal.reconcile(request.idempotencyKey, { status: "confirmed", transactionHash });
+      return { id: request.idempotencyKey, state: required === "delayed" ? "queued" : "confirmed", requiredApprovals: required, safeTxHash: request.safeTxHash, transactionHash };
+    } catch (error) {
+      this.options.journal.markUncertain(request.idempotencyKey);
+      throw error;
+    }
+  }
+
+  private async verify(role: "primary" | "secondary", request: SafeExecutionRequest, signature: Hex): Promise<void> {
+    if (!/^0x[0-9a-fA-F]+$/.test(signature) || signature.length < 132 || !(await this.options.verifySignature(role, request, signature))) throw new Error(`${role} signature does not authorize the exact Safe digest`);
+  }
+
+  private requiredApprovals(request: SafeExecutionRequest): SubmissionStatus["requiredApprovals"] {
+    const decoded = decodeFunctionData({ abi: EURC_ABI, data: request.transaction.data });
+    if (decoded.functionName !== "transfer") throw new Error("only EURC transfer calls are supported");
+    const amount = decoded.args[1] as bigint;
+    const base = request.expectedSpend.baseSpent + amount;
+    const instant = request.expectedSpend.instantSpent + amount;
+    if (base <= this.options.limits.baseDailyLimit) return "primary";
+    if (instant <= this.options.limits.instantDailyLimit) return "secondary";
+    return "delayed";
+  }
+
+  private statusFromJournal(request: SafeExecutionRequest, required: SubmissionStatus["requiredApprovals"]): SubmissionStatus {
+    const entry = this.options.journal.get(request.idempotencyKey);
+    if (!entry) throw new Error("unknown submission");
+    if (entry.state === "uncertain") throw new Error("reconcile uncertain broadcast before retry");
+    if (entry.state !== "confirmed" && entry.state !== "reverted") return { id: request.idempotencyKey, state: "awaiting_secondary", requiredApprovals: required, safeTxHash: request.safeTxHash };
+    return { id: request.idempotencyKey, state: entry.state, requiredApprovals: required, safeTxHash: request.safeTxHash, transactionHash: entry.transactionHash as Hex };
+  }
+
+  private require(id: Hex): SafeExecutionRequest { const request = this.requests.get(id); if (!request) throw new Error("unknown submission"); return request; }
 }
 
 export async function provisionFreshVault(input: Readonly<{

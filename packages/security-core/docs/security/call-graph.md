@@ -115,6 +115,8 @@ Bridge `prepare` → exact EURC `transfer(address,uint256)` calldata → zero Sa
 
 Bridge `vault` provisioning → reviewed deployment evidence and two distinct browser credentials → existing unsigned/reconciled deployment runner and topology verifier → `VaultProvisioningResult` containing only public addresses and transaction/report evidence. Missing local secret, unreviewed artifact, unknown session, non-loopback request, arbitrary target/selector, approval/Permit/Permit2, batch, delegate call, direct module call, or uncertain duplicate submission is rejected before any broadcast.
 
+Exact EURC send → chain-derived Safe nonce/guard policy and reviewed EURC recipient → `prepareEurcTransfer` → one `EURC.transfer(address,uint256)` CALL with zero Safe value/gas/refunds → Safe EIP-712 digest → primary browser assertion, then secondary browser assertion for step-up/delayed tiers → durable `SafeSubmissionService` journal → existing Safe/guard/Delay transport. Primary-only, secondary-only, modified digest, changed nonce/recipient/calldata, duplicate, or unreconciled uncertain broadcasts do not produce a second send.
+
 ## Task 10 end-to-end proof matrix
 
 The local security gate is `npm run security:check`. It is a reproducible testnet-prototype gate: compilation, the complete Hardhat suite, the call-graph invariant suite, coverage, Slither, a time-controlled local rehearsal, and whitespace validation must all pass. It does not deploy, sign, broadcast, use a secret, or claim an audit.

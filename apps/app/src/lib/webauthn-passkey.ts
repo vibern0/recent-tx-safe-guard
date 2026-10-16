@@ -72,7 +72,7 @@ function assertBytes32Digest(value: Hex): void {
   if (!/^0x[0-9a-fA-F]{64}$/.test(value)) throw new Error("Safe transaction hash must be bytes32");
 }
 
-function challengeForDigest(value: Hex): string {
+export function challengeForSafeDigest(value: Hex): string {
   assertBytes32Digest(value);
   return value.slice(2).match(/.{2}/g)?.map((byte) => String.fromCharCode(Number.parseInt(byte, 16))).join("")
     ? btoa(String.fromCharCode(...hexToBytes(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
@@ -85,7 +85,7 @@ function safeClientDataFields(origin: string): string {
 
 function assertBinding(options: SafeAssertionOptions): void {
   assertBytes32Digest(options.safeTxHash);
-  if (options.challenge !== challengeForDigest(options.safeTxHash)) throw new Error("WebAuthn challenge is not bound to the Safe transaction hash");
+  if (options.challenge !== challengeForSafeDigest(options.safeTxHash)) throw new Error("WebAuthn challenge is not bound to the Safe transaction hash");
   if (options.challengeBinding.chainId !== options.chainId) throw new Error("WebAuthn chain binding mismatch");
   if (options.challengeBinding.safe.toLowerCase() !== options.safe.toLowerCase()) throw new Error("WebAuthn Safe binding mismatch");
   if (options.challengeBinding.safeTxHash.toLowerCase() !== options.safeTxHash.toLowerCase()) throw new Error("WebAuthn digest binding mismatch");

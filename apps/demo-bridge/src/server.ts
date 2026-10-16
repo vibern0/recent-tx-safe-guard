@@ -29,7 +29,12 @@ async function body(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
   if (Buffer.concat(chunks).length > 256 * 1024) throw new Error("request too large");
-  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new Error("request body must be JSON"); }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"), (key, value) => {
+      if (["amount", "nonce", "window", "baseSpent", "instantSpent"].includes(key) && typeof value === "string" && /^\d+n$/.test(value)) return BigInt(value.slice(0, -1));
+      return value;
+    });
+  } catch { throw new Error("request body must be JSON"); }
 }
 
 function json(res: ServerResponse, status: number, value: unknown): void {

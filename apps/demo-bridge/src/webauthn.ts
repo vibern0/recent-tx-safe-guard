@@ -66,7 +66,7 @@ async function defaultAssertionVerifier(input: Readonly<{ response: unknown; cre
     expectedOrigin: input.origin,
     expectedRPID: input.rpId,
     requireUserVerification: true,
-    credential: { id: input.credential.id, publicKey, counter: input.credential.counter },
+    credential: { id: input.credential.id, publicKey: publicKey as Uint8Array<ArrayBuffer>, counter: input.credential.counter },
   });
   return { verified: result.verified, authenticationInfo: result.authenticationInfo && { newCounter: result.authenticationInfo.newCounter } };
 }

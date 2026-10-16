@@ -220,21 +220,21 @@ git commit -m "feat: connect wallet demo to vault state"
 - Produces: `submitPrimary(requestId: string, signature: EncodedSafeWebAuthnSignature): Promise<SubmissionStatus>`.
 - Produces: `submitSecondary(requestId: string, signature: EncodedSafeWebAuthnSignature): Promise<SubmissionStatus>`.
 
-- [ ] **Step 1: Write failing execution tests**
+- [x] **Step 1: Write failing execution tests**
 
 Assert an allowlisted EURC `transfer` within X can submit with the primary passkey; above X requires the configured secondary; secondaries alone fail; changed recipient, value, calldata, nonce, chain, operation, or refund fields invalidate both signatures; and duplicate submission reconciles before retry.
 
-- [ ] **Step 2: Run focused bridge and send-screen tests**
+- [x] **Step 2: Run focused bridge and send-screen tests**
 
 Run: `npm --prefix apps/demo-bridge test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
 
 Expected: FAIL because no exact-send path exists.
 
-- [ ] **Step 3: Implement `prepareEurcTransfer` and submission paths**
+- [x] **Step 3: Implement `prepareEurcTransfer` and submission paths**
 
 Accept only one selected, verified EURC `transfer(address,uint256)` with `operation = CALL`, zero Safe value, configured Safe, and an active recipient policy. Sign the exact Safe digest with the applicable browser passkey and preserve the signed request unchanged through relay. Use the guard’s existing X/Y/Delay result to select primary, primary-plus-secondary, or queue flow.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run: `npm --prefix apps/demo-bridge test -- submit.test.ts && npm --prefix apps/app test -- send.test.tsx`
 
