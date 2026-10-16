@@ -125,12 +125,19 @@ function project(snapshot: VaultSnapshot, ui: { notifications: VaultState["notif
   const recipients = configured?.recipients.map((address) => ({ name: address, address })) ?? [];
   const onboarding = { firstSigner: Boolean(snapshot.safe && snapshot.writable), secondSigner: Boolean(snapshot.safe && snapshot.topology?.delay && snapshot.writable), limits: Boolean(configured && configured.baseDailyLimit > 0n && configured.baseDailyLimit < configured.instantDailyLimit), rehearsed: ui.rehearsed };
   const periodAnchor = snapshot.spendState?.window;
+  const activity: ActivityItem[] = snapshot.queueItems.map((item) => {
+    const createdAt = Number(item.createdAt) * 1000;
+    const earliestExecution = createdAt + Number(delaySeconds) * 1000;
+    const expiresAt = earliestExecution + Number(snapshot.topology?.delay.expirationSeconds ?? 0n) * 1000;
+    const status = expiresAt > createdAt && Date.now() >= expiresAt ? "expired" : Date.now() >= earliestExecution ? "ready" : "queued";
+    return { id: `${item.txHash}:${item.queueNonce.toString()}`, direction: "out", amount: 0n, counterparty: "Delayed EURC operation", address: snapshot.safe, lane: "delayed", status, createdAt, earliestExecution, expiresAt, txHash: item.txHash, queueNonce: Number(item.queueNonce), approvers: ["First signer", "Second signer"], fingerprint: fingerprintOf([snapshot.safe, item.txHash, item.queueNonce]) } satisfies ActivityItem;
+  });
   return {
     chainId: snapshot.chainId, network: "Ethereum Sepolia (testnet)", safe: snapshot.safe, guard: snapshot.topology?.guard ?? "", delay: snapshot.topology?.delay.address ?? "", eurc: snapshot.eurc?.address ?? "",
     balance: snapshot.eurcBalance ?? 0n, nativeBalance: snapshot.nativeBalance ?? 0n, safeNonce: snapshot.safeNonce ?? null,
     policy: { firstSignerDaily: configured?.baseDailyLimit ?? 0n, instantDaily: configured?.instantDailyLimit ?? 0n, perTxCap: configured?.stepUpPerTransaction ?? 0n, delayHours, delaySeconds },
     spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n, spentInstant: snapshot.spendState?.instantSpent ?? 0n, resetsAt: periodAnchor && periodAnchor > 0n ? Number(periodAnchor) * 1000 : nextReset(),
-    secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity: [], notifications: ui.notifications, deploymentHash: "0x", policyHash: "0x",
+    secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity, notifications: ui.notifications, deploymentHash: "0x", policyHash: "0x",
   };
 }
 

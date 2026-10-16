@@ -117,6 +117,8 @@ Bridge `vault` provisioning → reviewed deployment evidence and two distinct br
 
 Exact EURC send → chain-derived Safe nonce/guard policy and reviewed EURC recipient → `prepareEurcTransfer` → one `EURC.transfer(address,uint256)` CALL with zero Safe value/gas/refunds → Safe EIP-712 digest → primary browser assertion, then secondary browser assertion for step-up/delayed tiers → durable `SafeSubmissionService` journal → existing Safe/guard/Delay transport. Primary-only, secondary-only, modified digest, changed nonce/recipient/calldata, duplicate, or unreconciled uncertain broadcasts do not produce a second send.
 
+Chain logs and verified Delay queue reads → deduplicated `projectVaultActivity` records → timestamp-derived queued/ready/expired/executed/cancelled display state. An unlisted recipient → `prepareRecipientPolicyRepair` → exact guard `repairPolicy` calldata wrapped in the configured Delay `execTransactionFromModule` queue call; it never becomes an instant transfer. `projectAlerts` exposes blocking topology/EURC health, near-limit, and queued-delay conditions as read-only UI state.
+
 ## Task 10 end-to-end proof matrix
 
 The local security gate is `npm run security:check`. It is a reproducible testnet-prototype gate: compilation, the complete Hardhat suite, the call-graph invariant suite, coverage, Slither, a time-controlled local rehearsal, and whitespace validation must all pass. It does not deploy, sign, broadcast, use a secret, or claim an audit.

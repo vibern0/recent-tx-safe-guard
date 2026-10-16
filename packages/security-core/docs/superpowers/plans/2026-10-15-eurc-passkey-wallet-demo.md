@@ -260,21 +260,21 @@ git commit -m "feat: send EURC with passkey Safe approvals"
 - Produces: `projectAlerts(snapshot: VaultSnapshot): WalletAlert[]`.
 - Produces: `prepareRecipientPolicyRepair(input: RecipientPolicyRepair): Promise<SafeExecutionRequest>`.
 
-- [ ] **Step 1: Write failing activity and policy tests**
+- [x] **Step 1: Write failing activity and policy tests**
 
 Test transaction history derives from Safe, guard, and Delay logs; pending/expired/cancelled/executed status uses chain timestamps; mismatched topology, paused bridge, near-limit, failed EURC metadata, and active queued policy repairs become alerts. Test that an unlisted recipient creates only a delayed repair proposal and cannot generate an instant transfer.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 Run: `npm --prefix apps/app test -- vault-activity.test.ts`
 
 Expected: FAIL because the projections do not exist.
 
-- [ ] **Step 3: Implement projections and UI states**
+- [x] **Step 3: Implement projections and UI states**
 
 Decode verified event ABIs, paginate from a configured block floor, and deduplicate by transaction hash/log index. Present regular send, queued send, cancellation, expiry, executed repair, and hard topology failure as distinct states. Use the existing Delay permissionless executor path; do not give the app an arbitrary module path.
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run: `npm --prefix apps/app test -- vault-activity.test.ts`
 
