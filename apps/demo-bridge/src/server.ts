@@ -38,7 +38,7 @@ async function body(req: IncomingMessage): Promise<unknown> {
 }
 
 function json(res: ServerResponse, status: number, value: unknown): void {
-  const output = JSON.stringify(value);
+  const output = JSON.stringify(value, (_key, item) => typeof item === "bigint" ? `${item}n` : item);
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(output);
 }
@@ -55,6 +55,13 @@ export function createBridgeServer(config: BridgeConfig, handlers: BridgeHandler
       if (!isLoopbackAddress(req.socket.remoteAddress)) return json(res, 403, { error: "loopback only" });
       const origin = req.headers.origin;
       if (origin !== undefined && origin !== config.origin) return json(res, 403, { error: "origin not allowed" });
+      if (origin !== undefined) {
+        res.setHeader("access-control-allow-origin", config.origin);
+        res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+        res.setHeader("access-control-allow-headers", "content-type");
+        res.setHeader("vary", "Origin");
+      }
+      if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
       const segments = pathSegments(req.url ?? "/");
       if (req.method === "POST" && segments[0] === "v1" && segments[1] === "registrations" && segments[3] === "options") {
         const role = segments[2] as "primary" | "secondary";

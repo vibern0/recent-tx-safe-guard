@@ -95,7 +95,7 @@ function TopUp() {
         <div className="space-y-3 rounded-2xl bg-approval-soft p-4 text-sm text-approval-ink">
           <p className="font-semibold">Waiting for funds to arrive</p>
           <p>We haven't seen a transfer yet. If the faucet says you've hit its limit, try again later.</p>
-          <button className="font-semibold underline" onClick={async () => { await refresh(); setPhase("arrived"); }}>Refresh verified balance</button>
+          <button className="font-semibold underline" onClick={async () => { await refresh(); setPhase("idle"); }}>Refresh verified balance</button>
         </div>
       )}
       {phase === "arrived" && (

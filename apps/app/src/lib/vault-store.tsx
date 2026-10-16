@@ -96,7 +96,7 @@ function defaultBridge(): VaultBridge {
   const origin = ((import.meta.env["VITE_DEMO_BRIDGE_ORIGIN"] as string | undefined)?.trim() || "http://127.0.0.1:8787").replace(/\/$/, "");
   const json = async (url: string, init?: RequestInit): Promise<any> => {
     const response = await fetch(`${origin}${url}`, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
-    const payload = await response.json() as { error?: string };
+    const payload = JSON.parse(await response.text(), (key, value) => ["amount", "nonce", "window", "baseSpent", "instantSpent", "safeTxGas", "baseGas", "gasPrice"].includes(key) && typeof value === "string" && /^\d+n$/.test(value) ? BigInt(value.slice(0, -1)) : value) as { error?: string; request?: SafeExecutionRequest };
     if (!response.ok) throw new Error(payload.error ?? `Bridge request failed (${response.status})`);
     return payload;
   };
@@ -114,7 +114,10 @@ function defaultBridge(): VaultBridge {
       return registration;
     },
     async provisionVault(input) { return json("/v1/vaults", { method: "POST", body: JSON.stringify(input) }) as Promise<VaultProvisioningResult>; },
-    async prepareTransfer(input) { return json("/v1/submissions/prepare", { method: "POST", body: JSON.stringify(input, (_key, value) => typeof value === "bigint" ? `${value}n` : value) }) as Promise<SafeExecutionRequest>; },
+    async prepareTransfer(input) {
+      const payload = await json("/v1/submissions/prepare", { method: "POST", body: JSON.stringify(input, (_key, value) => typeof value === "bigint" ? `${value}n` : value) }) as { request?: SafeExecutionRequest } | SafeExecutionRequest;
+      return ("request" in payload && payload.request ? payload.request : payload) as SafeExecutionRequest;
+    },
     async submitPrimary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "primary", signature }) }) as Promise<SubmissionStatus>; },
     async submitSecondary(id, signature) { return json(`/v1/submissions/${id}/submit`, { method: "POST", body: JSON.stringify({ role: "secondary", signature }) }) as Promise<SubmissionStatus>; },
   };
