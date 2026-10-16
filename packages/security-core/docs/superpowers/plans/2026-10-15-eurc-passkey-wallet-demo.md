@@ -60,27 +60,27 @@
 - Produces: `validateEurc(client: PublicClient, candidate: Address): Promise<EurcMetadata>`.
 - Produces: `VaultSnapshot` with Safe balance, EURC balance, Safe nonce, guard/Delay/module state, policies, queue items, and health failures.
 
-- [ ] **Step 1: Write failing `vault-chain` tests**
+- [x] **Step 1: Write failing `vault-chain` tests**
 
 Test a valid Sepolia EURC runtime and metadata response, wrong-chain response, empty bytecode, and wrong symbol/decimals. Assert each invalid response returns a blocking health failure and no writable snapshot.
 
-- [ ] **Step 2: Run the focused tests**
+- [x] **Step 2: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- vault-chain.test.ts`
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement `validateEurc` and `readVaultSnapshot`**
+- [x] **Step 3: Implement `validateEurc` and `readVaultSnapshot`**
 
 Pin viem and record version/integrity evidence. Use explicit Safe, guard, Delay, EntryPoint-disabled, ERC-20, and event ABIs. Verify chain ID and EURC bytecode plus `name`, `symbol`, `decimals` before exposing balances or send capability.
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run: `npm --prefix apps/app test -- vault-chain.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/app packages/security-core/docs/security/dependency-review.md

@@ -16,6 +16,7 @@ This allowlist pins exact npm versions. Integrity values are the npm registry `d
 | `@openzeppelin/contracts` | `5.6.1` | `sha512-Ly6SlsVJ3mj+b18W3R8gNufB7dTICT105fJhodGAGgyC2oqnBAhqSiNDJ8V8DLY05cCz81GLI0CU5vNYA1EC/w==` | npm `5.6.1`; tagged release | OpenZeppelin audit/security information: https://www.openzeppelin.com/security-audits | Library code compiled for the configured EVM test network | No deployed address; library source only | Not applicable |
 | `viem` | `2.56.7` | `sha512-8YXhttIOKikDnTLj4byvGQmF43Gi0FtEfxUWd6OqSJiuz9bxNYNGmzlS8ZaNiYSKUEfs5vmNprvwPIki9Lk4YA==` | npm `2.56.7` | Client library; no smart-contract audit claim | Testnet tooling only | Not applicable | Not applicable |
 | `apps/app` direct `viem` dependency | `2.56.7` | `sha512-8YXhttIOKikDnTLj4byvGQmF43Gi0FtEfxUWd6OqSJiuz9bxNYNGmzlS8ZaNiYSKUEfs5vmNprvwPIki9Lk4YA==` | npm `2.56.7` | Client library; no smart-contract audit claim | Sepolia demo reads only | Not applicable | Not applicable |
+| `@simplewebauthn/browser` | `14.0.0` | `sha512-1odWVqeEBTl7lJ9zMKLEsmTlnyrDO5iRcTvfMKKk1WThUnp/i8JJdffdj2icP+tty159s4PgwE3BiMoEW9NFow==` | npm `14.0.0`; https://github.com/MasterKale/SimpleWebAuthn | Browser WebAuthn transport; no custody or contract-audit claim | Sepolia demo browser only | Not applicable | Not applicable |
 
 Safe v1.5 module guards are a hard requirement for later integration. The old `@gnosis.pm/safe-contracts@1.3.0` dependency is deliberately rejected and removed because the historical prototype predates module guards and is not an acceptable security baseline.
 

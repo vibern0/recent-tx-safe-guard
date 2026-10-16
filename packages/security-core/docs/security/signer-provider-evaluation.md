@@ -18,6 +18,13 @@ This project should not choose an embedded-wallet or account-abstraction provide
 Provider SDKs are useful only if they fit inside that topology.
 WalletConnect is not part of the accepted prototype boundary.
 
+The EURC browser demo uses `@simplewebauthn/browser@14.0.0` only for platform
+registration and assertion transport. The bridge supplies the challenge and
+validates the resulting credential against the configured RP ID, origin,
+Safe, chain, and exact Safe transaction digest. The browser adapter emits
+only Safe's ABI-encoded WebAuthn payload; it does not persist credentials,
+assertions, relay keys, or create an account outside the verified Safe.
+
 ## Baseline decision
 
 The first security-core prototype uses Safe-native passkey contracts and a generic EIP-1193 signer boundary. This keeps the custody graph small enough to verify and avoids coupling the core vault to a vendor account model.
