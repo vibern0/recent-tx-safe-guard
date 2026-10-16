@@ -3,6 +3,7 @@ import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } 
 import { useState } from "react";
 import { Card, DRow, PrimaryButton, TestPill } from "@/components/wallet/ui";
 import { formatEuro, parseEuro } from "@/lib/euro";
+import { describeProvisioningError } from "@/lib/provisioning-errors";
 import { useApproval } from "@/lib/use-approval";
 import { useVault, type Onboarding } from "@/lib/vault-store";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,19 @@ function OnboardingPage() {
   const [z, setZ] = useState(String(state.policy.delayHours));
   const [err, setErr] = useState<string | null>(null);
   const [ex, setEx] = useState<string[]>([]);
+  const [provisioning, setProvisioning] = useState(false);
+
+  const createPasskeyVault = async () => {
+    setErr(null);
+    setProvisioning(true);
+    try {
+      await provision();
+    } catch (error) {
+      setErr(describeProvisioningError(error));
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   const saveLimits = () => {
     const X = parseEuro(x), Y = parseEuro(y), C = parseEuro(cap), Z = Number(z);
@@ -91,9 +105,10 @@ function OnboardingPage() {
                 {s.key === "firstSigner" && (
                   <>
                     <p className="text-sm text-muted-foreground">Your first signer approves everyday transfers. Its method depends on the signer you connect.</p>
-                    <PrimaryButton disabled={loading || !!busy} onClick={async () => { await provision(); }}>
-                      <Fingerprint className="size-5" aria-hidden /> {loading ? "Reading vault…" : "Create passkey vault"}
+                    <PrimaryButton disabled={loading || provisioning || !!busy} onClick={createPasskeyVault} aria-busy={provisioning}>
+                      <Fingerprint className="size-5" aria-hidden /> {loading ? "Reading vault…" : provisioning ? "Creating passkey vault…" : "Create passkey vault"}
                     </PrimaryButton>
+                    {err && <p role="alert" className="rounded-xl bg-danger-soft p-3 text-sm text-danger-ink">{err}</p>}
                   </>
                 )}
                 {s.key === "secondSigner" && (
