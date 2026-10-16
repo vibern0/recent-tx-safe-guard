@@ -181,15 +181,15 @@ git commit -m "feat: wire app to local wallet backend"
 - Consumes: final backend endpoint names, trust boundaries, dependency versions, and test commands.
 - Produces: docs aligned with active code; no claim of production readiness or live execution.
 
-- [ ] **Step 1: Write documentation consistency checks**
+- [x] **Step 1: Write documentation consistency checks**
 
 Use repository searches/tests to assert no active `demo-bridge`/`DEMO_BRIDGE` references remain except historical evidence explicitly labeled as such, and that backend endpoints/entrypoint are documented.
 
-- [ ] **Step 2: Update docs and local instructions**
+- [x] **Step 2: Update docs and local instructions**
 
 Record backend as the required loopback boundary, exact dependency evidence, no-WalletConnect rule, call paths, and testnet limitations. Mark the design status implemented locally while preserving non-production language.
 
-- [ ] **Step 3: Run documentation/security checks**
+- [x] **Step 3: Run documentation/security checks**
 
 Run: `npm --prefix packages/security-core run security:check`
 
