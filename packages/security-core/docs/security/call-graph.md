@@ -86,6 +86,7 @@ The following is the complete ABI surface of the repository security contracts. 
 | `TieredSpendingGuard.supportsInterface` | pure interface probe |
 | `TieredSpendingGuard.safeContractSecondary` | view state |
 | `GuardReplacementMaintenance.delay` | view immutable configuration |
+| `GuardReplacementMaintenance.maintenanceAddress` | view immutable self-binding |
 | `GuardReplacementMaintenance.replaceGuards` | state-changing, configured Delay-only maintenance |
 | `GuardReplacementMaintenance.replaceSigner` | state-changing, configured Delay-only maintenance |
 | `GuardReplacementMaintenance.safe` | view immutable configuration |

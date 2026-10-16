@@ -53,7 +53,7 @@ const deployments = brandVerifiedDeploymentInfrastructureForTestsOnly(Object.fre
   }),
 } satisfies DeploymentInfrastructure));
 const expectedOwners = [a(2)];
-const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: expectedOwners, getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], safeContractSecondary: [a(4), 0, true], ecdsaSecondary: [a(3), 1, true], maintenance: a(7), getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel], safe: a(1), delay: a(5) };
+const values: Record<string, unknown> = { masterCopy: a(30), VERSION: "1.5.0", getOwners: expectedOwners, getThreshold: 1n, fallbackSlot: slotWord(zero), guardSlot: slotWord(a(6)), moduleGuardSlot: slotWord(a(6)), safeModulesPage: [[a(5)], sentinel], config: [a(1), a(2), a(3), a(5), 86400n, 0n], safeContractSecondary: [a(4), 0, true], ecdsaSecondary: [a(3), 1, true], maintenance: a(7), maintenanceAddress: a(7), getConfiguredTokens: [a(10)], assetPolicy: [10n, 100n, 100n, 1000n], getPolicyRecipients: [a(20)], policyHash: policyHash(policy), spendState: [0n, 0n, 0n], txCooldown: 3600n, txExpiration: 86400n, owner: a(1), avatar: a(1), target: a(1), delayModulesPage: [[a(1)], sentinel], safe: a(1), delay: a(5) };
 const HELPER_ABI = [{ name: "setup", type: "function", stateMutability: "nonpayable", inputs: [{ name: "params", type: "tuple", components: [{ name: "guard", type: "address" }, { name: "delay", type: "address" }, { name: "maintenance", type: "address" }, { name: "passkey", type: "address" }, { name: "safeContractSecondary", type: "address" }, { name: "ecdsaSecondary", type: "address" }, { name: "periodSeconds", type: "uint64" }, { name: "periodAnchor", type: "uint64" }, { name: "assets", type: "tuple[]", components: [{ name: "token", type: "address" }, { name: "basePerTransaction", type: "uint256" }, { name: "stepUpPerTransaction", type: "uint256" }, { name: "baseDailyLimit", type: "uint256" }, { name: "instantDailyLimit", type: "uint256" }, { name: "recipients", type: "address[]" }] }] }], outputs: [] }] as const;
 
 function plan(): VaultDeploymentPlan {
@@ -86,6 +86,7 @@ async function prerequisites(overrides: Record<string, unknown> = {}, stage: "be
       if (functionName === "maintenance") return data.maintenance;
       if (functionName === "safe") return data.safe;
       if (functionName === "delay") return data.delay;
+      if (functionName === "maintenanceAddress") return data.maintenanceAddress;
       if (address === a(5) && functionName === "owner") return data.owner;
       if (address === a(5) && functionName === "avatar") return data.avatar;
       if (address === a(5) && functionName === "target") return data.target;
@@ -106,6 +107,7 @@ describe("verifyTopology", () => {
     for (const maintenance of [zero, a(99)]) {
       expect((await verifyTopology(await fixture({ maintenance }))).ok).to.equal(false);
     }
+    await expect(prerequisites({ maintenanceAddress: a(99) })).to.be.rejectedWith("maintenance self mismatch");
   });
   it("accepts branded infrastructure plus branded Option B topology prerequisite evidence", async () => {
     const report = await verifyTopology(await fixture());

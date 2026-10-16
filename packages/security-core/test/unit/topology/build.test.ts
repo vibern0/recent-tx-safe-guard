@@ -210,7 +210,7 @@ describe("buildVaultPlan", () => {
     const deployments = await verifiedInfrastructure();
     const artifacts = await (async () => { await productionPlan(await derivedPolicy()); return brandReviewedVaultArtifactsForTestsOnly({ safeProxyCreationCode: code(44), setupHelperCreationCode: code(40), guardCreationCode: code(41), delayCreationCode: code(42), maintenanceCreationCode: code(43), prerequisiteRuntimeCodeHashes: { setupHelper: hash(code(80)), guard: hash(code(81)), delay: hash(code(82)), maintenance: hash(code(83)) }, safeProxyRuntimeCodeHash: hash(code(84)) }); })();
     expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments: { ...deployments } as never })).to.throw("verified resolver");
-    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("nonce changed");
+    expect(() => buildVaultPlan({ policy: policyBase, deployer, startingNonce: startingNonce + 1n, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("resume nonce");
     expect(() => buildVaultPlan({ policy: { ...policyBase, delay: a(9) }, deployer, startingNonce, safeProxySaltNonce: 7n, artifacts, deployments })).to.throw("Delay address");
   });
 
@@ -294,6 +294,7 @@ describe("buildVaultPlan", () => {
         if (address === plan.prerequisites.delay.expectedCreatedAddress && functionName === "txExpiration") return BigInt(policy.expirationSeconds);
         if (address === plan.prerequisites.maintenance.expectedCreatedAddress && functionName === "safe") return policy.safe;
         if (address === plan.prerequisites.maintenance.expectedCreatedAddress && functionName === "delay") return components.delay;
+        if (address === plan.prerequisites.maintenance.expectedCreatedAddress && functionName === "maintenanceAddress") return plan.prerequisites.maintenance.expectedCreatedAddress;
         throw new Error(`unexpected read ${functionName}`);
       },
     };
