@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Circle, Fingerprint, KeyRound, ShieldCheck, ListChecks } from "lucide-react";
 import { useState } from "react";
-import { Card, DRow, PrimaryButton, TestPill } from "@/components/wallet/ui";
+import { Card, DRow, PrimaryButton, NetworkPill } from "@/components/wallet/ui";
 import { formatEuro, parseEuro } from "@/lib/euro";
 import { describeProvisioningError } from "@/lib/provisioning-errors";
 import { useApproval } from "@/lib/use-approval";
@@ -87,7 +87,7 @@ function OnboardingPage() {
     <div className="space-y-4 pt-6">
       <div className="flex items-center justify-between">
         <h1 className="font-display text-2xl font-bold">Set up your account</h1>
-        <TestPill />
+        <NetworkPill />
       </div>
       <p className="text-sm text-muted-foreground">Your progress is saved. No passwords, keys or PINs are stored here.</p>
 

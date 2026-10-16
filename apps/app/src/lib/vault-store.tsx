@@ -7,7 +7,7 @@ import { readVaultSnapshot, type HealthFailure, type VaultConfig, type VaultSnap
 import { challengeForSafeDigest, createVaultPasskey, signSafeDigest, type PasskeyRegistration } from "./webauthn-passkey";
 
 export type Recipient = { name: string; address: string };
-export type Policy = { firstSignerDaily: bigint; instantDaily: bigint; perTxCap: bigint; delayHours: number; delaySeconds: bigint };
+export type Policy = { basePerTxCap: bigint; firstSignerDaily: bigint; instantDaily: bigint; perTxCap: bigint; delayHours: number; delaySeconds: bigint };
 export type Onboarding = { firstSigner: boolean; secondSigner: boolean; limits: boolean; rehearsed: boolean };
 
 export type VaultState = {
@@ -56,7 +56,7 @@ const unprovisionedHealth: readonly HealthFailure[] = [{ code: "unprovisioned", 
 export function emptyState(): VaultState {
   return {
     chainId: 11155111, network: "Ethereum Sepolia (testnet)", safe: "", guard: "", delay: "", eurc: "", balance: 0n, nativeBalance: 0n, safeNonce: null,
-    policy: { firstSignerDaily: euro(250), instantDaily: euro(1000), perTxCap: euro(2500), delayHours: 24, delaySeconds: 86_400n },
+    policy: { basePerTxCap: euro(250), firstSignerDaily: euro(250), instantDaily: euro(1000), perTxCap: euro(2500), delayHours: 24, delaySeconds: 86_400n },
     spentFirstSigner: 0n, spentInstant: 0n, resetsAt: nextReset(), secondSignerName: "Second signer", frozen: false, writable: false,
     health: unprovisionedHealth, onboarding: { firstSigner: false, secondSigner: false, limits: false, rehearsed: false }, recipients: [], activity: [], notifications: { email: true, push: false }, deploymentHash: "0x", policyHash: "0x",
   };
@@ -138,7 +138,7 @@ function project(snapshot: VaultSnapshot, ui: { notifications: VaultState["notif
   return {
     chainId: snapshot.chainId, network: "Ethereum Sepolia (testnet)", safe: snapshot.safe, guard: snapshot.topology?.guard ?? "", delay: snapshot.topology?.delay.address ?? "", eurc: snapshot.eurc?.address ?? "",
     balance: snapshot.eurcBalance ?? 0n, nativeBalance: snapshot.nativeBalance ?? 0n, safeNonce: snapshot.safeNonce ?? null,
-    policy: { firstSignerDaily: configured?.baseDailyLimit ?? 0n, instantDaily: configured?.instantDailyLimit ?? 0n, perTxCap: configured?.stepUpPerTransaction ?? 0n, delayHours, delaySeconds },
+    policy: { basePerTxCap: configured?.basePerTransaction ?? 0n, firstSignerDaily: configured?.baseDailyLimit ?? 0n, instantDaily: configured?.instantDailyLimit ?? 0n, perTxCap: configured?.stepUpPerTransaction ?? 0n, delayHours, delaySeconds },
     spentFirstSigner: snapshot.spendState?.baseSpent ?? 0n, spentInstant: snapshot.spendState?.instantSpent ?? 0n, resetsAt: periodAnchor && periodAnchor > 0n ? Number(periodAnchor) * 1000 : nextReset(),
     secondSignerName: "Second signer", frozen: snapshot.topology?.frozen ?? false, writable: snapshot.writable, health: snapshot.health, onboarding, recipients, activity, notifications: ui.notifications, deploymentHash: "0x", policyHash: "0x",
   };
@@ -157,12 +157,15 @@ export function classify(s: VaultState, to: string, amount: bigint): Classificat
   return { lane: "base" };
 }
 
-type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
+type Ctx = { state: VaultState; hydrated: boolean; loading: boolean; hasAccount: boolean; canWrite: boolean; refresh: () => Promise<void>; provision: () => Promise<void>; sendEurc: (input: Readonly<{ recipient: Address; amount: bigint }>) => Promise<SubmissionStatus> };
 const VaultCtx = createContext<Ctx | null>(null);
 
 export function VaultProvider({ children, client: providedClient, config: providedConfig, bridge: providedBridge }: VaultProviderProps) {
   const [state, setState] = useState<VaultState>(emptyState); const [hydrated, setHydrated] = useState(false); const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState<VaultConfig | undefined>(providedConfig); const client = providedClient ?? defaultClient(); const bridge = providedBridge ?? defaultBridge(); const ui = useMemo(readUiState, []);
+  const [config, setConfig] = useState<VaultConfig | undefined>(providedConfig);
+  const client = useMemo(() => providedClient ?? defaultClient(), [providedClient]);
+  const bridge = useMemo(() => providedBridge ?? defaultBridge(), [providedBridge]);
+  const ui = useMemo(readUiState, []);
   const refresh = useCallback(async () => {
     if (!config || !client) { const blank = emptyState(); setState({ ...blank, notifications: ui.notifications, onboarding: { ...blank.onboarding, rehearsed: ui.rehearsed } }); setLoading(false); return; }
     setLoading(true);
@@ -193,7 +196,7 @@ export function VaultProvider({ children, client: providedClient, config: provid
     const secondary = await bridge.submitSecondary(prepared.idempotencyKey, await assertion("secondary", ui.secondaryCredentialId));
     await refresh(); return secondary;
   }, [bridge, refresh, state, ui]);
-  const value = useMemo(() => ({ state, hydrated, loading, canWrite: state.writable && state.health.length === 0, refresh, provision, sendEurc }), [state, hydrated, loading, refresh, provision, sendEurc]);
+  const value = useMemo(() => ({ state, hydrated, loading, hasAccount: Boolean(config), canWrite: state.writable && state.health.length === 0, refresh, provision, sendEurc }), [state, hydrated, loading, config, refresh, provision, sendEurc]);
   return <VaultCtx.Provider value={value}>{children}</VaultCtx.Provider>;
 }
 

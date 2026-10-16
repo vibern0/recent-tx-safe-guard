@@ -1,8 +1,13 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, ChevronRight, Home, Shield, User } from "lucide-react";
-import type { ReactNode } from "react";
+import { Link, Navigate, useRouterState } from "@tanstack/react-router";
+import { Activity, ChevronRight, Home, Shield } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { STATUS_META, effectiveStatus, type ActivityItem, type ActivityStatus } from "@/lib/activity-model";
+import {
+  STATUS_META,
+  effectiveStatus,
+  type ActivityItem,
+  type ActivityStatus,
+} from "@/lib/activity-model";
 import { formatEuro } from "@/lib/euro";
 import { useVault } from "@/lib/vault-store";
 
@@ -18,17 +23,22 @@ export function StatusBadge({ status }: { status: ActivityStatus }) {
   const m = STATUS_META[status];
   const Icon = m.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold", TONE[m.tone])}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+        TONE[m.tone],
+      )}
+    >
       <Icon className={cn("size-3.5", status === "submitting" && "animate-spin")} aria-hidden />
       {m.label}
     </span>
   );
 }
 
-export function TestPill() {
+export function NetworkPill() {
   return (
-    <span className="rounded-full border border-approval/40 bg-approval-soft px-2.5 py-0.5 text-xs font-semibold text-approval-ink">
-      Test account
+    <span className="shrink-0 whitespace-nowrap rounded-full border border-approval/40 bg-approval-soft px-2.5 py-0.5 text-xs font-semibold text-approval-ink">
+      Sepolia testnet
     </span>
   );
 }
@@ -58,7 +68,10 @@ export function PrimaryButton({ className, ...p }: React.ButtonHTMLAttributes<HT
   );
 }
 
-export function SecondaryButton({ className, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export function SecondaryButton({
+  className,
+  ...p
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...p}
@@ -84,7 +97,12 @@ export function ActivityRow({ item, now }: { item: ActivityItem; now: number }) 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate font-semibold">{item.counterparty}</span>
-          <span className={cn("shrink-0 font-semibold tabular-nums", item.direction === "in" && "text-success")}>
+          <span
+            className={cn(
+              "shrink-0 font-semibold tabular-nums",
+              item.direction === "in" && "text-success",
+            )}
+          >
             {item.direction === "in" ? "+" : "−"}
             {formatEuro(item.amount)}
           </span>
@@ -107,10 +125,18 @@ export function relTime(t: number, now: number) {
   return new Date(t).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
 }
 
-export function Details({ summary = "Technical details", children }: { summary?: string; children: ReactNode }) {
+export function Details({
+  summary = "Technical details",
+  children,
+}: {
+  summary?: string;
+  children: ReactNode;
+}) {
   return (
     <details className="group rounded-2xl bg-secondary/60 p-4">
-      <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">{summary}</summary>
+      <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">
+        {summary}
+      </summary>
       <dl className="mt-3 space-y-2 text-sm">{children}</dl>
     </details>
   );
@@ -129,19 +155,31 @@ const TABS = [
   { to: "/", label: "Home", icon: Home },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/limits", label: "Limits", icon: Shield },
-  { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const { hydrated } = useVault();
+  const { hydrated, loading, hasAccount } = useVault();
+  const [initialReadFinished, setInitialReadFinished] = useState(false);
+  useEffect(() => {
+    if (hydrated && !loading) setInitialReadFinished(true);
+  }, [hydrated, loading]);
   const hideNav = path.startsWith("/onboarding");
+  if (hydrated && !hasAccount && !hideNav) return <Navigate to="/onboarding" replace />;
+  const ready = hydrated && (!hasAccount || initialReadFinished);
   return (
-    <div className="mx-auto min-h-screen max-w-md px-5 pb-28">
-      {hydrated ? children : <div className="pt-24 text-center text-muted-foreground">Loading your account…</div>}
-      {!hideNav && (
-        <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 backdrop-blur">
-          <ul className="mx-auto grid max-w-md grid-cols-4">
+    <div className="mx-auto min-h-screen w-full min-w-0 max-w-md px-5 pb-28">
+      {ready ? (
+        children
+      ) : (
+        <div className="pt-24 text-center text-muted-foreground">Loading your account…</div>
+      )}
+      {ready && hasAccount && !hideNav && (
+        <nav
+          aria-label="Main"
+          className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card/95 backdrop-blur"
+        >
+          <ul className="mx-auto grid max-w-md grid-cols-3">
             {TABS.map(({ to, label, icon: Icon }) => {
               const active = to === "/" ? path === "/" : path.startsWith(to);
               return (
