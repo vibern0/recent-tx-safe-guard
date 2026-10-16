@@ -2,11 +2,11 @@
 
 ## Status
 
-Proposed design for review. This is a local-only Sepolia testnet backend, not a production service.
+Implemented locally for review. This remains a local-only Sepolia testnet backend, not a production service.
 
 ## Intent
 
-Make the server boundary explicit and runnable. Rename `apps/demo-bridge` to `apps/backend`, treat it as a required part of the wallet application for provisioning and writes, and document its HTTP contract in `apps/backend/README.md`.
+Make server boundary explicit/runnable. `apps/backend` is required wallet part for provisioning/writes. `apps/backend/README.md` defines HTTP contract.
 
 The browser app remains the user interface and WebAuthn prompt surface. The backend owns server-side WebAuthn verification, reviewed vault provisioning, exact Safe transaction preparation, relay submission, and uncertainty reconciliation. The backend is never a Safe owner, secondary authorizer, unrestricted module, or policy authority; the deployed Safe, guard, and Delay remain authoritative.
 

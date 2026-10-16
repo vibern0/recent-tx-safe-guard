@@ -1,9 +1,11 @@
 {
-  "name": "@recent-tx-safe-guard/demo-bridge",
+  "name": "@recent-tx-safe-guard/backend",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "dev": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@simplewebauthn/server": "14.0.3",
@@ -11,6 +13,7 @@
   },
   "devDependencies": {
     "@types/node": "22.16.5",
+    "tsx": "4.19.4",
     "typescript": "5.8.3",
     "vitest": "4.1.10"
   }

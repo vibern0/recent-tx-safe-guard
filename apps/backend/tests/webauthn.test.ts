@@ -21,7 +21,7 @@ const registration = {
   },
 };
 
-describe("bridge WebAuthn binding", () => {
+describe("backend WebAuthn binding", () => {
   it("accepts distinct primary and secondary registrations only when the bridge ceremony matches", async () => {
     const primary = await verifyPasskeyRegistration({ ...registration, role: "primary" }, async () => ({ verified: true, credentialId: "primary-credential", publicKey: "primary-key", counter: 0 }));
     const secondary = await verifyPasskeyRegistration({ ...registration, role: "secondary", credentialId: "secondary-credential", response: { ...registration.response, id: "secondary-credential" } }, async () => ({ verified: true, credentialId: "secondary-credential", publicKey: "secondary-key", counter: 0 }));
