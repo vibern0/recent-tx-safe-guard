@@ -6,6 +6,8 @@
 
 The prior ordinary-Safe live gate is open. Task 1 Step 1 therefore permits investigation/report only. The stock candidate also has concrete source-level conflicts with the accepted topology and message policy. Documentation completeness is not compatibility evidence. Tasks 2–10 remain gated; `apps/backend` remains the required browser write boundary.
 
+**2026-10-17 follow-up:** The [native one-Safe design proposal](../superpowers/specs/2026-10-17-native-safe-4337-design.md) selects a restricted handler, locked bootstrap followed by execution-phase activation, contract-only secondary and manual ready Delay transport. It replaces the stock-module approach as a research candidate. It does not change this report's blocked verdict or supply the missing native-profile gas, trace, sponsorship, inclusion or live evidence.
+
 ## Prior evidence audit
 
 | Required evidence | Recorded result | Evidence / limit |
