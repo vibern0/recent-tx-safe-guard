@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-17
 
-**Status:** Focused security design proposal for review. Source analysis, not implemented or proven compatible.
+**Status:** Design direction accepted by the user on 2026-10-19. Source analysis, not implemented or proven compatible. [Execution plan](../plans/2026-10-19-native-safe-4337.md) awaits review; baseline and compatibility gates remain open.
 
 **Baseline:** `dd635fe`; [research](../../research/2026-09-16-personal-vault-research.md), [security-core plan](../plans/2026-09-16-personal-vault-security-core.md), [signer evaluation](../../security/signer-provider-evaluation.md).
 
@@ -156,6 +156,8 @@ Owner body includes the full SafeTx and canonical inner primary/secondary signat
 The guard remains the authority for transfer classification, exact secondary authorization, X/Y accounting, cancellation/freeze and delayed maintenance. It runs once. The handler is not an enabled module, so this path creates no outer module hook and needs no nested-guard exception.
 
 ### Manual ready Delay execution
+
+Queue submission is itself a sponsored onchain transaction through the ordinary guarded owner path. Delay emits the full proposed action in `TransactionAdded` and stores its hash and creation timestamp. Anyone can inspect that record. Z starts at the onchain queue timestamp, not when the browser collects signatures. Assets remain in the Safe until a separate ready-execution transaction succeeds.
 
 ```text
 EntryPoint -> Safe fallback -> restricted handler
